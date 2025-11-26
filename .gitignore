@@ -1,0 +1,21 @@
+# Build outputs
+client/client.exe
+client/*.exe
+
+# Runtime keys and IDs
+client/me.info
+client/priv.key
+client/aes.key
+
+# Server runtime data
+server/clients.info
+server/*.log
+
+# User files / test artifacts
+server/*.doc
+server/*.docx
+server/*.pdf
+server/*.txt
+
+# Python cache
+server/__pycache__/

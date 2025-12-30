@@ -1,33 +1,36 @@
 // Secure File Transfer Client
-// Protocol: custom binary (UUID + version + code + payload size + payload)
+// Protocol: custom binary (client_id + version + code + payload size + payload)
 // Crypto: RSA-2048 (Crypto++), AES-256-CBC, CRC32
 // Dependencies: Boost.Asio, Crypto++
 
 // This client registers/logs in to the server, receives an AES key encrypted
 // with RSA-2048, encrypts a chosen file with AES-256-CBC, and sends it in chunks.
-#define BOOST_ERROR_CODE_HEADER_ONLY
-#include <cryptopp/cryptlib.h>
-#include <cryptopp/rsa.h>
-#include <cryptopp/osrng.h> // AutoSeededRandomPool
-#include <cryptopp/files.h> // FileSink, FileSource
-#include <cryptopp/hex.h>
-#include <cryptopp/sha.h>
-#include <cryptopp/aes.h>
-#include <cryptopp/filters.h> // For HashFilter, HexEncoder, StringSink
-#include <cryptopp/modes.h>
-#include <cryptopp/base64.h> // CryptoPP::Base64Encoder
-#include <cryptopp/crc.h> // For CRC32
+
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <boost/asio.hpp>
 #include <vector>
+#include <cryptlib.h>
+#include <rsa.h>
+#include <osrng.h>          // AutoSeededRandomPool
+#include <files.h>          // FileSink, FileSource
+#include <hex.h>
+#include <sha.h>
+#include <aes.h>
+#include <filters.h>
+#include <modes.h>
+#include <osrng.h>
+#include <iomanip>
 #include <sstream>
+#include <base64.h>   // CryptoPP::Base64Encoder
+#include <crc.h> // For CRC32
+#include <files.h> // For FileSource
+#include <filters.h> // For HashFilter, HexEncoder, StringSink
 #include <chrono>
 #include <iomanip>
 #include <filesystem>
-#include <algorithm>
-#include <cctype>
+#include <random>
 using namespace std;
 using namespace CryptoPP;
 using  boost::asio::ip::tcp;
@@ -35,21 +38,23 @@ using  boost::asio::ip::tcp;
 vector<string> transfer_file_info(string namefile);
 string timestamp();
 void request_825(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message);
-void request_826(tcp::socket& s, const string& name, string publicKeyStr, char request[], const int max_Length, vector<uint8_t>& message, string& uuid);
-void request_827(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid);
-uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid, string encrypt_key);
-void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, string& uuid, string encrypt_key);
-void request_900(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid);
-void request_901(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid);
-void request_902(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid);
+void request_826(tcp::socket& s, const string& name, string publicKeyStr, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
+void request_827(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
+uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key, vector<string>& components);
+void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key);
+void request_900(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
+void request_901(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
+void request_902(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
 void append_little_endian_32(std::vector<uint8_t>& buffer, uint32_t value);
 void append_little_endian_8(std::vector<uint8_t>& buffer, uint8_t value);
 void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value);
 std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkSize);
 std::vector<string> encrypt_file(string key);
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
+std::array<uint8_t, 16> make_iv();
+std::string to_hex(const std::string& data);
 string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t original_crc=0, bool* crc_ok=nullptr);
-void making_RSAkeys(tcp::socket& s, char request[], const int max_Length, vector<uint8_t>& message, vector<string> transfers, string& uuid, string key = "");
+void making_RSAkeys(tcp::socket& s, char request[], const int max_Length, vector<uint8_t>& message, vector<string> transfers,  string& uuid, string key = "");
 struct ClientEvent{
 	string method;
 	string time_stamp;
@@ -61,7 +66,7 @@ int main() {
 	cout << "do you wish to see debug console promts? answer 'yes' or something else for no" << endl;
 	string ans;
 	getline(cin, ans);
-	transform(ans.begin(), ans.end(), ans.begin(),[](unsigned char c) { return std::tolower(c); });
+	transform(ans.begin(), ans.end(), ans.begin(), tolower);
 	if (ans == "yes") debug_mode = true;
 
 	// Read connection and username info from transfer.info
@@ -85,7 +90,9 @@ int main() {
 	char request[max_Length];
 	ifstream MyReadFile("me.info");
 	vector<uint8_t>message;
-	string uuid,key,name;
+	string uuid, key, name;
+	auto update_uuid_if_present = [&](const string& maybe) {
+		if (!maybe.empty()) uuid = maybe;};
 	if (!MyReadFile.is_open()) {
 		// No me.info -> first registration flow (825 + 826 + 1600 + 1602)
 		cout << "Failed to open me.info" << std::endl;
@@ -97,12 +104,13 @@ int main() {
 		MyReadFile.close();
 		// 1) Send registration request with username (825)
 		request_825(s, transfers[2].c_str(), request, max_Length, message);
-		// 2) Wait for 1600 and receive new UUID (client_id) from server
-		uuid=answer_manager(s, transfers);
+		// 2) Wait for 1600 and receive server-issued client_id from server
+		update_uuid_if_present(answer_manager(s, transfers));
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
 		// 3) Generate RSA-2048 key pair, send public key (826), receive AES key (1602)
 		if (debug_mode)cout << "before entering making_RSAkeys " << endl;
 		making_RSAkeys(s, request, max_Length, message, transfers, uuid);
+		update_uuid_if_present(answer_manager(s, transfers));
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
 	
 	}
@@ -115,11 +123,11 @@ int main() {
 		getline(MyReadFile, uuid);// second line: client_id hex
 		cout << "this is uuid in me.info: " << uuid<< endl;
 		MyReadFile.close();
-		// 1) Send SSO / re-login request with existing UUID + username (827)
+		// 1) Send SSO / re-login request with existing client_id + username (827)
 		request_827(s, transfers[2].c_str(), request, max_Length, message, uuid);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
-		// 2) Wait for 1605 (or 1606) and update UUID if needed
-		uuid = answer_manager(s, transfers);
+		// 2) Wait for 1605 (or 1606). client_id remains stable; only AES key is refreshed if needed
+		update_uuid_if_present(answer_manager(s, transfers));
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
 		
 	}
@@ -145,7 +153,7 @@ int main() {
 		// Ask user if they want to send another file
 		cout << "\nDo you want to send another file to the server? answer 'yes' or something else for no" << endl;
 		getline(cin, ans);
-		transform(ans.begin(), ans.end(), ans.begin(),[](unsigned char c) { return std::tolower(c); });
+		transform(ans.begin(), ans.end(), ans.begin(), tolower);
 		if (ans != "yes") break;
 	}
 	cout << "Thanks, Goodbye!!" << endl;
@@ -178,8 +186,17 @@ string timestamp() {
 
 	return oss.str();
 }
+std::string to_hex(const std::string& data)
+{
+	std::ostringstream oss;
+	oss << std::hex << std::setfill('0');
 
-void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<uint8_t>& message, vector<string> transfers,string& uuid, string key)
+	for (unsigned char c : data) {
+		oss << std::setw(2) << static_cast<int>(c);
+	}
+	return oss.str();
+}
+void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<uint8_t>& message, vector<string> transfers, string& uuid, string key)
 {
 	// Generate a new RSA-2048 key pair or load an existing private key,
 	// send the public key to the server (request 826), and wait for the AES key (1602/1605).
@@ -238,7 +255,10 @@ void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<
 	}
 
 	std::cout << "RSA keys generated and saved to files.\n";
-	uuid = answer_manager(s, transfers);
+	{
+		std::string maybe = answer_manager(s, transfers);
+		if (!maybe.empty()) uuid = maybe;
+	}
 }
 vector<string> transfer_file_info(string namefile) {
 	// Read transfer.info and parse connection and username information.
@@ -286,7 +306,7 @@ void request_825(tcp::socket& s, const string& name, char request[], const int m
 		std::cerr << "Error in request_825: " << e.what() << std::endl;
 	}
 }
-void request_826(tcp::socket& s, const string& name, string publicKeyStr, char request[], const int max_Length, vector<uint8_t>& message, string& uuid) {
+void request_826(tcp::socket& s, const string& name, string publicKeyStr, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
 	// Build and send request 826: send RSA public key in Base64.
 	// Payload: username + '\0' + publicKeyB64.
 	// Response expected: 1602 with encrypted AES key.
@@ -313,8 +333,8 @@ void request_826(tcp::socket& s, const string& name, string publicKeyStr, char r
 		std::cerr << "Error in request_826: " << e.what() << std::endl;
 	}
 }
-void request_827(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid) {
-	// Build and send request 827: re-login (SSO) using existing UUID and username.
+void request_827(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
+	// Build and send request 827: re-login (SSO) using existing client_id and username.
 	// Payload: username + '\0'.
 	// Response expected: 1605 (re-login success) or 1606 (re-register required).
 	if (debug_mode) cout << "inside request_827"  << endl;
@@ -339,24 +359,78 @@ void request_827(tcp::socket& s, const string& name, char request[], const int m
 	}
 
 }
-uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid, string encrypt_key) {
+uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key, vector<string>& components) {
 	// Build and send request 828: encrypted file in chunks.
-	// Each packet includes metadata + filename + ciphertext chunk.
+	// Packet 0 carries ONLY the 16-byte IV.
+	// Packets 1..N carry metadata + filename + ciphertext chunk.
+	// total_cipher_size refers to ciphertext bytes only (excludes the IV).
 	// Returns the original CRC32 of the plaintext for verification.
 	if (debug_mode)cout << "in request_828" << endl;
 	client_history.push_back({ "request_828", timestamp() });
 	try {
-		// Encrypt file and compute its CRC32
-		// components = [ file_name, plaintext, ciphertext, crc_string ]
-		vector<string> components = encrypt_file(encrypt_key);//{file_name,plain_text,cipher_text,crc}
+		
+		if (components[4].size() != CryptoPP::AES::BLOCKSIZE)
+			throw std::runtime_error("IV size is not 16");
 		if (components.empty()) {
 			cout << "components is empty" << endl;
 			exit(1);
 		}
+		std::cout << "IV(hex)=" << to_hex(components[4]) << "\n";
+		std::cout << "cipher_prefix(hex)=" << to_hex(components[2].substr(0, 32)) << "\n";
 		const size_t CHUNK_SIZE = 1024;
 		// Split ciphertext into fixed-size chunks
 		vector<string> chunks = splitStringBySize(components[2], CHUNK_SIZE);
 		const size_t total_packets = chunks.size();
+		
+		// Packet 0: send IV only (16 bytes). Packets 1..N: send ciphertext chunks.
+		CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
+		std::memcpy(iv, components[4].data(), CryptoPP::AES::BLOCKSIZE);
+		//Clean file name
+		size_t address_ch_name = components[0].rfind('\\');
+		std::string file_name;
+		if (address_ch_name!=string::npos)
+		{
+			file_name = components[0].substr(address_ch_name+1);
+		}
+		else {
+			file_name = components[0];
+		}
+		
+		message.clear();
+		// Convert UUID string (32 hex chars) to 16 bytes
+		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
+		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
+		message.insert(message.end(), uuid_bytes.begin(), uuid_bytes.end());
+		// Version
+		append_little_endian_8(message, 3);
+		// Code = 828 (file transfer)
+		append_little_endian_16(message, 828);
+		// Compute payload size:
+		//   4 bytes: total ciphertext size
+		//   4 bytes: original plaintext size
+		//   2 bytes: packet number
+		//   2 bytes: total_packets
+		//   len(file_name) + 1: filename + '\0'
+		//   chunk.size(): ciphertext chunk
+		append_little_endian_32(message, 4 + 4 + 2 + 2 + file_name.size() + 1 + CryptoPP::AES::BLOCKSIZE);
+		// Total ciphertext size (for information)
+		append_little_endian_32(message, components[2].size());
+		// Original plaintext size
+		append_little_endian_32(message, components[1].size());
+		// Packet number (0 = IV init packet, then 1..total_packets)
+		append_little_endian_16(message, 0);
+		// Total number of packets
+		append_little_endian_16(message, total_packets);
+		// Filename + '\0'
+		message.insert(message.end(), file_name.begin(), file_name.end());
+		message.push_back('\0');
+		// Ciphertext chunk
+		message.insert(message.end(), iv, iv + CryptoPP::AES::BLOCKSIZE);
+		if (debug_mode)std::cout << "[CLIENT] sending packet " << 0
+			<< "/" << total_packets
+			<< ", chunk size=" << components[4].size() << std::endl;
+		// Send the full frame
+		boost::asio::write(s, boost::asio::buffer(message));
 		// Send each chunk as a separate 828 request
 		for (size_t packet_num = 1; packet_num <= total_packets; packet_num ++)
 		{
@@ -392,7 +466,7 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 			//   2 bytes: total_packets
 			//   len(file_name) + 1: filename + '\0'
 			//   chunk.size(): ciphertext chunk
-			append_little_endian_32(message, 4 + 4 + 2 + 2 + components[0].size() + 1 + chunks[packet_num - 1].size());
+			append_little_endian_32(message, 4 + 4 + 2 + 2 + file_name.size() + 1 + chunks[packet_num - 1].size());
 			// Total ciphertext size (for information)
 			append_little_endian_32(message, components[2].size());
 			// Original plaintext size
@@ -402,7 +476,7 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 			// Total number of packets
 			append_little_endian_16(message, total_packets);
 			// Filename + '\0'
-			message.insert(message.end(), components[0].begin(), components[0].end());
+			message.insert(message.end(), file_name.begin(), file_name.end());
 			message.push_back('\0');
 			// Ciphertext chunk
 			message.insert(message.end(), chunks[packet_num - 1].begin(), chunks[packet_num - 1].end());
@@ -430,7 +504,7 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 		return 0;
 	}
 }
-void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, string& uuid, string encrypt_key) {
+void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key) {
 	// Wrapper for request_828 with retry logic based on CRC check (1603).
 	// If CRC mismatch:
 	//   - up to 3 retries: send 901 and resend file.
@@ -442,14 +516,17 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, char request[],
 	const int MAX_RETRIES = 4;
 	bool crc_ok_init = false;
 	bool* crc_ok = &crc_ok_init;
+	// Encrypt file and compute its CRC32
+	// components = [ file_name, plaintext, ciphertext, crc_string, random iv ]
+	vector<string> components = encrypt_file(encrypt_key);
 	while (retries < MAX_RETRIES && !*crc_ok) {
-		if (debug_mode)cout << "this is the uuid" << uuid << endl;
+		if (debug_mode)cout << "this is the uuid " << uuid << endl;
 		// 1) Send encrypted file (828) and get original CRC of plaintext
-		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), request, max_Length, message, uuid, encrypt_key);
+		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), request, max_Length, message, uuid, encrypt_key, components);
 		// 2) Wait for 1603 from server (CRC verification) and update crc_ok
 		string tmp;
 		tmp = answer_manager(s, transfers, original_crc_file,crc_ok);
-		if (debug_mode)cout << "this is the uuid" << uuid << endl;
+		if (debug_mode)cout << "this is the uuid " << uuid << endl;
 		if (!*crc_ok) {
 			// CRC mismatch -> retry or give up
 			retries++;
@@ -457,7 +534,7 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, char request[],
 				std::cout << "CRC mismatch, retry " << retries << "/" << MAX_RETRIES << std::endl;
 				// Notify server: CRC invalid but we will resend (901)
 				request_901(s, file_name, request,max_Length,message,uuid);
-				if (debug_mode)cout << "this is the uuid" << uuid << endl;
+				if (debug_mode)cout << "this is the uuid " << uuid << endl;
 			}
 			else {
 				// 4th failure -> give up (902)
@@ -472,7 +549,7 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, char request[],
 	}
 	
 }
-void request_900(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid) {
+void request_900(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
 	// Send request 900: notify server that CRC matched for the given file name.
 	if (debug_mode)cout << "in request_900"<<endl;
 	client_history.push_back({ "request_900", timestamp() });
@@ -497,7 +574,7 @@ void request_900(tcp::socket& s, const string& name, char request[], const int m
 	}
 
 }
-void request_901(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid) {
+void request_901(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
 	// Send request 901: notify server that CRC mismatched (client will retry sending file).
 	if (debug_mode)cout << "in request_901" << endl;
 	client_history.push_back({ "request_901", timestamp() });
@@ -521,7 +598,7 @@ void request_901(tcp::socket& s, const string& name, char request[], const int m
 	}
 
 }
-void request_902(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, string& uuid) {
+void request_902(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
 	// Send request 902: notify server that CRC mismatched after max retries (give up).
 	if (debug_mode)cout << "in request_902" << endl;
 	client_history.push_back({ "request_902", timestamp() });
@@ -591,17 +668,29 @@ std::string decode_base64(const std::string& key_b64) {
 		new CryptoPP::Base64Decoder(new CryptoPP::StringSink(decoded)));
 	return decoded;
 }
+std::array<uint8_t, 16> make_iv()
+{
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<unsigned int> dist(0, 255);
+
+	std::array<uint8_t, 16> iv{};
+	std::generate(iv.begin(), iv.end(),
+		[&]() { return static_cast<uint8_t>(dist(gen)); });
+
+	return iv;
+}
 std::vector<string> encrypt_file(string key) {
 	// Ask the user for a filename, read the file in binary, compute CRC32,
-	// encrypt content using AES-256-CBC with a fixed zero IV and a 32-byte AES key
+	// encrypt content using AES-256-CBC with a random per-file IV and a 32-byte AES key
 	// (provided as a Base64 string).
 	//
 	// Returns:
 	//   res[0] = file name
 	//   res[1] = plaintext content
-	//   res[2] = ciphertext (binary)
+	//   res[2] = ciphertext (binary, includes PKCS#7 padding, WITHOUT the IV)
 	//   res[3] = CRC32 of plaintext as a decimal string
-	// NOTE: IV is fixed to zero for this assignment; in a real system it must be random per file.
+	//   res[4] = IV (16 bytes, binary) for this file
 	client_history.push_back({ "encrypt_file", timestamp() });
 	if (debug_mode)cout << "in encrypt_file " << endl;
 	std::ifstream file;
@@ -640,9 +729,14 @@ std::vector<string> encrypt_file(string key) {
 	CryptoPP::SecByteBlock aes_key(reinterpret_cast<const CryptoPP::byte*>(raw_key.data()),
 		CryptoPP::AES::MAX_KEYLENGTH);
 
-	// NOTE: For the assignment we use a fixed zero IV.
-	// In a real system, IV should be random per file and sent alongside the ciphertext.
-	CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE] = { 0 };
+	/***
+	// Stage 1:
+	// IV is generated randomly per file and sent to the server alongside the upload
+	// (see request_828: packet_number=0 carries the IV).*/
+	auto iv_arr = make_iv(); // std::array<uint8_t, 16>
+	CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
+	std::memcpy(iv, iv_arr.data(), CryptoPP::AES::BLOCKSIZE);
+	std::string iv_str(reinterpret_cast<const char*>(iv), CryptoPP::AES::BLOCKSIZE);
 
 	// Encrypt plaintext using AES-256-CBC (binary, no Base64)
 	std::string cipher_text;
@@ -667,6 +761,7 @@ std::vector<string> encrypt_file(string key) {
 	res.push_back(plain_text);     // index 1: original plaintext
 	res.push_back(cipher_text);    // index 2:  encrypted binary data
 	res.push_back(std::to_string(crc_val));//CRC32 of plaintext, as a decimal string
+	res.push_back(iv_str); // IV (16 bytes) generated per file, sent separately in 828 packet_number=0
 	if (debug_mode) {
 		cout << "==== CLIENT DEBUG ====" << endl;
 		cout << "Original file name: " << file_name << endl;
@@ -796,7 +891,10 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 		cout << "need to sign up, making a new client id" << endl;
 		if(debug_mode) cout << "making a new user with request_825" << endl;
 		request_825(s, transfers[2].c_str(), request, max_Length, message);
-		client_id_hex = answer_manager(s, transfers);
+		{
+			std::string maybe = answer_manager(s, transfers);
+			if (!maybe.empty()) client_id_hex = maybe;
+		}
 		std::string key;
 		{
 			std::ifstream f("priv.key", std::ios::binary);
@@ -862,10 +960,10 @@ void answer_1604(tcp::socket& s) {
 	if (debug_mode)std::cout << "in answer_1604" << std::endl;
 	std::cout << "finish transfering" << std::endl;
 }
-void answer_1607(tcp::socket& s) {
+void answer_1607(tcp::socket& s, string& text) {
 	client_history.push_back({ "answer_1607" ,timestamp() });
 	if (debug_mode)std::cout << "in answer_1607" << std::endl;
-	cout << "general error, please close the client and run again" << endl;
+	cout << "general error {"<<text<<"}, please close the client and run again" << endl;
 	exit(1);
 }
 string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t original_crc, bool* crc_ok) {
@@ -876,7 +974,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 	//   - update crc_ok flag based on 1603
 	//   - print status / errors for 1604/1607
 	// Returns:
-	//   - UUID/client_id as a hex string when relevant (1600/1602/1605/1606)
+	//   - client_id as a hex string when relevant (1600/1602/1605/1606)
 	//   - empty string otherwise.
 	if (debug_mode)cout << "in answer_manager" << endl;
 	client_history.push_back({ "answer_manager" ,timestamp() });
@@ -964,8 +1062,26 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 		return uuid;
 	}	
 	else if (code == 1607){
-		answer_1607(s);
+		const size_t ID_LEN = 16;
+		if (payload.size() < ID_LEN) {
+			cout << "payload for 1607 too short" << endl;
+			return uuid;
+		}
+		std::vector<uint8_t> cid(payload.begin(),payload.begin()+ID_LEN);
+		std::vector<uint8_t> c_text(payload.begin() + ID_LEN, payload.end());
+		auto to_hex = [](const std::vector<uint8_t>& v) {
+			std::ostringstream oss;
+			for (auto b : v) oss << std::hex << std::setw(2) << std::setfill('0') << (int)b;
+			return oss.str();
+			};
+		std::string client_id_hex = to_hex(cid);
+		std::string text(c_text.begin(), c_text.end());
+		auto pos = text.find('\0');
+		if (pos != std::string::npos) text.resize(pos);
+		answer_1607(s, text);
+		if (debug_mode)std::cout << "this is the uuid in answer manager after 1607: [" << client_id_hex << "]" << std::endl;
 		return uuid;
+		
 	}
 	else {
 		cout << "the code: "<<  code << " is not a valid code for a response" << endl;

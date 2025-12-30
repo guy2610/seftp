@@ -1,9 +1,10 @@
 """
 Secure File Transfer Server
 
-- Handles client registration & login (UUID + RSA public key)
+- Handles client registration & login using a persistent client_id (16-byte identifier) and RSA public key.
 - Generates per-client AES-256 key and sends it encrypted with RSA-OAEP
 - Receives encrypted file in chunks (code 828), decrypts with AES-CBC, verifies CRC, and writes to disk.
+- Uses AES-256-CBC with a fresh random IV per file transfer. IV is provided by the client as part of request 828 metadata.
 """
 
 import socket
@@ -82,7 +83,7 @@ def answer_1600(client_id,version):
         Send response 1600: registration succeeded.
 
         Payload:
-        - 16 bytes: client_id (UUID as bytes)
+        - 16 bytes: client_id (client_id (persistent identifier) as bytes)
 
         Side effects:
         - Logs the event in clients_recent_log
@@ -116,7 +117,7 @@ def request_825(payload_info,version):
     - Null-terminated UTF-8 username
 
     Behavior:
-    - If username does not exist: create new client_id, store in clients_info, reply with 1600.
+    - If username does not exist: create a persistent client_id (used across sessions), store it in clients_info, reply with 1600.
     - If username exists: reply with 1601.
     """
     if debug_mode: print("inside request 825")
@@ -153,7 +154,7 @@ def answer_1602(cipher_text_aes_encrypted,client_id,version):
     """
     if debug_mode: print("inside answer 1602")
     payload = cipher_text_aes_encrypted + client_id
-    message = message_answer(version, "1602", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id)
+    message = message_answer(version, "1602", str(len(payload)), payload)
     print(f"got the {name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
@@ -165,7 +166,7 @@ def answer_1606(client_id,version,name):
     Send response 1606: re-login / sign-on rejected.
 
     Reasons:
-    - Client is not registered (unknown UUID)
+    - Client is not registered (unknown client_id (persistent identifier))
     - Stored public key is invalid (e.g., wrong size or format)
     """
     if debug_mode: print("inside answer 1606")
@@ -216,7 +217,7 @@ def request_826(client_id, payload_info: bytes, version):
     - RSA public key in Base64 (DER)
 
     Behavior:
-    - Validates that the username matches the UUID in clients_info.
+    - Validates that the username matches the client_id (persistent identifier) in clients_info.
     - Decodes and imports the RSA public key.
     - Generates a random AES-256 key, stores it, encrypts it with RSA-OAEP.
     - Responds with 1602 containing the encrypted AES key.
@@ -234,29 +235,47 @@ def request_826(client_id, payload_info: bytes, version):
     sep = payload_info.find(b'\x00')
     if sep == -1:
         print("bad 826 payload: missing NUL after name")
+        answer_1607(client_id,version,"bad 826 payload: missing NUL after name")
         return
 
     try:
         name = payload_info[:sep].decode('utf-8')
     except UnicodeDecodeError:
         print("bad 826 payload: name is not valid UTF-8")
+        answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8")
         return
 
     if name != name_in_dict:
         print(f'name mismatch: got {name!r}, expected {name_in_dict!r}')
+        answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}')
         return
     print(f"{name} logged successfully")
 
     public_blob = payload_info[sep + 1:].rstrip(b'\x00').strip()  #text in Base64
-    public_str = public_blob.decode('ascii')
+    try:
+        public_str = public_blob.decode('ascii')
+    except UnicodeDecodeError:
+        answer_1607(client_id, version, "Public key is not ASCII base64")
+        return
     if debug_mode: print("public_blob len:", len(public_str))  #need to be approx 392
 
     try:
         der = b64decode(public_str, validate=True)
         key_rsa = RSA.import_key(der)
-        print(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}" )  #size need to be 2048
+        print(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}")  # size need to be 2048
+        if key_rsa.has_private():
+            answer_1606(clients_info[name][0], version, name)
+            return
+        if key_rsa.size_in_bits()!=2048:
+            answer_1606(clients_info[name][0], version, name)
+            return
+        e = int(key_rsa.e)
+        if e < 3 or e % 2 == 0:
+            answer_1606(clients_info[name][0], version, name)
+            return
     except Exception as e:
-        print(f"RSA.import_key failed for 826: {e}")
+        print(f"RSA validation/import failed for 826: {e}")
+        answer_1607(client_id, version, "Invalid RSA public key")
         return
 
     clients_info[name_in_dict][1] = der  #keep DER, not Base64
@@ -327,7 +346,6 @@ def request_827(client_id,payload_info:bytes,version):
         clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
         clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
         pub = RSA.import_key(clients_info[name][1])
-        pub.size_in_bits()
         if pub.size_in_bits()!=2048:
             print(f"the public key: [{clients_info[name][1]}] in request 827 is not valid the len needs to be 2048 and is {str(len(clients_info[name][1]))}")
             answer_1606(clients_info[name][0],version,name)
@@ -401,7 +419,7 @@ def request_828(payload_info,version,client_id):
         Behavior:
         - Accumulates ciphertext in a static buffer (request_828.cipher).
         - On the last packet:
-            * Decrypts using AES-256-CBC with zero IV.
+            * Decrypts using AES-256-CBC with a per-file random IV provided by the client in packet 0. IV is never static or reused across files.
             * Unpads (PKCS#7), trims to orig_file_size.
             * Writes plaintext to disk.
             * Calls answer_1603 to send CRC result back.
@@ -423,6 +441,7 @@ def request_828(payload_info,version,client_id):
         file_name = payload_info[12:sep].decode('utf-8')
     except UnicodeDecodeError:
         print("bad 828 payload: name is not valid UTF-8")
+        answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8")
         return
     if debug_mode: print(sep)
     if debug_mode: print(file_name)
@@ -438,49 +457,58 @@ def request_828(payload_info,version,client_id):
     raw_key = base64.b64decode(clients_info[name_in_dict][3])
     aes_key = raw_key
 
-    if packet_num==1:
-        print(f"write the file {file_name} ")
-        request_828.cipher = bytearray()
-        clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-        clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
-    # Append chunk to the accumulated ciphertext
-    print(f"\rgot packet with chunk size={len(cipher_chunk)}, {packet_num / total_packets * 100:.2f}% complete", end="")
-    request_828.cipher.extend(cipher_chunk)
-    if debug_mode: print(f"[SERVER] accumulated cipher size={len(request_828.cipher)}")
-    if debug_mode: print(f'packet number: {packet_num} of {total_packets}')
-    # Once we have the last packet, decrypt and write file
-    if packet_num == total_packets:
-        clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-        cipher_total=bytes(request_828.cipher)
-        print(f"\nfinal cipher text total size={len(cipher_total)}, expected content size={content_size}")
-        # AES-256-CBC with zero IV (same as client)
-        decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=bytes(16))
-        decrypted_all = decrypt_cipher.decrypt(cipher_total)
-        # Try to remove PKCS#7 padding
-        try:
-            plaintext = unpad(decrypted_all, AES.block_size)
-        except ValueError:
-            # In case padding is wrong, keep raw decrypted data
-            plaintext = decrypted_all
-        # Trim plaintext to the original size specified by client
-        plaintext = plaintext[:orig_file_size]
-        if debug_mode:print(f"[SERVER] after trim: len(plaintext)={len(plaintext)}, orig_file_size={orig_file_size}")
-        # Write plaintext to disk
-        with open(file_name, "wb") as f:
-            f.write(plaintext)
-        print(f"length of the plaintext= {len(plaintext)}, original file size={orig_file_size}")
-        if debug_mode:
-            print("==== SERVER DEBUG ====")
-            print(f"File name: {file_name}")
-            print(f"orig_file_size (from header)={orig_file_size}")
-            print(f"len(plaintext after decrypt)={len(plaintext)}")
-            print(f"CRC of plaintext (dec)={zlib.crc32(plaintext) & 0xFFFFFFFF}, "
-              f"hex=0x{zlib.crc32(plaintext) & 0xFFFFFFFF:08X}")
-            print("======================")
-        # Respond with 1603 including server-side CRC
-        answer_1603(client_id, version, file_name, content_size, plaintext)
-    if packet_num > total_packets:
-        print(f'the packet number: {packet_num} is greater than the total: {total_packets}')
+    if packet_num==0:
+        if len(cipher_chunk) < 16:
+            print("bad 828: IV too short")
+            answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8")
+            return
+        request_828.iv = bytes(cipher_chunk[:16])
+        print("IV(hex)=", request_828.iv.hex())
+        return
+    else:
+        if packet_num==1:
+            print(f"write the file {file_name} ")
+            request_828.cipher = bytearray()
+            clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+            clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
+        # Append chunk to the accumulated ciphertext
+        print(f"\rgot packet with chunk size={len(cipher_chunk)}, {packet_num / total_packets * 100:.2f}% complete", end="")
+        request_828.cipher.extend(cipher_chunk)
+        if debug_mode: print(f"[SERVER] accumulated cipher size={len(request_828.cipher)}")
+        if debug_mode: print(f'packet number: {packet_num} of {total_packets}')
+        # Once we have the last packet, decrypt and write file
+        if packet_num == total_packets:
+            clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+            cipher_total=bytes(request_828.cipher)
+            print(f"\nfinal cipher text total size={len(cipher_total)}, expected content size={content_size}")
+            # AES-256-CBC with zero IV (same as client)
+            decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=request_828.iv)
+            decrypted_all = decrypt_cipher.decrypt(cipher_total)
+            # Try to remove PKCS#7 padding
+            try:
+                plaintext = unpad(decrypted_all, AES.block_size)
+            except ValueError:
+                # In case padding is wrong, keep raw decrypted data
+                plaintext = decrypted_all
+            # Trim plaintext to the original size specified by client
+            plaintext = plaintext[:orig_file_size]
+            if debug_mode:print(f"[SERVER] after trim: len(plaintext)={len(plaintext)}, orig_file_size={orig_file_size}")
+            # Write plaintext to disk
+            with open(file_name, "wb") as f:
+                f.write(plaintext)
+            print(f"length of the plaintext= {len(plaintext)}, original file size={orig_file_size}")
+            if debug_mode:
+                print("==== SERVER DEBUG ====")
+                print(f"File name: {file_name}")
+                print(f"orig_file_size (from header)={orig_file_size}")
+                print(f"len(plaintext after decrypt)={len(plaintext)}")
+                print(f"CRC of plaintext (dec)={zlib.crc32(plaintext) & 0xFFFFFFFF}, "
+                  f"hex=0x{zlib.crc32(plaintext) & 0xFFFFFFFF:08X}")
+                print("======================")
+            # Respond with 1603 including server-side CRC
+            answer_1603(client_id, version, file_name, content_size, plaintext)
+        if packet_num > total_packets:
+            print(f'the packet number: {packet_num} is greater than the total: {total_packets}')
 
 def answer_1604(client_id,version):
     """
@@ -550,6 +578,32 @@ def request_902(payload_info,version,client_id):
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
     answer_1604(client_id,version)
+def answer_1607(client_id,version,text):
+    """
+    Send response 1607: protocol-level error.
+    Client must abort the current flow and must not continue with subsequent requests.
+
+    Also prints the most recent state of the client in clients_info.
+    """
+    if debug_mode: print("inside answer 1607")
+    payload = client_id + text.encode("utf-8")
+    message = message_answer(version, "1607", str(len(payload)), payload)
+    print(f"error occurred: {text}")
+    client_name=name_of_dict_from_id(client_id)
+    if client_name !=None:
+        if isinstance(clients_info[client_name][1],str) :
+            public_key_tmp=clients_info[client_name][1]
+        else:
+            public_key_tmp=base64.b64encode(clients_info[client_name][1]).decode('utf-8')
+
+        tmp = [base64.b64encode(clients_info[client_name][0]).decode('utf-8'), public_key_tmp, clients_info[client_name][2],clients_info[client_name][3]]
+        print(f'this is the recent client information on {client_name}:  {tmp}')
+        clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
+    global c
+    c.send(message)
+
+
 
 def get_request(request:bytes):
     """
@@ -571,33 +625,48 @@ def get_request(request:bytes):
      """
     if debug_mode: print("inside the request manager")
     global clients_recent_log
+    if len(request)<17:
+        return
     client_id = request[:16]
     version = request[16]
-    code_num = str(int.from_bytes(request[17:19], 'little'))
-    payload_size = int.from_bytes(request[19:23], 'little')
-    if debug_mode: print(f'this is the code num: {str(code_num)}')
-    if debug_mode: print(f'this is the size of the payload: {payload_size}')
-    payload_info = request[23:23 + payload_size]
-    if debug_mode: print(f'this is the payload: {payload_info}')
-    if code_num=="825":
-        request_825(payload_info, version)
-    elif code_num=="827":
-        request_827(client_id,payload_info, version)
-    elif code_num == "826":
-        request_826(client_id, payload_info, version)
-    elif code_num == "828":
-        request_828(payload_info,version,client_id)
-    elif code_num == "900":
-        request_900(payload_info, version, client_id)
-    elif code_num == "901":
-        request_901(payload_info, version, client_id)
-    elif code_num == "902":
-        request_902(payload_info, version, client_id)
+    try:
+        if len(request)<23:
+            answer_1607(client_id, version, "request length too short, missing code number/payload size")
+            return
+        code_num = str(int.from_bytes(request[17:19], 'little'))
+        payload_size = int.from_bytes(request[19:23], 'little')
+        if len(request)<23+payload_size:
+            answer_1607(client_id, version, "request length too short from the actual payload size")
+            return
+        if debug_mode: print(f'this is the code num: {str(code_num)}')
+        if debug_mode: print(f'this is the size of the payload: {payload_size}')
+        payload_info = request[23:23 + payload_size]
+        if debug_mode: print(f'this is the payload: {payload_info}')
+        if code_num=="825":
+            request_825(payload_info, version)
+        elif code_num=="827":
+            request_827(client_id,payload_info, version)
+        elif code_num == "826":
+            request_826(client_id, payload_info, version)
+        elif code_num == "828":
+            request_828(payload_info,version,client_id)
+        elif code_num == "900":
+            request_900(payload_info, version, client_id)
+        elif code_num == "901":
+            request_901(payload_info, version, client_id)
+        elif code_num == "902":
+            request_902(payload_info, version, client_id)
+        else:
+            answer_1607(client_id, version, "unknown code")
+    except Exception as e:
+        print(e)
+        answer_1607(client_id,version,"generic error in server, please try again later")
 
 HEADER_LEN = 23  # 16 client_id + 1 version + 2 code + 4 payload_size
 buf = bytearray()
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
+
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((HOST, PORT))
     print("socket binded to %s" % PORT)

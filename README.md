@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server (v0.1.0)
+# Secure File Transfer - C++ Client & Python Server (v0.1.1)
 
 This project implements a simple **secure file transfer protocol** over TCP.
 
@@ -10,19 +10,23 @@ This project implements a simple **secure file transfer protocol** over TCP.
   * AES-256-CBC for file encryption
   * CRC32 for integrity verification
 
-> !!!Educational only - not production-grade security.!!!
-> Some choices (like a fixed IV) are intentional simplifications.
+!!Educational only - not production-grade security!!
+Stage 1 hardens several critical parts (random IV per file, RSA key validation, stable client identity).
+This is still not a production-ready design.
 
 ---
 
 ## Version
 
-**v0.1.0 - First Working MVP**
+**v0.1.1 - Stage 1 (Stability + Security, before heavy refactor)**
 
 * Fully functional end-to-end encrypted file transfer
+* Random IV per file (sent in the first 828 packet)
+* RSA public key validation (Base64 DER, public-only, 2048-bit)
+* Proper 1607 error responses with error message payload
+* Stable server-issued client_id (persisted on client)
 * Code still kept mostly in single files (minimal refactor)
-* Future versions will include modularization, multi-client support, tests, etc.
-* This version (v0.1.0) has been **manually tested end-to-end** (registration, SSO, file upload, CRC and retry logic), but there are no automated unit/integration tests yet.
+* Manually tested end-to-end; no automated tests yet
 
 ---
 
@@ -62,7 +66,7 @@ C++ client
   - Reads config from transfer.info
   - Registers / logs in
   - Receives AES key (encrypted with RSA-2048)
-  - Encrypts a chosen file with AES-256-CBC (IV=0)
+  - Encrypts a chosen file with AES-256-CBC using a random per-file IV
   - Splits ciphertext into 1024-byte chunks
   - Sends chunks with protocol code 828
   - Compares CRC with server and retries if needed
@@ -152,9 +156,9 @@ cipher_chunk
 
 Purpose:
 
-* Client sends encrypted AES-CBC chunks
-* Server reassembles, decrypts, writes file, returns CRC (1603)
-
+* Packet 0 carries a 16-byte random IV
+* Packets 1..N carry AES-CBC ciphertext chunks
+* Server reassembles, decrypts using the IV from packet 0, writes file, returns CRC (1603)
 ---
 
 ### **900 - CRC OK**
@@ -186,7 +190,7 @@ Client stops retrying.
 
 ## Security Notes
 
-* Uses **fixed AES IV = 0** (insecure for real systems)
+* Uses random AES IV per file (sent in 828 packet_number = 0)
 * AES key stored in `aes.key` on client (demo only)
 * RSA private key stored in `priv.key`
 * No replay protection or authentication
@@ -274,14 +278,14 @@ g++ src/client_tirgul.cpp -o client -lcryptopp -lws2_32
 * Create header files, add comments, and clean existing code
 * Refactor client into modules (crypto, protocol, network)
 * Refactor server into modules (remove global state)
-* Replace static IV with random IV per file
-* Add RSA key validation
+* Random IV per file [DONE - Stage 1] 
+* RSA public key validation [DONE - Stage 1]
 * Add unit tests (protocol, CRC, retry logic)
 * Add integration tests (end-to-end client <-> server)
 * Add structured logging and improved configuration system
 * Add multi-client support (threading / asyncio)
-* Ensure **1607** error response works properly
-* Replace temporary UUID logic with a proper global identifier
+* Proper 1607 error response [DONE - Stage 1] 
+* Stable server-issued client_id [DONE - Stage 1]
 * Add a simple client-side console UI (menu for actions: reconnect, choose file, etc.)
 
 ### Additional Planned Tasks (Development Order)

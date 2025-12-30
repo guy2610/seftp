@@ -1,4 +1,4 @@
-# Secure File Transfer Protocol - Specification (v0.1.0)
+# Secure File Transfer Protocol - Specification (v0.1.1)
 
 This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, and CRC validation for correctness.
 
@@ -55,8 +55,10 @@ username + '\0' + public_key_b64
 
 Server:
 
-* Decodes Base64 -> DER
-* Imports RSA key
+* Decodes Base64 -> DER (strict)
+* Imports RSA key and validates:
+* Public key only (private keys rejected)
+* Exact size: 2048 bits
 * Generates AES-256 key
 * Encrypts AES key using RSA-OAEP
 * Stores AES key (Base64)
@@ -96,7 +98,7 @@ Transfers an encrypted file in fixed-size chunks.
 ```
 uint32  total_cipher_size
 uint32  original_plain_size
-uint16  packet_number      (1-based)
+uint16  packet_number      (0 = init packet with IV, then 1..total_packets)
 uint16  total_packets
 filename + '\0'
 cipher_chunk
@@ -104,13 +106,14 @@ cipher_chunk
 
 Server logic:
 
-1. Accumulates chunks until `packet_number == total_packets`
-2. Reconstructs full ciphertext
-3. Decrypts with AES-256-CBC (IV = 0x00..00)
-4. Removes padding and trims to `original_plain_size`
-5. Writes file to disk
-6. Computes CRC32 over plaintext
-7. Responds with `1603`
+1. If packet_number == 0: stores 16-byte IV and resets accumulator
+2. Accumulates ciphertext chunks for packets 1..`total_packets`
+3. Reconstructs full ciphertext
+4. Decrypts with AES-256-CBC using the stored IV
+5. Removes padding and trims to `original_plain_size`
+6. Writes file to disk
+7. Computes CRC32 over plaintext
+8. Responds with `1603`
 
 ---
 
@@ -210,8 +213,7 @@ Meaning:
 ### **1607 - General Error**
 
 Indicates protocol/logic error.
-Payload unspecified in v0.1.0.
-
+client_id (16 bytes) + UTF-8 error message
 ---
 
 ## 4. Cryptography Details
@@ -220,7 +222,7 @@ Payload unspecified in v0.1.0.
 
 * AES-256-CBC
 * Key: 32 bytes
-* IV: 16 zero bytes (insecure; for assignment only)
+* IV: 16 random bytes per file (sent in 828 packet_number = 0)
 
 ### RSA
 
@@ -235,19 +237,17 @@ Payload unspecified in v0.1.0.
 
 ---
 
-## 5. Known Limitations (v0.1.0)
+## 5. Known Limitations (v0.1.1)
 
 * Single-client server (no concurrency)
-* Static AES IV = 0
 * No replay protection or authentication
 * No database
-* Minimal handling of error code `1607`
+* CRC32 provides integrity only (not authentication)
 
 ---
 
 ## 6. Future Improvements
 
-* Random IV per file
 * HMAC or authenticated encryption
 * Multi-client support
 * Database-backed client management

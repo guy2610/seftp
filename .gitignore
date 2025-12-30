@@ -1,21 +1,31 @@
 # Build outputs
-client/client.exe
-client/*.exe
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.log
+*.tlog
+*.recipe
 
-# Runtime keys and IDs
-client/me.info
-client/priv.key
-client/aes.key
+# Visual Studio
+.vs/
+**/x64/
+**/Debug/
+**/Release/
 
-# Server runtime data
+# Secrets / runtime identity
+*.key
+*.info
+
+# Server runtime state
 server/clients.info
-server/*.log
+server/port.info
 
-# User files / test artifacts
-server/*.doc
-server/*.docx
-server/*.pdf
-server/*.txt
+# Personal / local files
+*.xlsx
 
-# Python cache
-server/__pycache__/
+# Python
+__pycache__/
+*.pyc

@@ -66,7 +66,8 @@ int main() {
 	cout << "do you wish to see debug console promts? answer 'yes' or something else for no" << endl;
 	string ans;
 	getline(cin, ans);
-	transform(ans.begin(), ans.end(), ans.begin(), tolower);
+	transform(ans.begin(), ans.end(), ans.begin(),
+		[](unsigned char c) { return std::tolower(c); });;
 	if (ans == "yes") debug_mode = true;
 
 	// Read connection and username info from transfer.info
@@ -153,7 +154,8 @@ int main() {
 		// Ask user if they want to send another file
 		cout << "\nDo you want to send another file to the server? answer 'yes' or something else for no" << endl;
 		getline(cin, ans);
-		transform(ans.begin(), ans.end(), ans.begin(), tolower);
+		transform(ans.begin(), ans.end(), ans.begin(),
+			[](unsigned char c) { return std::tolower(c); });
 		if (ans != "yes") break;
 	}
 	cout << "Thanks, Goodbye!!" << endl;

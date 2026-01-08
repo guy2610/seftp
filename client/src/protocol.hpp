@@ -138,9 +138,7 @@ namespace seftp::proto {
 	}
 
 	// 826: payload = username + '\0' + publicKeyB64 (no trailing '\0')
-	inline std::vector<uint8_t> build_826_public_key(const ClientId& client_id,
-		std::string_view username,
-		std::string_view public_key_b64) {
+	inline std::vector<uint8_t> build_826_public_key(const ClientId& client_id, std::string_view username, std::string_view public_key_b64) {
 		std::vector<uint8_t> p;
 		p.reserve(username.size() + 1 + public_key_b64.size());
 		p.insert(p.end(), username.begin(), username.end());

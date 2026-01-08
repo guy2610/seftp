@@ -31,20 +31,21 @@
 #include <iomanip>
 #include <filesystem>
 #include <random>
+#include "protocol.hpp"
 using namespace std;
 using namespace CryptoPP;
 using  boost::asio::ip::tcp;
 
 vector<string> transfer_file_info(string namefile);
 string timestamp();
-void request_825(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message);
-void request_826(tcp::socket& s, const string& name, string publicKeyStr, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
-void request_827(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
+void request_825(tcp::socket& s, const string& name);
+void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid);
+void request_827(tcp::socket& s, const string& name, const string & uuid);
 uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key, vector<string>& components);
 void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key);
-void request_900(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
-void request_901(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
-void request_902(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid);
+void request_900(tcp::socket& s, const string& name, const string& uuid);
+void request_901(tcp::socket& s, const string& name, const string& uuid);
+void request_902(tcp::socket& s, const string& name, const string& uuid);
 void append_little_endian_32(std::vector<uint8_t>& buffer, uint32_t value);
 void append_little_endian_8(std::vector<uint8_t>& buffer, uint8_t value);
 void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value);
@@ -104,7 +105,7 @@ int main() {
 		//head of request
 		MyReadFile.close();
 		// 1) Send registration request with username (825)
-		request_825(s, transfers[2].c_str(), request, max_Length, message);
+		request_825(s, transfers[2].c_str());
 		// 2) Wait for 1600 and receive server-issued client_id from server
 		update_uuid_if_present(answer_manager(s, transfers));
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
@@ -125,7 +126,7 @@ int main() {
 		cout << "this is uuid in me.info: " << uuid<< endl;
 		MyReadFile.close();
 		// 1) Send SSO / re-login request with existing client_id + username (827)
-		request_827(s, transfers[2].c_str(), request, max_Length, message, uuid);
+		request_827(s, transfers[2].c_str(), uuid);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
 		// 2) Wait for 1605 (or 1606). client_id remains stable; only AES key is refreshed if needed
 		update_uuid_if_present(answer_manager(s, transfers));
@@ -249,7 +250,7 @@ void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<
 	myFile.close();
 	cout << "Public key (B64) added to me.info: "<<publicKeyB64 << endl;
 	if(debug_mode)cout << "sending 826, b64 len: " << publicKeyB64.size() << endl;
-	request_826(s, transfers[2].c_str(),publicKeyB64, request, max_Length, message, uuid);
+	request_826(s, transfers[2].c_str(),publicKeyB64, uuid);
 
 	// keep private key
 	if (key.empty()) {
@@ -257,10 +258,10 @@ void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<
 	}
 
 	std::cout << "RSA keys generated and saved to files.\n";
-	{
+	/* {
 		std::string maybe = answer_manager(s, transfers);
 		if (!maybe.empty()) uuid = maybe;
-	}
+	}*/
 }
 vector<string> transfer_file_info(string namefile) {
 	// Read transfer.info and parse connection and username information.
@@ -285,14 +286,14 @@ vector<string> transfer_file_info(string namefile) {
 	}
 	return res;
 }
-void request_825(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message) {
+void request_825(tcp::socket& s, const string& name) {
 	// Build and send request 825: initial registration.
 	// Payload: username + '\0'.
 	// Response expected: 1600 (success) or 1601 (failure).
 	try {
 		client_history.push_back({ "request_825", timestamp() });
 		if (debug_mode)cout << "in request_825" << endl;
-		message.clear();
+		/*message.clear();
 		message.insert(message.end(), 16, 0);
 		append_little_endian_8(message, 3);
 		append_little_endian_16(message, 825);
@@ -300,22 +301,23 @@ void request_825(tcp::socket& s, const string& name, char request[], const int m
 		append_little_endian_32(message, name.size() + 1);
 		// Payload = username + \0
 		message.insert(message.end(), name.begin(), name.end());
-		message.push_back('\0');
+		message.push_back('\0');*/
+		auto msg = seftp::proto::build_825_register(name);
 		// send
-		boost::asio::write(s, boost::asio::buffer(message));
+		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error in request_825: " << e.what() << std::endl;
 	}
 }
-void request_826(tcp::socket& s, const string& name, string publicKeyStr, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
+void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid) {
 	// Build and send request 826: send RSA public key in Base64.
 	// Payload: username + '\0' + publicKeyB64.
 	// Response expected: 1602 with encrypted AES key.
 	try {
 		client_history.push_back({ "request_826", timestamp() });
 		if (debug_mode) cout << "in request_826" << endl;
-		message.clear();
+		/*message.clear();
 		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
 		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
 		message.insert(message.end(), uuid_bytes.begin(), uuid_bytes.end());
@@ -327,22 +329,25 @@ void request_826(tcp::socket& s, const string& name, string publicKeyStr, char r
 		message.insert(message.end(), name.begin(), name.end());
 		message.push_back('\0');
 		message.insert(message.end(), publicKeyStr.begin(), publicKeyStr.end());
+		*/
+		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto msg = seftp::proto::build_826_public_key(cid, name, publicKeyStr);
 		std::cout << "publicKeyB64 length: " << publicKeyStr.size() << std::endl;
 		// send
-		boost::asio::write(s, boost::asio::buffer(message));
+		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error in request_826: " << e.what() << std::endl;
 	}
 }
-void request_827(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
+void request_827(tcp::socket& s, const string& name, const string& uuid) {
 	// Build and send request 827: re-login (SSO) using existing client_id and username.
 	// Payload: username + '\0'.
 	// Response expected: 1605 (re-login success) or 1606 (re-register required).
 	if (debug_mode) cout << "inside request_827"  << endl;
 	client_history.push_back({ "request_827", timestamp() });
 	try {
-		message.clear();
+		/*message.clear();
 		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
 		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
 		message.insert(message.end(), uuid_bytes.begin(), uuid_bytes.end());
@@ -352,9 +357,11 @@ void request_827(tcp::socket& s, const string& name, char request[], const int m
 		append_little_endian_32(message, name.size() + 1);
 		// Payload = username + \0
 		message.insert(message.end(), name.begin(), name.end());
-		message.push_back('\0');
+		message.push_back('\0');*/
+		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto msg = seftp::proto::build_827_relogin(cid, name);
 		// send
-		boost::asio::write(s, boost::asio::buffer(message));;
+		boost::asio::write(s, boost::asio::buffer(msg));;
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error in request_827: " << e.what() << std::endl;
@@ -535,29 +542,29 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, char request[],
 			if (retries < MAX_RETRIES) {
 				std::cout << "CRC mismatch, retry " << retries << "/" << MAX_RETRIES << std::endl;
 				// Notify server: CRC invalid but we will resend (901)
-				request_901(s, file_name, request,max_Length,message,uuid);
+				request_901(s, file_name,uuid);
 				if (debug_mode)cout << "this is the uuid " << uuid << endl;
 			}
 			else {
 				// 4th failure -> give up (902)
 				std::cout << "CRC mismatch after 4 retries, sending 902" << std::endl;
-				request_902(s, file_name, request, max_Length, message, uuid);
+				request_902(s, file_name, uuid);
 			}
 		}
 		else {
 			// CRC OK -> confirm success (900)
-			request_900(s, file_name, request, max_Length, message, uuid);
+			request_900(s, file_name, uuid);
 		}	
 	}
 	
 }
-void request_900(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
+void request_900(tcp::socket& s, const string& name, const string& uuid) {
 	// Send request 900: notify server that CRC matched for the given file name.
 	if (debug_mode)cout << "in request_900"<<endl;
 	client_history.push_back({ "request_900", timestamp() });
 	cout << "we got a match with the crc value, sending confirmation to the server" << endl;
 	try {
-		message.clear();
+		/*message.clear();
 		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
 		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
 		message.insert(message.end(), uuid_bytes.begin(), uuid_bytes.end());
@@ -567,21 +574,23 @@ void request_900(tcp::socket& s, const string& name, char request[], const int m
 		append_little_endian_32(message, name.size() + 1);
 		// Payload = fileName + \0
 		message.insert(message.end(), name.begin(), name.end());
-		message.push_back('\0');
+		message.push_back('\0');*/
+		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto msg = seftp::proto::build_900_crc_ok(cid, name);
 		// send
-		boost::asio::write(s, boost::asio::buffer(message));
+		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error in request_900: " << e.what() << std::endl;
 	}
 
 }
-void request_901(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
+void request_901(tcp::socket& s, const string& name, const string& uuid) {
 	// Send request 901: notify server that CRC mismatched (client will retry sending file).
 	if (debug_mode)cout << "in request_901" << endl;
 	client_history.push_back({ "request_901", timestamp() });
 	try {
-		message.clear();
+		/*message.clear();
 		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
 		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
 		message.insert(message.end(), uuid_bytes.begin(), uuid_bytes.end());
@@ -591,21 +600,23 @@ void request_901(tcp::socket& s, const string& name, char request[], const int m
 		append_little_endian_32(message, name.size() + 1);
 		// 5. Payload – fileName + null terminator
 		message.insert(message.end(), name.begin(), name.end());
-		message.push_back('\0');
+		message.push_back('\0');*/
+		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto msg = seftp::proto::build_901_crc_retry(cid, name);
 		// send
-		boost::asio::write(s, boost::asio::buffer(message));
+		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error in request_901: " << e.what() << std::endl;
 	}
 
 }
-void request_902(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid) {
+void request_902(tcp::socket& s, const string& name, const string& uuid) {
 	// Send request 902: notify server that CRC mismatched after max retries (give up).
 	if (debug_mode)cout << "in request_902" << endl;
 	client_history.push_back({ "request_902", timestamp() });
 	try {
-		message.clear();
+		/*message.clear();
 		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); // hex string to 16 bytes
 		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
 		message.insert(message.end(), uuid_bytes.begin(), uuid_bytes.end());
@@ -615,9 +626,11 @@ void request_902(tcp::socket& s, const string& name, char request[], const int m
 		append_little_endian_32(message, name.size() + 1);
 		// Payload = fileName + \0
 		message.insert(message.end(), name.begin(), name.end());
-		message.push_back('\0');
+		message.push_back('\0');*/
+		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto msg = seftp::proto::build_902_crc_fail(cid, name);
 		// send
-		boost::asio::write(s, boost::asio::buffer(message));
+		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error in request_902: " << e.what() << std::endl;
@@ -892,7 +905,7 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 		cout << "request to re-register disapproved, the client id is: " << client_id_hex << ". is not register" << endl;
 		cout << "need to sign up, making a new client id" << endl;
 		if(debug_mode) cout << "making a new user with request_825" << endl;
-		request_825(s, transfers[2].c_str(), request, max_Length, message);
+		request_825(s, transfers[2].c_str());
 		{
 			std::string maybe = answer_manager(s, transfers);
 			if (!maybe.empty()) client_id_hex = maybe;
@@ -909,12 +922,20 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 				making_RSAkeys(s, request, max_Length, message, transfers, client_id_hex, key);
 			}
 		}
-
+		{
+			std::string maybe = answer_manager(s, transfers);
+			if (!maybe.empty()) client_id_hex = maybe;
+		}
 	}
 	else {
 		cout << "the public key not good making a new one with RSA" << endl;
 		making_RSAkeys(s, request, max_Length, message, transfers, client_id_hex);
+		{
+			std::string maybe = answer_manager(s, transfers);
+			if (!maybe.empty()) client_id_hex = maybe;
+		}
 	}
+
 	return client_id_hex;
 }
 bool answer_1603(tcp::socket& s, vector<uint8_t>payload, uint32_t original_crc) {

@@ -41,8 +41,8 @@ string timestamp();
 void request_825(tcp::socket& s, const string& name);
 void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid);
 void request_827(tcp::socket& s, const string& name, const string & uuid);
-uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key, vector<string>& components);
-void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key);
+uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components);
+void request_828_retry(tcp::socket& s, vector<string> transfers, const string& uuid, string encrypt_key);
 void request_900(tcp::socket& s, const string& name, const string& uuid);
 void request_901(tcp::socket& s, const string& name, const string& uuid);
 void request_902(tcp::socket& s, const string& name, const string& uuid);
@@ -148,7 +148,7 @@ int main() {
 	// Main loop: encrypt and send files to the server, one by one
 	while (true) {
 		// Sends file (828 + retry with 900/901/902 based on CRC)
-		request_828_retry(s, transfers, request, max_Length, message, uuid, key);
+		request_828_retry(s, transfers, uuid, key);
 		// Read final response (e.g., 1604 – transfer finished)
 		string tmp = answer_manager(s, transfers);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
@@ -368,7 +368,7 @@ void request_827(tcp::socket& s, const string& name, const string& uuid) {
 	}
 
 }
-uint32_t request_828(tcp::socket& s, const string& name, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key, vector<string>& components) {
+uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components) {
 	// Build and send request 828: encrypted file in chunks.
 	// Packet 0 carries ONLY the 16-byte IV.
 	// Packets 1..N carry metadata + filename + ciphertext chunk.
@@ -405,7 +405,7 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 			file_name = components[0];
 		}
 		
-		message.clear();
+		/*message.clear();
 		// Convert UUID string (32 hex chars) to 16 bytes
 		std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
 		if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
@@ -434,16 +434,21 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 		message.insert(message.end(), file_name.begin(), file_name.end());
 		message.push_back('\0');
 		// Ciphertext chunk
-		message.insert(message.end(), iv, iv + CryptoPP::AES::BLOCKSIZE);
+		message.insert(message.end(), iv, iv + CryptoPP::AES::BLOCKSIZE);*/
+		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		std::array<uint8_t, 16> iv_arr{};
+		std::memcpy(iv_arr.data(), components[4].data(), 16);
+		auto msg0 = seftp::proto::build_828_packet0_iv(cid, (uint32_t)components[2].size(), (uint32_t)components[1].size(), (uint16_t)total_packets,file_name, iv_arr);
 		if (debug_mode)std::cout << "[CLIENT] sending packet " << 0
 			<< "/" << total_packets
 			<< ", chunk size=" << components[4].size() << std::endl;
 		// Send the full frame
-		boost::asio::write(s, boost::asio::buffer(message));
+		boost::asio::write(s, boost::asio::buffer(msg0));
 		// Send each chunk as a separate 828 request
 		for (size_t packet_num = 1; packet_num <= total_packets; packet_num ++)
 		{
-			const std::string& chunk = chunks[packet_num - 1];
+			const std::string& chunk_str = chunks[packet_num - 1];
+			std::vector<uint8_t> chunk(chunk_str.begin(), chunk_str.end());
 			// Progress bar: debug/normal printing
 			if (debug_mode) {
 				std::cout << "sending packet number: " << packet_num << " of " << total_packets << std::endl;	
@@ -459,7 +464,7 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 
 			}
 
-			message.clear();
+			/*message.clear();
 			// Convert UUID string (32 hex chars) to 16 bytes
 			std::vector<uint8_t> uuid_bytes = parse_uuid(uuid); //hex string to 16 bytes
 			if (uuid_bytes.size() != 16) throw std::runtime_error("Invalid UUID");
@@ -488,12 +493,13 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 			message.insert(message.end(), file_name.begin(), file_name.end());
 			message.push_back('\0');
 			// Ciphertext chunk
-			message.insert(message.end(), chunks[packet_num - 1].begin(), chunks[packet_num - 1].end());
+			message.insert(message.end(), chunks[packet_num - 1].begin(), chunks[packet_num - 1].end());*/
+			auto msgN=seftp::proto::build_828_packet_chunk(cid, (uint32_t)components[2].size(), (uint32_t)components[1].size(), (uint16_t)packet_num,(uint16_t)total_packets,file_name, chunk);
 			if (debug_mode)std::cout << "[CLIENT] sending packet " << packet_num
 				<< "/" << total_packets
 				<< ", chunk size=" << chunks[packet_num - 1].size() << std::endl;
 			// Send the full frame
-			boost::asio::write(s, boost::asio::buffer(message));
+			boost::asio::write(s, boost::asio::buffer(msgN));
 
 		}
 		if (debug_mode)std::cout << "[CLIENT] full cipher sent size=" << components[2].size()
@@ -513,7 +519,7 @@ uint32_t request_828(tcp::socket& s, const string& name, char request[], const i
 		return 0;
 	}
 }
-void request_828_retry(tcp::socket& s, vector<string> transfers, char request[], const int max_Length, vector<uint8_t>& message, const string& uuid, string encrypt_key) {
+void request_828_retry(tcp::socket& s, vector<string> transfers, const string& uuid, string encrypt_key) {
 	// Wrapper for request_828 with retry logic based on CRC check (1603).
 	// If CRC mismatch:
 	//   - up to 3 retries: send 901 and resend file.
@@ -531,7 +537,7 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, char request[],
 	while (retries < MAX_RETRIES && !*crc_ok) {
 		if (debug_mode)cout << "this is the uuid " << uuid << endl;
 		// 1) Send encrypted file (828) and get original CRC of plaintext
-		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), request, max_Length, message, uuid, encrypt_key, components);
+		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), uuid, components);
 		// 2) Wait for 1603 from server (CRC verification) and update crc_ok
 		string tmp;
 		tmp = answer_manager(s, transfers, original_crc_file,crc_ok);

@@ -38,8 +38,8 @@ namespace seftp::proto {
 		ReloginFail = 1606,
 		Error = 1607,
 	};
-	//----little-endian helpers
 
+	//----little-endian helpers
 
 	inline void append_u8(std::vector<uint8_t>& b, uint8_t v) { b.push_back(v); }
 
@@ -193,6 +193,55 @@ namespace seftp::proto {
 		h.code_le = read_u16_le(&hdr7[1]);
 		h.payload_size_le = read_u32_le(&hdr7[3]);
 		return h;
+	}
+	struct Res1600 
+	{
+		ClientId client_id;
+	};
+	struct Res1602 
+	{
+		ClientId client_id;
+		std::vector<uint8_t> encrypted_key;
+	};
+	struct Res1603
+	{
+		ClientId client_id;
+		std::optional<uint32_t> server_crc;
+		std::vector<uint8_t> extra;
+	};
+	struct ByteView {
+		const uint8_t* data=nullptr;
+		size_t size=0;
+	};
+	inline Res1600 parse_1600(ByteView payload) {
+		if (payload.size != kClientIdLen) throw std::runtime_error("1600 payload must be 16 bytes");
+		Res1600 r{};
+		std::memcpy(r.client_id.data(), payload.data, kClientIdLen);
+		return r;
+	}
+	inline Res1602 parse_1602(ByteView payload) {
+		if (payload.size < kClientIdLen) throw std::runtime_error("1602 payload too short");
+		Res1602 r{};
+		std::memcpy(r.client_id.data(), payload.data, kClientIdLen);
+		const auto* p = payload.data + kClientIdLen;
+		const size_t n = payload.size - kClientIdLen;
+		r.encrypted_key.assign(p,p+n);
+		return r;
+	}
+	inline Res1603 parse_1603(ByteView payload) {
+		if (payload.size < kClientIdLen) throw std::runtime_error("1603 payload too short");
+		Res1603 r{};
+		std::memcpy(r.client_id.data(), payload.data, kClientIdLen);
+		size_t off = kClientIdLen;
+		if (payload.size>=off+4)
+		{
+			r.server_crc = read_u32_le(payload.data + off);
+			off += 4;
+		}
+		const auto* p = payload.data + off;
+		const size_t n = payload.size - off;
+		r.extra.assign(p,p+n);
+		return r;
 	}
 
 

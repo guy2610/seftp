@@ -206,9 +206,11 @@ namespace seftp::proto {
 	struct Res1603
 	{
 		ClientId client_id;
-		std::optional<uint32_t> server_crc;
-		std::vector<uint8_t> extra;
+		uint32_t content_size = 0;
+		std::string filename;
+		uint32_t server_crc = 0;
 	};
+
 	struct ByteView {
 		const uint8_t* data=nullptr;
 		size_t size=0;
@@ -220,29 +222,31 @@ namespace seftp::proto {
 		return r;
 	}
 	inline Res1602 parse_1602(ByteView payload) {
-		if (payload.size < kClientIdLen) throw std::runtime_error("1602 payload too short");
+		if (payload.size < 256 + kClientIdLen) throw std::runtime_error("1602 payload too short");
 		Res1602 r{};
-		std::memcpy(r.client_id.data(), payload.data, kClientIdLen);
-		const auto* p = payload.data + kClientIdLen;
-		const size_t n = payload.size - kClientIdLen;
-		r.encrypted_key.assign(p,p+n);
+		// ct first
+		r.encrypted_key.assign(payload.data, payload.data + 256);
+		// then client id
+		std::memcpy(r.client_id.data(), payload.data + 256, kClientIdLen);
 		return r;
 	}
 	inline Res1603 parse_1603(ByteView payload) {
-		if (payload.size < kClientIdLen) throw std::runtime_error("1603 payload too short");
+		// expected: client_id(16) + content_size(4) + filename(variable) + server_crc(4)
+		if (payload.size < kClientIdLen + 4 + 4) throw std::runtime_error("1603 payload too short");
+
 		Res1603 r{};
 		std::memcpy(r.client_id.data(), payload.data, kClientIdLen);
+
 		size_t off = kClientIdLen;
-		if (payload.size>=off+4)
-		{
-			r.server_crc = read_u32_le(payload.data + off);
-			off += 4;
-		}
-		const auto* p = payload.data + off;
-		const size_t n = payload.size - off;
-		r.extra.assign(p,p+n);
+		r.content_size = read_u32_le(payload.data + off);
+		off += 4;
+
+		const size_t filename_len = payload.size - off - 4;
+		r.filename.assign(reinterpret_cast<const char*>(payload.data + off), filename_len);
+		off += filename_len;
+
+		r.server_crc = read_u32_le(payload.data + off);
 		return r;
 	}
-
 
 }

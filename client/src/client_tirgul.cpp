@@ -824,6 +824,24 @@ string answer_1600(tcp::socket& s, vector<uint8_t>& payload, string name) {
 	cout << "register for the client id: " << client_id_hex << " succeed" << endl;
 	return client_id_hex;
 }
+static std::string client_id_to_hex(const seftp::proto::ClientId& cid)
+{
+	std::ostringstream oss;
+	oss << std::hex << std::setfill('0');
+	for (uint8_t b : cid) oss << std::setw(2) << (int)b;
+	return oss.str();
+}
+
+static std::vector<uint8_t> client_id_to_vec(const seftp::proto::ClientId& cid)
+{
+	return std::vector<uint8_t>(cid.begin(), cid.end());
+}
+static std::string handle_1600(const seftp::proto::Res1600& r, const std::string& username, tcp::socket& s)
+{
+	// reuse existing behavior exactly
+	auto payload16 = client_id_to_vec(r.client_id);
+	return answer_1600(s, payload16, username);
+}
 void answer_1601(tcp::socket& s) {
 	// Handle response 1601: registration failed (username already exists or other error).
 	// Exits the client.
@@ -897,9 +915,8 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 	// Otherwise -> generate new RSA keys and send again.
 	if (debug_mode)cout << "in answer_1606" << endl;
 	client_history.push_back({ "answer_1606" ,timestamp() });
-	const size_t ID_LEN = 16;
-	if (payload.size() < ID_LEN) cerr << "1602 payload too short: " << payload.size() << endl;
-	std::vector<uint8_t> cid(payload.begin(), payload.begin() + ID_LEN);
+	if (payload.size() < seftp::proto::kClientIdLen) cerr << "1602 payload too short: " << payload.size() << endl;
+	std::vector<uint8_t> cid(payload.begin(), payload.begin() + seftp::proto::kClientIdLen);
 	auto to_hex = [](const std::vector<uint8_t>& v) {
 		std::ostringstream oss;
 		for (auto b : v) oss << std::hex << std::setw(2) << std::setfill('0') << (int)b;
@@ -944,6 +961,23 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 
 	return client_id_hex;
 }
+static std::string handle_1602_or_1605(uint16_t code, const seftp::proto::Res1602& r, tcp::socket& s) {
+	std::string client_id_hex = client_id_to_hex(r.client_id);
+	if (code == 1602)
+	{
+		answer_1602(s, client_id_hex, r.encrypted_key, "priv.key");
+		if (debug_mode) cout << "after 1602" << endl;
+	}
+	else { // 1605
+		cout << answer_1605(s, client_id_hex, r.encrypted_key, "priv.key") << endl;
+		if (debug_mode) cout << "after 1605" << endl;
+	}
+
+	if (debug_mode) {
+		std::cout << "uuid in answer manager after 1602/1605: [" << client_id_hex << "]" << std::endl;
+	}
+	return client_id_hex;
+}
 bool answer_1603(tcp::socket& s, vector<uint8_t>payload, uint32_t original_crc) {
 	// Handle response 1603: server sends its computed CRC for the received file.
 	// Compares server CRC to original_crc and returns true on match.
@@ -982,6 +1016,21 @@ bool answer_1603(tcp::socket& s, vector<uint8_t>payload, uint32_t original_crc) 
 	else {
 		std::cerr << "Checksum mismatch!" << std::endl;
 		return false;
+	}
+}
+static void handle_1603(const seftp::proto::Res1603& r, uint32_t original_crc, bool* crc_ok)
+{
+	if (!crc_ok) return;
+
+	std::cout << "Server CRC: " << r.server_crc << ", original CRC: " << original_crc << std::endl;
+
+	if (r.server_crc == original_crc) {
+		std::cout << "Checksum verified successfully!" << std::endl;
+		*crc_ok = true;
+	}
+	else {
+		std::cerr << "Checksum mismatch!" << std::endl;
+		*crc_ok = false;
 	}
 }
 void answer_1604(tcp::socket& s) {
@@ -1034,6 +1083,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 
 	// payload to vector of uint8_t
 	vector<uint8_t> payload(request + 7, request + 7 + payload_size);
+	seftp::proto::ByteView pv{payload.data(),payload.size()};
 
 	if (debug_mode) {
 		cout << "version: " << (int)version << ", code: " << code
@@ -1042,79 +1092,56 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 		cout << "this is the code: " << code << endl;
 	}
 	string uuid;
-	if (code == 1600)
-	{
-		uuid = answer_1600(s, payload, transfers[2].c_str());
-		return uuid;
-	}
-	else if (code == 1601){
+	auto res_code = static_cast<seftp::proto::ResCode>(code);
+	switch (res_code) {
+		case  seftp::proto::ResCode::RegisterOk: {
+		auto r1600 = seftp::proto::parse_1600(pv);
+		return handle_1600(r1600, transfers[2].c_str(), s);
+		}
+		case seftp::proto::ResCode::RegisterFail: {
 		answer_1601(s);
 		exit(1);
-	}
-	else if (code == 1602||code==1605){
-		const size_t RSA_CT_LEN = 256;  
-		const size_t ID_LEN = 16;
-		if (payload.size() < RSA_CT_LEN + ID_LEN) {
-			 if (code==1602)cerr << "1602 payload too short: " << payload.size() << endl;
-			 else cerr << "1605 payload too short: " << payload.size() << endl;//code == 1605
+		}
+		case seftp::proto::ResCode::AesKey:
+		case seftp::proto::ResCode::ReloginOk: {
+			auto r1602_1605 = seftp::proto::parse_1602(pv);
+			return handle_1602_or_1605(code, r1602_1605, s);
+		}
+		case seftp::proto::ResCode::ReloginFail: {
+			vector<uint8_t>message;
+			uuid = answer_1606(s, transfers, request, max_Length, message, payload);
 			return uuid;
 		}
-		std::vector<uint8_t> ct(payload.begin(), payload.begin() + RSA_CT_LEN);
-		std::vector<uint8_t> cid(payload.begin() + RSA_CT_LEN, payload.begin() + RSA_CT_LEN + ID_LEN);
-		auto to_hex = [](const std::vector<uint8_t>& v) {
-			std::ostringstream oss;
-			for (auto b : v) oss << std::hex << std::setw(2) << std::setfill('0') << (int)b;
-			return oss.str();
-			};
-		std::string client_id_hex = to_hex(cid);
-		
-		if (code == 1602)answer_1602(s, client_id_hex,ct,"priv.key");
-		if (debug_mode)cout << "after 1602" << endl;
-		if (code == 1605)cout << answer_1605(s, client_id_hex, ct, "priv.key") << endl;//code == 1605
-		if (debug_mode)cout << "didnt do 1605" << endl;
-		if (debug_mode)std::cout << "this is the uuid in answer manager after 1602: [" << client_id_hex << "]" << std::endl;
-		return client_id_hex;
-		
-	}	
-	else if (code == 1606) {
-		
-		vector<uint8_t>message;
-		uuid = answer_1606(s, transfers, request, max_Length, message, payload);
-		return uuid;
-	}
-	else if (code == 1603){
-		*crc_ok = answer_1603(s, payload, original_crc);
-		return uuid;
-	}
-	else if (code == 1604){
-		answer_1604(s);
-		return uuid;
-	}	
-	else if (code == 1607){
-		const size_t ID_LEN = 16;
-		if (payload.size() < ID_LEN) {
-			cout << "payload for 1607 too short" << endl;
+		case seftp::proto::ResCode::CrcResult: {
+			auto r1603 = seftp::proto::parse_1603(pv);
+			handle_1603(r1603, original_crc, crc_ok);
+			return "";
+		}
+		case seftp::proto::ResCode::TransferDone: {
+			answer_1604(s);
+			return "";
+		}
+		case seftp::proto::ResCode::Error: {
+			
+			if (payload.size() < seftp::proto::kClientIdLen) {
+				cout << "payload for 1607 too short" << endl;
+				return "";
+			}
+			seftp::proto::ClientId cid{};
+			std::memcpy(cid.data(), payload.data(), seftp::proto::kClientIdLen);
+			std::string client_id_hex = client_id_to_hex(cid);
+			std::vector<uint8_t> c_text(payload.begin() + seftp::proto::kClientIdLen, payload.end());
+			std::string text(c_text.begin(), c_text.end());
+			auto pos = text.find('\0');
+			if (pos != std::string::npos) text.resize(pos);
+			answer_1607(s, text);
+			if (debug_mode)std::cout << "this is the uuid in answer manager after 1607: [" << client_id_hex << "]" << std::endl;
 			return uuid;
 		}
-		std::vector<uint8_t> cid(payload.begin(),payload.begin()+ID_LEN);
-		std::vector<uint8_t> c_text(payload.begin() + ID_LEN, payload.end());
-		auto to_hex = [](const std::vector<uint8_t>& v) {
-			std::ostringstream oss;
-			for (auto b : v) oss << std::hex << std::setw(2) << std::setfill('0') << (int)b;
-			return oss.str();
-			};
-		std::string client_id_hex = to_hex(cid);
-		std::string text(c_text.begin(), c_text.end());
-		auto pos = text.find('\0');
-		if (pos != std::string::npos) text.resize(pos);
-		answer_1607(s, text);
-		if (debug_mode)std::cout << "this is the uuid in answer manager after 1607: [" << client_id_hex << "]" << std::endl;
-		return uuid;
-		
-	}
-	else {
-		cout << "the code: "<<  code << " is not a valid code for a response" << endl;
-		exit(1);
+		default:
+			cout << "the code: " << code << " is not a valid code for a response" << endl;
+			exit(1);
+
 	}
 
 

@@ -31,7 +31,9 @@
 #include <iomanip>
 #include <filesystem>
 #include <random>
-#include "protocol.hpp"
+#include "protocol/protocol.hpp"
+#include "net/net.hpp"
+
 using namespace std;
 using namespace CryptoPP;
 using  boost::asio::ip::tcp;
@@ -55,7 +57,7 @@ std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 std::array<uint8_t, 16> make_iv();
 std::string to_hex(const std::string& data);
 string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t original_crc=0, bool* crc_ok=nullptr);
-void making_RSAkeys(tcp::socket& s, char request[], const int max_Length, vector<uint8_t>& message, vector<string> transfers,  string& uuid, string key = "");
+void making_RSAkeys(tcp::socket& s, vector<string> transfers,  string& uuid, string key = "");
 struct ClientEvent{
 	string method;
 	string time_stamp;
@@ -111,7 +113,7 @@ int main() {
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
 		// 3) Generate RSA-2048 key pair, send public key (826), receive AES key (1602)
 		if (debug_mode)cout << "before entering making_RSAkeys " << endl;
-		making_RSAkeys(s, request, max_Length, message, transfers, uuid);
+		making_RSAkeys(s, transfers, uuid);
 		update_uuid_if_present(answer_manager(s, transfers));
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
 	
@@ -199,7 +201,7 @@ std::string to_hex(const std::string& data)
 	}
 	return oss.str();
 }
-void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<uint8_t>& message, vector<string> transfers, string& uuid, string key)
+void making_RSAkeys(tcp::socket& s, vector<string> transfers, string& uuid, string key)
 {
 	// Generate a new RSA-2048 key pair or load an existing private key,
 	// send the public key to the server (request 826), and wait for the AES key (1602/1605).
@@ -239,7 +241,6 @@ void making_RSAkeys(tcp::socket& s, char request[], const int max_Length,vector<
 	);
 	if (debug_mode) std::cout << "publicKeyB64 length: " << publicKeyB64.size() << std::endl;
 	// approx 392 chars
-	std::fill(request, request + max_Length, '\0');
 	ofstream myFile;
 	myFile.open("me.info", std::ios_base::app);
 	if (!myFile.is_open()) {
@@ -909,13 +910,13 @@ string answer_1605(tcp::socket& s, const std::string& client_id, const std::vect
 	cout << "request to re-register approved, gets aes encrypted key" << endl;
 	return answer_1602(s, client_id, ciphertext, privkey_filename);
 }
-string answer_1606(tcp::socket& s, vector<string>transfers, char request[], const int max_Length, vector<uint8_t>message, vector<uint8_t> payload) {
+string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& message, vector<uint8_t>& payload) {
 	// Handle response 1606: server indicates that re-login failed or public key is invalid.
 	// If client_id is all zeros -> client must register again (825 + 826).
 	// Otherwise -> generate new RSA keys and send again.
 	if (debug_mode)cout << "in answer_1606" << endl;
 	client_history.push_back({ "answer_1606" ,timestamp() });
-	if (payload.size() < seftp::proto::kClientIdLen) cerr << "1602 payload too short: " << payload.size() << endl;
+	if (payload.size() < seftp::proto::kClientIdLen) cerr << "1606 payload too short: " << payload.size() << endl;
 	std::vector<uint8_t> cid(payload.begin(), payload.begin() + seftp::proto::kClientIdLen);
 	auto to_hex = [](const std::vector<uint8_t>& v) {
 		std::ostringstream oss;
@@ -938,11 +939,11 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 			std::ifstream f("priv.key", std::ios::binary);
 			if (!f) {
 				std::cout << "cant open priv.key\nneed to make new keys\n";
-				making_RSAkeys(s, request, max_Length, message, transfers, client_id_hex);
+				making_RSAkeys(s, transfers, client_id_hex);
 			}
 			else {
 				key.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-				making_RSAkeys(s, request, max_Length, message, transfers, client_id_hex, key);
+				making_RSAkeys(s, transfers, client_id_hex, key);
 			}
 		}
 		{
@@ -952,7 +953,7 @@ string answer_1606(tcp::socket& s, vector<string>transfers, char request[], cons
 	}
 	else {
 		cout << "the public key not good making a new one with RSA" << endl;
-		making_RSAkeys(s, request, max_Length, message, transfers, client_id_hex);
+		making_RSAkeys(s, transfers, client_id_hex);
 		{
 			std::string maybe = answer_manager(s, transfers);
 			if (!maybe.empty()) client_id_hex = maybe;
@@ -1058,7 +1059,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 	client_history.push_back({ "answer_manager" ,timestamp() });
 	const int max_Length = 1024;
 	char request[max_Length];
-
+	/*
 	// read header (7 bytes)
 	boost::asio::read(s, boost::asio::buffer(request, 7));
 
@@ -1085,6 +1086,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 	vector<uint8_t> payload(request + 7, request + 7 + payload_size);
 	seftp::proto::ByteView pv{payload.data(),payload.size()};
 
+
 	if (debug_mode) {
 		cout << "version: " << (int)version << ", code: " << code
 			<< ", payload size: " << payload_size << endl;
@@ -1092,7 +1094,20 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 		cout << "this is the code: " << code << endl;
 	}
 	string uuid;
-	auto res_code = static_cast<seftp::proto::ResCode>(code);
+	auto res_code = static_cast<seftp::proto::ResCode>(code);*/
+	auto frame = seftp::net::read_response_frame(s);
+
+	if (debug_mode) {
+		std::cout << "version: " << (int)frame.version
+			<< ", code: " << (uint16_t)frame.code
+			<< ", payload size: " << frame.payload.size()
+			<< std::endl;
+	}
+
+	seftp::proto::ByteView pv{ frame.payload.data(), frame.payload.size() };
+
+	std::string uuid;
+	auto res_code = frame.code;
 	switch (res_code) {
 		case  seftp::proto::ResCode::RegisterOk: {
 		auto r1600 = seftp::proto::parse_1600(pv);
@@ -1105,11 +1120,11 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 		case seftp::proto::ResCode::AesKey:
 		case seftp::proto::ResCode::ReloginOk: {
 			auto r1602_1605 = seftp::proto::parse_1602(pv);
-			return handle_1602_or_1605(code, r1602_1605, s);
+			return handle_1602_or_1605(static_cast<uint16_t>(frame.code), r1602_1605, s);
 		}
 		case seftp::proto::ResCode::ReloginFail: {
 			vector<uint8_t>message;
-			uuid = answer_1606(s, transfers, request, max_Length, message, payload);
+			uuid = answer_1606(s, transfers, message, frame.payload);
 			return uuid;
 		}
 		case seftp::proto::ResCode::CrcResult: {
@@ -1123,14 +1138,14 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 		}
 		case seftp::proto::ResCode::Error: {
 			
-			if (payload.size() < seftp::proto::kClientIdLen) {
+			if (frame.payload.size() < seftp::proto::kClientIdLen) {
 				cout << "payload for 1607 too short" << endl;
 				return "";
 			}
 			seftp::proto::ClientId cid{};
-			std::memcpy(cid.data(), payload.data(), seftp::proto::kClientIdLen);
+			std::memcpy(cid.data(), frame.payload.data(), seftp::proto::kClientIdLen);
 			std::string client_id_hex = client_id_to_hex(cid);
-			std::vector<uint8_t> c_text(payload.begin() + seftp::proto::kClientIdLen, payload.end());
+			std::vector<uint8_t> c_text(frame.payload.begin() + seftp::proto::kClientIdLen, frame.payload.end());
 			std::string text(c_text.begin(), c_text.end());
 			auto pos = text.find('\0');
 			if (pos != std::string::npos) text.resize(pos);
@@ -1139,7 +1154,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 			return uuid;
 		}
 		default:
-			cout << "the code: " << code << " is not a valid code for a response" << endl;
+			cout << "the code: " << static_cast<uint16_t>(frame.code) << " is not a valid code for a response" << endl;
 			exit(1);
 
 	}

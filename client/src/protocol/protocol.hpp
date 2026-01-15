@@ -73,7 +73,7 @@ namespace seftp::proto {
 		z.fill(0);
 		return z;
 	}
-	inline ClientId parse_client_id_hex32(std::string_view hex32) {
+	/*inline ClientId parse_client_id_hex32(std::string_view hex32) {
 		if (hex32.size() != 32)
 			throw std::invalid_argument("client_id must be exactly 32 hex characters");
 
@@ -92,7 +92,7 @@ namespace seftp::proto {
 			out[i] = static_cast<uint8_t>((hi << 4) | lo);
 		}
 		return out;
-	}
+	}*/
 
 	//-----Frame builders
 
@@ -177,7 +177,7 @@ namespace seftp::proto {
 		return build_request(client_id, ReqCode::FileChunk, p);
 	}
 
-	struct ResHeader
+	/*struct ResHeader
 	{
 		uint8_t version = 3;
 		uint16_t code_le = 0;
@@ -193,7 +193,7 @@ namespace seftp::proto {
 		h.code_le = read_u16_le(&hdr7[1]);
 		h.payload_size_le = read_u32_le(&hdr7[3]);
 		return h;
-	}
+	}*/
 	struct Res1600 
 	{
 		ClientId client_id;

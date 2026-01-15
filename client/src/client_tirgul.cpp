@@ -33,6 +33,7 @@
 #include <random>
 #include "protocol/protocol.hpp"
 #include "net/net.hpp"
+#include "util/util.hpp"
 
 using namespace std;
 using namespace CryptoPP;
@@ -331,7 +332,7 @@ void request_826(tcp::socket& s, const string& name, const string& publicKeyStr,
 		message.push_back('\0');
 		message.insert(message.end(), publicKeyStr.begin(), publicKeyStr.end());
 		*/
-		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_826_public_key(cid, name, publicKeyStr);
 		std::cout << "publicKeyB64 length: " << publicKeyStr.size() << std::endl;
 		// send
@@ -359,7 +360,7 @@ void request_827(tcp::socket& s, const string& name, const string& uuid) {
 		// Payload = username + \0
 		message.insert(message.end(), name.begin(), name.end());
 		message.push_back('\0');*/
-		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_827_relogin(cid, name);
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));;
@@ -436,7 +437,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		message.push_back('\0');
 		// Ciphertext chunk
 		message.insert(message.end(), iv, iv + CryptoPP::AES::BLOCKSIZE);*/
-		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		std::array<uint8_t, 16> iv_arr{};
 		std::memcpy(iv_arr.data(), components[4].data(), 16);
 		auto msg0 = seftp::proto::build_828_packet0_iv(cid, (uint32_t)components[2].size(), (uint32_t)components[1].size(), (uint16_t)total_packets,file_name, iv_arr);
@@ -582,7 +583,7 @@ void request_900(tcp::socket& s, const string& name, const string& uuid) {
 		// Payload = fileName + \0
 		message.insert(message.end(), name.begin(), name.end());
 		message.push_back('\0');*/
-		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_900_crc_ok(cid, name);
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));
@@ -608,7 +609,7 @@ void request_901(tcp::socket& s, const string& name, const string& uuid) {
 		// 5. Payload – fileName + null terminator
 		message.insert(message.end(), name.begin(), name.end());
 		message.push_back('\0');*/
-		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_901_crc_retry(cid, name);
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));
@@ -634,7 +635,7 @@ void request_902(tcp::socket& s, const string& name, const string& uuid) {
 		// Payload = fileName + \0
 		message.insert(message.end(), name.begin(), name.end());
 		message.push_back('\0');*/
-		auto cid = seftp::proto::parse_client_id_hex32(uuid);
+		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_902_crc_fail(cid, name);
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));
@@ -825,7 +826,7 @@ string answer_1600(tcp::socket& s, vector<uint8_t>& payload, string name) {
 	cout << "register for the client id: " << client_id_hex << " succeed" << endl;
 	return client_id_hex;
 }
-static std::string client_id_to_hex(const seftp::proto::ClientId& cid)
+/*static std::string client_id_to_hex(const seftp::proto::ClientId& cid)
 {
 	std::ostringstream oss;
 	oss << std::hex << std::setfill('0');
@@ -836,11 +837,11 @@ static std::string client_id_to_hex(const seftp::proto::ClientId& cid)
 static std::vector<uint8_t> client_id_to_vec(const seftp::proto::ClientId& cid)
 {
 	return std::vector<uint8_t>(cid.begin(), cid.end());
-}
+}*/
 static std::string handle_1600(const seftp::proto::Res1600& r, const std::string& username, tcp::socket& s)
 {
 	// reuse existing behavior exactly
-	auto payload16 = client_id_to_vec(r.client_id);
+	auto payload16 = seftp::util::client_id_to_vec(r.client_id);
 	return answer_1600(s, payload16, username);
 }
 void answer_1601(tcp::socket& s) {
@@ -963,7 +964,7 @@ string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& mes
 	return client_id_hex;
 }
 static std::string handle_1602_or_1605(uint16_t code, const seftp::proto::Res1602& r, tcp::socket& s) {
-	std::string client_id_hex = client_id_to_hex(r.client_id);
+	std::string client_id_hex = seftp::util::client_id_to_hex(r.client_id);
 	if (code == 1602)
 	{
 		answer_1602(s, client_id_hex, r.encrypted_key, "priv.key");
@@ -1144,7 +1145,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 			}
 			seftp::proto::ClientId cid{};
 			std::memcpy(cid.data(), frame.payload.data(), seftp::proto::kClientIdLen);
-			std::string client_id_hex = client_id_to_hex(cid);
+			std::string client_id_hex = seftp::util::client_id_to_hex(cid);
 			std::vector<uint8_t> c_text(frame.payload.begin() + seftp::proto::kClientIdLen, frame.payload.end());
 			std::string text(c_text.begin(), c_text.end());
 			auto pos = text.find('\0');

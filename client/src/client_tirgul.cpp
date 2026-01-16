@@ -34,6 +34,7 @@
 #include "protocol/protocol.hpp"
 #include "net/net.hpp"
 #include "util/util.hpp"
+#include "crypto/crypto.hpp"
 
 using namespace std;
 using namespace CryptoPP;
@@ -55,7 +56,7 @@ void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value);
 std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkSize);
 std::vector<string> encrypt_file(string key);
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
-std::array<uint8_t, 16> make_iv();
+/*std::array<uint8_t, 16> make_iv();*/
 std::string to_hex(const std::string& data);
 string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t original_crc=0, bool* crc_ok=nullptr);
 void making_RSAkeys(tcp::socket& s, vector<string> transfers,  string& uuid, string key = "");
@@ -210,7 +211,7 @@ void making_RSAkeys(tcp::socket& s, vector<string> transfers, string& uuid, stri
 	// If 'key' is non-empty: load RSA private key from the given binary string.
 	client_history.push_back({"making_RSAkeys",timestamp() });
 	if (debug_mode)cout << "inside making_RSAkeys" << endl;
-	CryptoPP::RSA::PrivateKey privateKey;
+	/*CryptoPP::RSA::PrivateKey privateKey;
 	CryptoPP::RSA::PublicKey publicKey;
 
 	if (key.empty()) {
@@ -240,7 +241,13 @@ void making_RSAkeys(tcp::socket& s, vector<string> transfers, string& uuid, stri
 	CryptoPP::StringSource(publicKeyDer, true,
 		new CryptoPP::Base64Encoder(new CryptoPP::StringSink(publicKeyB64), false)
 	);
-	if (debug_mode) std::cout << "publicKeyB64 length: " << publicKeyB64.size() << std::endl;
+	// keep private key
+	if (key.empty()) {
+		privateKey.Save(CryptoPP::FileSink("priv.key").Ref());
+	}*/
+	seftp::crypto::PublicKeyFormat key_pair = seftp::crypto::generate_rsa2048_keypair_der(key);
+	if (debug_mode)std::cout << "DER len: " << key_pair.publicKeyDer.size() << std::endl;
+	if (debug_mode) std::cout << "publicKeyB64 length: " << key_pair.publicKeyB64.size() << std::endl;
 	// approx 392 chars
 	ofstream myFile;
 	myFile.open("me.info", std::ios_base::app);
@@ -248,16 +255,14 @@ void making_RSAkeys(tcp::socket& s, vector<string> transfers, string& uuid, stri
 		cerr << "Failed to add to me.info public key" << endl;
 		exit(1);
 	}
-	myFile << publicKeyB64 << "\n";
+	myFile << key_pair.publicKeyB64 << "\n";
 	myFile.close();
-	cout << "Public key (B64) added to me.info: "<<publicKeyB64 << endl;
-	if(debug_mode)cout << "sending 826, b64 len: " << publicKeyB64.size() << endl;
-	request_826(s, transfers[2].c_str(),publicKeyB64, uuid);
+	
+	cout << "Public key (B64) added to me.info: "<< key_pair.publicKeyB64 << endl;
+	if(debug_mode)cout << "sending 826, b64 len: " << key_pair.publicKeyB64.size() << endl;
+	request_826(s, transfers[2].c_str(), key_pair.publicKeyB64, uuid);
 
-	// keep private key
-	if (key.empty()) {
-		privateKey.Save(CryptoPP::FileSink("priv.key").Ref());
-	}
+
 
 	std::cout << "RSA keys generated and saved to files.\n";
 	/* {
@@ -679,7 +684,7 @@ std::vector<uint8_t> parse_uuid(const std::string& uuid_str) {
 
 	return uuid_bytes;
 }
-std::string encode_base64(const std::string& raw_key) {
+/*std::string encode_base64(const std::string& raw_key) {
 	std::string encoded;
 	CryptoPP::StringSource(reinterpret_cast<const unsigned char*>(raw_key.data()), raw_key.size(), true,
 		new CryptoPP::Base64Encoder(new CryptoPP::StringSink(encoded), false));
@@ -702,7 +707,7 @@ std::array<uint8_t, 16> make_iv()
 		[&]() { return static_cast<uint8_t>(dist(gen)); });
 
 	return iv;
-}
+}*/
 std::vector<string> encrypt_file(string key) {
 	// Ask the user for a filename, read the file in binary, compute CRC32,
 	// encrypt content using AES-256-CBC with a random per-file IV and a 32-byte AES key
@@ -734,16 +739,20 @@ std::vector<string> encrypt_file(string key) {
 	std::string plain_text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 	file.close();
 	// Compute CRC32 over plaintext (for integrity verification with server later)
-	uint32_t crc_val = 0;
+	/*uint32_t crc_val = 0;
 	CryptoPP::CRC32 hash;
 	hash.Update(reinterpret_cast<const CryptoPP::byte*>(plain_text.data()), plain_text.size());
-	hash.Final(reinterpret_cast<CryptoPP::byte*>(&crc_val));
+	hash.Final(reinterpret_cast<CryptoPP::byte*>(&crc_val));*/
+	uint32_t crc_val = seftp::crypto::crc32(plain_text);
+	cout << "CRC (dec): " << crc_val << " (hex): 0x" << std::hex << crc_val << std::dec << endl;
 	if (debug_mode)cout << "Plaintext size: " << plain_text.size() << endl;
-	cout << "CRC (dec): " << crc_val<< " (hex): 0x" << std::hex << crc_val << std::dec << endl;
 	// Decode AES key from Base64 string
-	std::string raw_key = decode_base64(key);
+	std::string raw_key = seftp::crypto::decode_base64(key);
+	auto iv_arr = seftp::crypto::make_iv();
+	std::string cipher_text = seftp::crypto::aes256_cbc_encrypt(plain_text,raw_key,iv_arr);
+	std::string iv_str(reinterpret_cast<const char*>(iv_arr.data()), iv_arr.size());
 
-	if (raw_key.size() != CryptoPP::AES::MAX_KEYLENGTH) {
+	/*if (raw_key.size() != CryptoPP::AES::MAX_KEYLENGTH) {
 		std::cerr << "AES key must be exactly 32 bytes (got " << raw_key.size() << ")\n";
 		return {};
 	}
@@ -755,8 +764,8 @@ std::vector<string> encrypt_file(string key) {
 	/***
 	// Stage 1:
 	// IV is generated randomly per file and sent to the server alongside the upload
-	// (see request_828: packet_number=0 carries the IV).*/
-	auto iv_arr = make_iv(); // std::array<uint8_t, 16>
+	// (see request_828: packet_number=0 carries the IV).
+	auto iv_arr = seftp::crypto::make_iv(); // std::array<uint8_t, 16>
 	CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
 	std::memcpy(iv, iv_arr.data(), CryptoPP::AES::BLOCKSIZE);
 	std::string iv_str(reinterpret_cast<const char*>(iv), CryptoPP::AES::BLOCKSIZE);
@@ -777,7 +786,7 @@ std::vector<string> encrypt_file(string key) {
 	catch (const CryptoPP::Exception& e) {
 		std::cerr << "Encryption error: " << e.what() << std::endl;
 		return {};
-	}
+	}*/
 	// Package results for later use:
 	std::vector<std::string> res;
 	res.push_back(file_name);      // index 0: file name
@@ -860,6 +869,17 @@ std::string answer_1602(tcp::socket& s, const std::string& client_id, const std:
 	std::cout << "client " << client_id << " received encrypted AES key" << std::endl;
 	std::string decrypted;
 	try {
+		decrypted = seftp::crypto::rsa_oaep_sha1_decrypt_from_file(privkey_filename, ciphertext);
+		if (debug_mode) {
+			std::cout << "Decrypted AES key len=" << decrypted.size() << std::endl;
+		}
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Decryption error: " << e.what() << std::endl;
+		decrypted.clear();
+	}
+
+	/*try {
 		// load private from file
 		CryptoPP::RSA::PrivateKey privateKey;
 		CryptoPP::FileSource file(privkey_filename.c_str(), true);
@@ -890,8 +910,8 @@ std::string answer_1602(tcp::socket& s, const std::string& client_id, const std:
 	}
 	catch (const CryptoPP::Exception& e) {
 		std::cerr << "Decryption error: " << e.what() << std::endl;
-	}
-	std::string aes_key_b64 = encode_base64(decrypted);
+	}*/
+	std::string aes_key_b64 = seftp::crypto::encode_base64(decrypted);
 	std::ofstream aesFile("aes.key", std::ios::trunc);
 	if (!aesFile) {
 		std::cerr << "Failed to open aes.key for writing" << std::endl;

@@ -811,7 +811,7 @@ std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkS
 	}
 	return chunks;
 }
-string answer_1600(tcp::socket& s, vector<uint8_t>& payload, string name) {
+string answer_1600(vector<uint8_t>& payload, string name) {
 	// Handle response 1600: registration succeeded.
 	// Payload: 16-byte client_id.
 	// Writes name and client_id hex into me.info.
@@ -847,13 +847,13 @@ static std::vector<uint8_t> client_id_to_vec(const seftp::proto::ClientId& cid)
 {
 	return std::vector<uint8_t>(cid.begin(), cid.end());
 }*/
-static std::string handle_1600(const seftp::proto::Res1600& r, const std::string& username, tcp::socket& s)
+static std::string handle_1600(const seftp::proto::Res1600& r, const std::string& username)
 {
 	// reuse existing behavior exactly
 	auto payload16 = seftp::util::client_id_to_vec(r.client_id);
-	return answer_1600(s, payload16, username);
+	return answer_1600(payload16, username);
 }
-void answer_1601(tcp::socket& s) {
+void answer_1601() {
 	// Handle response 1601: registration failed (username already exists or other error).
 	// Exits the client.
 	if (debug_mode)cout << "in answer_1601" << endl;
@@ -861,7 +861,7 @@ void answer_1601(tcp::socket& s) {
 	cout << "register failed" << endl;
 	exit(1);
 }
-std::string answer_1602(tcp::socket& s, const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
+std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
 	// Handle response 1602: AES key encrypted with RSA public key for this client.
 	// Decrypts AES key using priv.key and stores it as Base64 in aes.key.
 	if (debug_mode)cout << "in answer_1602" << endl;
@@ -923,13 +923,13 @@ std::string answer_1602(tcp::socket& s, const std::string& client_id, const std:
 	}
 	return aes_key_b64;
 }
-string answer_1605(tcp::socket& s, const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
+string answer_1605(const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
 	// Handle response 1605: re-login approved.
 	// Same format as 1602 (delegates to answer_1602).
 	client_history.push_back({ "answer_1605" ,timestamp() });
 	if (debug_mode)cout << "in answer_1605 the next will be answer_1602 (SAME FUNCTION)" << endl;
 	cout << "request to re-register approved, gets aes encrypted key" << endl;
-	return answer_1602(s, client_id, ciphertext, privkey_filename);
+	return answer_1602(client_id, ciphertext, privkey_filename);
 }
 string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& message, vector<uint8_t>& payload) {
 	// Handle response 1606: server indicates that re-login failed or public key is invalid.
@@ -983,15 +983,15 @@ string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& mes
 
 	return client_id_hex;
 }
-static std::string handle_1602_or_1605(uint16_t code, const seftp::proto::Res1602& r, tcp::socket& s) {
+static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::proto::Res1602& r) {
 	std::string client_id_hex = seftp::util::client_id_to_hex(r.client_id);
-	if (code == 1602)
+	if (code == seftp::proto::ResCode::AesKey)
 	{
-		answer_1602(s, client_id_hex, r.encrypted_key, "priv.key");
+		answer_1602(client_id_hex, r.encrypted_key, "priv.key");
 		if (debug_mode) cout << "after 1602" << endl;
 	}
 	else { // 1605
-		cout << answer_1605(s, client_id_hex, r.encrypted_key, "priv.key") << endl;
+		cout << answer_1605(client_id_hex, r.encrypted_key, "priv.key") << endl;
 		if (debug_mode) cout << "after 1605" << endl;
 	}
 
@@ -1055,12 +1055,12 @@ static void handle_1603(const seftp::proto::Res1603& r, uint32_t original_crc, b
 		*crc_ok = false;
 	}
 }
-void answer_1604(tcp::socket& s) {
+void answer_1604() {
 	client_history.push_back({ "answer_1604" ,timestamp() });
 	if (debug_mode)std::cout << "in answer_1604" << std::endl;
 	std::cout << "finish transfering" << std::endl;
 }
-void answer_1607(tcp::socket& s, string& text) {
+void answer_1607(string& text) {
 	client_history.push_back({ "answer_1607" ,timestamp() });
 	if (debug_mode)std::cout << "in answer_1607" << std::endl;
 	cout << "general error {"<<text<<"}, please close the client and run again" << endl;
@@ -1132,16 +1132,16 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 	switch (res_code) {
 		case  seftp::proto::ResCode::RegisterOk: {
 		auto r1600 = seftp::proto::parse_1600(pv);
-		return handle_1600(r1600, transfers[2].c_str(), s);
+		return handle_1600(r1600, transfers[2].c_str());
 		}
 		case seftp::proto::ResCode::RegisterFail: {
-		answer_1601(s);
+		answer_1601();
 		exit(1);
 		}
 		case seftp::proto::ResCode::AesKey:
 		case seftp::proto::ResCode::ReloginOk: {
 			auto r1602_1605 = seftp::proto::parse_1602(pv);
-			return handle_1602_or_1605(static_cast<uint16_t>(frame.code), r1602_1605, s);
+			return handle_1602_or_1605(frame.code, r1602_1605);
 		}
 		case seftp::proto::ResCode::ReloginFail: {
 			vector<uint8_t>message;
@@ -1154,7 +1154,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 			return "";
 		}
 		case seftp::proto::ResCode::TransferDone: {
-			answer_1604(s);
+			answer_1604();
 			return "";
 		}
 		case seftp::proto::ResCode::Error: {
@@ -1170,7 +1170,7 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 			std::string text(c_text.begin(), c_text.end());
 			auto pos = text.find('\0');
 			if (pos != std::string::npos) text.resize(pos);
-			answer_1607(s, text);
+			answer_1607(text);
 			if (debug_mode)std::cout << "this is the uuid in answer manager after 1607: [" << client_id_hex << "]" << std::endl;
 			return uuid;
 		}

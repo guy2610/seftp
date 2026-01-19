@@ -39,6 +39,22 @@
 using namespace std;
 using namespace CryptoPP;
 using  boost::asio::ip::tcp;
+struct ClientContext {
+	std::string client_id;
+	std::string username;
+	std::string aes_key_b64;
+	bool logged_in_or_has_aes = false;
+	bool need_register = false;
+	bool send_public_key = false;
+	std::string last_error_text;
+};
+
+enum class NextStep { None, NeedRegister, NeedSendPublicKey, Fatal };
+struct DispatchResult
+{
+	NextStep step = NextStep::None;
+	bool updated_client_id = false;
+};
 
 vector<string> transfer_file_info(string namefile);
 string timestamp();
@@ -46,19 +62,19 @@ void request_825(tcp::socket& s, const string& name);
 void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid);
 void request_827(tcp::socket& s, const string& name, const string & uuid);
 uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components);
-void request_828_retry(tcp::socket& s, vector<string> transfers, const string& uuid, string encrypt_key);
+void request_828_retry(tcp::socket& s, vector<string> transfers, string encrypt_key, ClientContext& cc);
 void request_900(tcp::socket& s, const string& name, const string& uuid);
 void request_901(tcp::socket& s, const string& name, const string& uuid);
 void request_902(tcp::socket& s, const string& name, const string& uuid);
-void append_little_endian_32(std::vector<uint8_t>& buffer, uint32_t value);
+/*void append_little_endian_32(std::vector<uint8_t>& buffer, uint32_t value);
 void append_little_endian_8(std::vector<uint8_t>& buffer, uint8_t value);
-void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value);
+void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value);*/
 std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkSize);
 std::vector<string> encrypt_file(string key);
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 /*std::array<uint8_t, 16> make_iv();*/
 std::string to_hex(const std::string& data);
-string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t original_crc=0, bool* crc_ok=nullptr);
+DispatchResult answer_manager(tcp::socket& s, vector<string> transfers, ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
 void making_RSAkeys(tcp::socket& s, vector<string> transfers,  string& uuid, string key = "");
 struct ClientEvent{
 	string method;
@@ -80,6 +96,8 @@ int main() {
 	vector<string> transfers = transfer_file_info("transfer.info");
 	string address = transfers[0];
 	string port = transfers[1];
+	ClientContext cc{};
+	cc.username = transfers[2];
 	const int max_Length = 1042;
 	boost::asio::io_context io_context;
 	tcp::socket s(io_context);
@@ -96,9 +114,9 @@ int main() {
 	char request[max_Length];
 	ifstream MyReadFile("me.info");
 	vector<uint8_t>message;
-	string uuid, key, name;
-	auto update_uuid_if_present = [&](const string& maybe) {
-		if (!maybe.empty()) uuid = maybe;};
+	string key, name;
+	/*auto update_uuid_if_present = [&](const string& maybe) {
+		if (!maybe.empty()) uuid = maybe;};*/
 	if (!MyReadFile.is_open()) {
 		// No me.info -> first registration flow (825 + 826 + 1600 + 1602)
 		cout << "Failed to open me.info" << std::endl;
@@ -111,30 +129,95 @@ int main() {
 		// 1) Send registration request with username (825)
 		request_825(s, transfers[2].c_str());
 		// 2) Wait for 1600 and receive server-issued client_id from server
-		update_uuid_if_present(answer_manager(s, transfers));
-		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
+		/*update_uuid_if_present(answer_manager(s, transfers));*/
+		auto r = answer_manager(s, transfers, cc);
+		if (r.step == NextStep::Fatal) {
+			std::cerr << "Fatal: " << cc.last_error_text << "\n";
+			return 1;
+		}
+		/*if (!cc.client_id.empty()) uuid = cc.client_id;
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;*/
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		// 3) Generate RSA-2048 key pair, send public key (826), receive AES key (1602)
-		if (debug_mode)cout << "before entering making_RSAkeys " << endl;
-		making_RSAkeys(s, transfers, uuid);
-		update_uuid_if_present(answer_manager(s, transfers));
-		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
+		if (debug_mode)std::cout << "before entering making_RSAkeys " << std::endl;
+		/*making_RSAkeys(s, transfers, uuid);*/
+		making_RSAkeys(s, transfers, cc.client_id);
+		/*update_uuid_if_present(answer_manager(s, transfers));*/
+		r = answer_manager(s, transfers, cc);
+		if (r.step == NextStep::Fatal) {
+			std::cerr << "Fatal: " << cc.last_error_text << "\n";
+			return 1;
+		}
+		/*if (!cc.client_id.empty()) uuid = cc.client_id;
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;*/
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 	
 	}
 	else {
 		// me.info exists -> Single Sign-On flow (827 + 1605)
-		cout << "file me.info exist, handle SSO" << endl;
-		string text;
+		std::cout << "file me.info exist, handle SSO" << endl;
+		std::string text;
 		getline(MyReadFile, name);// first line: username
-		cout << "this is name in me.info: "<<name << endl;
+		std::cout << "this is name in me.info: "<<name << endl;
+		std::string uuid;
 		getline(MyReadFile, uuid);// second line: client_id hex
-		cout << "this is uuid in me.info: " << uuid<< endl;
+		cc.client_id = uuid;
+		/*std::cout << "this is uuid in me.info: " << uuid << endl;*/
+		std::cout << "this is uuid in me.info: " << cc.client_id << endl;
 		MyReadFile.close();
 		// 1) Send SSO / re-login request with existing client_id + username (827)
-		request_827(s, transfers[2].c_str(), uuid);
-		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
+		/*request_827(s, transfers[2].c_str(), uuid);
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;*/
+		request_827(s, transfers[2].c_str(), cc.client_id);
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		// 2) Wait for 1605 (or 1606). client_id remains stable; only AES key is refreshed if needed
-		update_uuid_if_present(answer_manager(s, transfers));
-		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
+		/*update_uuid_if_present(answer_manager(s, transfers));*/
+		auto r = answer_manager(s, transfers, cc);
+		/*if (!cc.client_id.empty()) uuid = cc.client_id;
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;*/
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
+		if (r.step == NextStep::NeedRegister) {
+			// 825 -> 1600
+			if (debug_mode) cout << "making a new user with request_825" << endl;
+			request_825(s, transfers[2].c_str());
+			auto r2 = answer_manager(s, transfers, cc);
+			if (r2.step == NextStep::Fatal) {
+				std::cerr << "Fatal: " << cc.last_error_text << "\n";
+				return 1;
+			}
+			/*if (!cc.client_id.empty()) uuid = cc.client_id;*/
+			// 826 -> 1602
+			cout << "the public key not good making a new one with RSA" << endl;
+			/*making_RSAkeys(s, transfers, uuid);*/
+			making_RSAkeys(s, transfers, cc.client_id);
+			auto r3 = answer_manager(s, transfers, cc);
+			if (r3.step == NextStep::Fatal) {
+				std::cerr << "Fatal: " << cc.last_error_text << "\n";
+				return 1;
+			}
+			/*if (!cc.client_id.empty()) uuid = cc.client_id;*/
+		}
+		else if (r.step == NextStep::NeedSendPublicKey) {
+			cout << "has new client id, need to send 826 to get a key" << endl;
+			/*uuid = cc.client_id;*/
+			std::string keybin;
+			{
+				std::ifstream f("priv.key", std::ios::binary);
+				if (f) keybin.assign(std::istreambuf_iterator<char>(f), {});
+			}
+			/*making_RSAkeys(s, transfers, uuid, keybin);*/
+			making_RSAkeys(s, transfers, cc.client_id, keybin);
+			auto r2 = answer_manager(s, transfers, cc);
+			if (r2.step == NextStep::Fatal) {
+				std::cerr << "Fatal: " << cc.last_error_text << "\n";
+				return 1;
+			}
+			/*if (!cc.client_id.empty()) uuid = cc.client_id;*/
+		}
+		else if (r.step == NextStep::Fatal) {
+			std::cerr << "fatal during relogin: " << cc.last_error_text << "\n";
+			return 1;
+		}
 		
 	}
 	// Load AES key from aes.key (Base64), which was written by answer_1602/1605
@@ -147,15 +230,16 @@ int main() {
 		std::getline(f, key);  //key in Base64
 		std::cout << "Loaded AES key from file (Base64, len=" << key.size() << ")" << std::endl;
 	}
-	if (debug_mode)cout << "this is the uuid "<<uuid << endl;
+	if (debug_mode)cout << "this is the uuid "<<cc.client_id << endl;
 	if (debug_mode)cout << "before file send operation" << endl;
 	// Main loop: encrypt and send files to the server, one by one
 	while (true) {
 		// Sends file (828 + retry with 900/901/902 based on CRC)
-		request_828_retry(s, transfers, uuid, key);
+		/*request_828_retry(s, transfers, uuid, key, cc);*/
+		request_828_retry(s, transfers, key, cc);
 		// Read final response (e.g., 1604 – transfer finished)
-		string tmp = answer_manager(s, transfers);
-		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;
+		auto r = answer_manager(s, transfers, cc);
+		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		// Ask user if they want to send another file
 		cout << "\nDo you want to send another file to the server? answer 'yes' or something else for no" << endl;
 		getline(cin, ans);
@@ -526,7 +610,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		return 0;
 	}
 }
-void request_828_retry(tcp::socket& s, vector<string> transfers, const string& uuid, string encrypt_key) {
+void request_828_retry(tcp::socket& s, vector<string> transfers, string encrypt_key, ClientContext& cc) {
 	// Wrapper for request_828 with retry logic based on CRC check (1603).
 	// If CRC mismatch:
 	//   - up to 3 retries: send 901 and resend file.
@@ -542,31 +626,30 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, const string& u
 	// components = [ file_name, plaintext, ciphertext, crc_string, random iv ]
 	vector<string> components = encrypt_file(encrypt_key);
 	while (retries < MAX_RETRIES && !*crc_ok) {
-		if (debug_mode)cout << "this is the uuid " << uuid << endl;
+		if (debug_mode)cout << "this is the uuid " << cc.client_id << endl;
 		// 1) Send encrypted file (828) and get original CRC of plaintext
-		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), uuid, components);
+		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), cc.client_id, components);
 		// 2) Wait for 1603 from server (CRC verification) and update crc_ok
-		string tmp;
-		tmp = answer_manager(s, transfers, original_crc_file,crc_ok);
-		if (debug_mode)cout << "this is the uuid " << uuid << endl;
+		auto r = answer_manager(s, transfers, cc, original_crc_file, crc_ok);
+		if (debug_mode)cout << "this is the uuid " << cc.client_id << endl;
 		if (!*crc_ok) {
 			// CRC mismatch -> retry or give up
 			retries++;
 			if (retries < MAX_RETRIES) {
 				std::cout << "CRC mismatch, retry " << retries << "/" << MAX_RETRIES << std::endl;
 				// Notify server: CRC invalid but we will resend (901)
-				request_901(s, file_name,uuid);
-				if (debug_mode)cout << "this is the uuid " << uuid << endl;
+				request_901(s, file_name,cc.client_id);
+				if (debug_mode)cout << "this is the uuid " << cc.client_id << endl;
 			}
 			else {
 				// 4th failure -> give up (902)
 				std::cout << "CRC mismatch after 4 retries, sending 902" << std::endl;
-				request_902(s, file_name, uuid);
+				request_902(s, file_name, cc.client_id);
 			}
 		}
 		else {
 			// CRC OK -> confirm success (900)
-			request_900(s, file_name, uuid);
+			request_900(s, file_name, cc.client_id);
 		}	
 	}
 	
@@ -650,7 +733,7 @@ void request_902(tcp::socket& s, const string& name, const string& uuid) {
 	}
 
 }
-void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value) {
+/*void append_little_endian_16(std::vector<uint8_t>& buffer, uint16_t value) {
 	buffer.push_back(static_cast<uint8_t>(value & 0xFF));        // byte 0 (LSB)
 	buffer.push_back(static_cast<uint8_t>((value >> 8) & 0xFF)); // byte 1 (MSB)
 	}
@@ -662,7 +745,7 @@ void append_little_endian_32(std::vector<uint8_t>& buffer, uint32_t value) {
 	buffer.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
 	buffer.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
 	buffer.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
-}
+}*/
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str) {
 	if (debug_mode)cout << "this is the uuid_str " << uuid_str << endl;
 	if (uuid_str.length() != 32)
@@ -859,7 +942,6 @@ void answer_1601() {
 	if (debug_mode)cout << "in answer_1601" << endl;
 	client_history.push_back({ "answer_1601" ,timestamp()});
 	cout << "register failed" << endl;
-	exit(1);
 }
 std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
 	// Handle response 1602: AES key encrypted with RSA public key for this client.
@@ -931,7 +1013,7 @@ string answer_1605(const std::string& client_id, const std::vector<uint8_t>& cip
 	cout << "request to re-register approved, gets aes encrypted key" << endl;
 	return answer_1602(client_id, ciphertext, privkey_filename);
 }
-string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& message, vector<uint8_t>& payload) {
+/*string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& message, vector<uint8_t>& payload) {
 	// Handle response 1606: server indicates that re-login failed or public key is invalid.
 	// If client_id is all zeros -> client must register again (825 + 826).
 	// Otherwise -> generate new RSA keys and send again.
@@ -982,6 +1064,34 @@ string answer_1606(tcp::socket& s, vector<string>transfers, vector<uint8_t>& mes
 	}
 
 	return client_id_hex;
+}*/
+static DispatchResult handle_1606(const std::vector<uint8_t>& payload, ClientContext& cc) {
+	// Handle response 1606: server indicates that re-login failed or public key is invalid.
+	// If client_id is all zeros -> client must register again (825 + 826).
+	// Otherwise -> generate new RSA keys and send again.
+	if (debug_mode)cout << "in handle_1606" << endl;
+	client_history.push_back({ "handle_1606" ,timestamp() });
+	DispatchResult out{};
+	if (payload.size() < seftp::proto::kClientIdLen) {
+		cc.last_error_text = "1606 payload too short";
+		out.step = NextStep::Fatal;
+		return out;
+	}
+	seftp::proto::ClientId cid{};
+	std::memcpy(cid.data(), payload.data(), seftp::proto::kClientIdLen);
+	std::string client_id_hex = seftp::util::client_id_to_hex(cid);
+	if (client_id_hex == std::string(32, '0')) {
+		cc.need_register = true;
+		out.step = NextStep::NeedRegister;
+		cout << "request to re-register disapproved, the client id is: " << client_id_hex << ". is not register" << endl;
+		cout << "need to sign up, making a new client id" << endl;
+		return out;
+	}
+	cc.client_id = client_id_hex;
+	cc.send_public_key = true;
+	out.step = NextStep::NeedSendPublicKey;
+	out.updated_client_id = true;
+	return out;
 }
 static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::proto::Res1602& r) {
 	std::string client_id_hex = seftp::util::client_id_to_hex(r.client_id);
@@ -1064,9 +1174,8 @@ void answer_1607(string& text) {
 	client_history.push_back({ "answer_1607" ,timestamp() });
 	if (debug_mode)std::cout << "in answer_1607" << std::endl;
 	cout << "general error {"<<text<<"}, please close the client and run again" << endl;
-	exit(1);
 }
-string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t original_crc, bool* crc_ok) {
+DispatchResult answer_manager(tcp::socket& s, vector<string> transfers, ClientContext& cc, uint32_t original_crc, bool* crc_ok) {
 	// Read a single response frame from the server and dispatch to the correct handler.
 	// The function may:
 	//   - write me.info (on registration success)
@@ -1127,59 +1236,62 @@ string answer_manager(tcp::socket& s, vector<string> transfers, uint32_t origina
 
 	seftp::proto::ByteView pv{ frame.payload.data(), frame.payload.size() };
 
-	std::string uuid;
 	auto res_code = frame.code;
 	switch (res_code) {
-		case  seftp::proto::ResCode::RegisterOk: {
+	case  seftp::proto::ResCode::RegisterOk: {
 		auto r1600 = seftp::proto::parse_1600(pv);
-		return handle_1600(r1600, transfers[2].c_str());
-		}
-		case seftp::proto::ResCode::RegisterFail: {
+		cc.client_id = handle_1600(r1600, transfers[2].c_str());
+		return {};
+	}
+	case seftp::proto::ResCode::RegisterFail: {
+		cc.last_error_text = "1601 register failed";
 		answer_1601();
-		exit(1);
+		return { NextStep::Fatal,false };
+	}
+	case seftp::proto::ResCode::AesKey:
+	case seftp::proto::ResCode::ReloginOk: {
+		auto r1602_1605 = seftp::proto::parse_1602(pv);
+		cc.client_id = handle_1602_or_1605(frame.code, r1602_1605);
+		return {};
+	}
+	case seftp::proto::ResCode::ReloginFail: {
+		/*vector<uint8_t>message;
+		uuid = answer_1606(s, transfers, message, frame.payload);*/
+		return handle_1606(frame.payload, cc);
+	}
+	case seftp::proto::ResCode::CrcResult: {
+		auto r1603 = seftp::proto::parse_1603(pv);
+		handle_1603(r1603, original_crc, crc_ok);
+		return {};
+	}
+	case seftp::proto::ResCode::TransferDone: {
+		answer_1604();
+		return {};
+	}
+	case seftp::proto::ResCode::Error: {
+		DispatchResult out{};
+		out.step = NextStep::Fatal;
+		if (frame.payload.size() < seftp::proto::kClientIdLen) {
+			cout << "payload for 1607 too short" << endl;
+			cc.last_error_text = "payload for 1607 too short";
+			return out;
 		}
-		case seftp::proto::ResCode::AesKey:
-		case seftp::proto::ResCode::ReloginOk: {
-			auto r1602_1605 = seftp::proto::parse_1602(pv);
-			return handle_1602_or_1605(frame.code, r1602_1605);
-		}
-		case seftp::proto::ResCode::ReloginFail: {
-			vector<uint8_t>message;
-			uuid = answer_1606(s, transfers, message, frame.payload);
-			return uuid;
-		}
-		case seftp::proto::ResCode::CrcResult: {
-			auto r1603 = seftp::proto::parse_1603(pv);
-			handle_1603(r1603, original_crc, crc_ok);
-			return "";
-		}
-		case seftp::proto::ResCode::TransferDone: {
-			answer_1604();
-			return "";
-		}
-		case seftp::proto::ResCode::Error: {
-			
-			if (frame.payload.size() < seftp::proto::kClientIdLen) {
-				cout << "payload for 1607 too short" << endl;
-				return "";
-			}
-			seftp::proto::ClientId cid{};
-			std::memcpy(cid.data(), frame.payload.data(), seftp::proto::kClientIdLen);
-			std::string client_id_hex = seftp::util::client_id_to_hex(cid);
-			std::vector<uint8_t> c_text(frame.payload.begin() + seftp::proto::kClientIdLen, frame.payload.end());
-			std::string text(c_text.begin(), c_text.end());
-			auto pos = text.find('\0');
-			if (pos != std::string::npos) text.resize(pos);
-			answer_1607(text);
-			if (debug_mode)std::cout << "this is the uuid in answer manager after 1607: [" << client_id_hex << "]" << std::endl;
-			return uuid;
-		}
-		default:
-			cout << "the code: " << static_cast<uint16_t>(frame.code) << " is not a valid code for a response" << endl;
-			exit(1);
+		seftp::proto::ClientId cid{};
+		std::memcpy(cid.data(), frame.payload.data(), seftp::proto::kClientIdLen);
+		std::string client_id_hex = seftp::util::client_id_to_hex(cid);
+		std::vector<uint8_t> c_text(frame.payload.begin() + seftp::proto::kClientIdLen, frame.payload.end());
+		std::string text(c_text.begin(), c_text.end());
+		auto pos = text.find('\0');
+		if (pos != std::string::npos) text.resize(pos);
+		cc.last_error_text = text.empty() ? "1607 error (empty text)" : text;
+		answer_1607(cc.last_error_text);
+		if (debug_mode)std::cout << "this is the uuid in answer manager after 1607: [" << client_id_hex << "]" << std::endl;
+		return { NextStep::Fatal };
+	}
+	default:
+		cout << "the code: " << static_cast<uint16_t>(frame.code) << " is not a valid code for a response" << endl;
+		cc.last_error_text = "Unknown response code: " + std::to_string((uint16_t)frame.code);
+		return { NextStep::Fatal,false };
 
 	}
-
-
-
 }

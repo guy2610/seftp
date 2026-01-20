@@ -35,6 +35,7 @@
 #include "net/net.hpp"
 #include "util/util.hpp"
 #include "crypto/crypto.hpp"
+#include "util/files.hpp"
 
 using namespace std;
 using namespace CryptoPP;
@@ -75,7 +76,7 @@ std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 /*std::array<uint8_t, 16> make_iv();*/
 std::string to_hex(const std::string& data);
 DispatchResult answer_manager(tcp::socket& s, vector<string> transfers, ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
-void making_RSAkeys(tcp::socket& s, vector<string> transfers,  string& uuid, string key = "");
+void making_RSAkeys(tcp::socket& s, const ClientContext& cc, const std::string& key = std::string());
 struct ClientEvent{
 	string method;
 	string time_stamp;
@@ -97,7 +98,7 @@ int main() {
 	string address = transfers[0];
 	string port = transfers[1];
 	ClientContext cc{};
-	cc.username = transfers[2];
+	cc.username = transfers[2].c_str();
 	const int max_Length = 1042;
 	boost::asio::io_context io_context;
 	tcp::socket s(io_context);
@@ -112,12 +113,14 @@ int main() {
 	}
 	cout << "\nconnection succeeded" << endl;
 	char request[max_Length];
-	ifstream MyReadFile("me.info");
 	vector<uint8_t>message;
-	string key, name;
+	string key;
+	/*ifstream MyReadFile("me.info");*/
 	/*auto update_uuid_if_present = [&](const string& maybe) {
 		if (!maybe.empty()) uuid = maybe;};*/
-	if (!MyReadFile.is_open()) {
+	/*if (!MyReadFile.is_open()) {*/
+	std::string me_user, me_cid;
+	if (!seftp::util::files::read_me_info(me_user, me_cid)) {
 		// No me.info -> first registration flow (825 + 826 + 1600 + 1602)
 		cout << "Failed to open me.info" << std::endl;
 		cout << "Doing First sign on" << std::endl;
@@ -125,9 +128,9 @@ int main() {
 		const int max_Length = 1042;
 		char request[max_Length];
 		//head of request
-		MyReadFile.close();
+		/*MyReadFile.close();*/
 		// 1) Send registration request with username (825)
-		request_825(s, transfers[2].c_str());
+		request_825(s, cc.username);
 		// 2) Wait for 1600 and receive server-issued client_id from server
 		/*update_uuid_if_present(answer_manager(s, transfers));*/
 		auto r = answer_manager(s, transfers, cc);
@@ -141,7 +144,7 @@ int main() {
 		// 3) Generate RSA-2048 key pair, send public key (826), receive AES key (1602)
 		if (debug_mode)std::cout << "before entering making_RSAkeys " << std::endl;
 		/*making_RSAkeys(s, transfers, uuid);*/
-		making_RSAkeys(s, transfers, cc.client_id);
+		making_RSAkeys(s, cc);
 		/*update_uuid_if_present(answer_manager(s, transfers));*/
 		r = answer_manager(s, transfers, cc);
 		if (r.step == NextStep::Fatal) {
@@ -156,19 +159,25 @@ int main() {
 	else {
 		// me.info exists -> Single Sign-On flow (827 + 1605)
 		std::cout << "file me.info exist, handle SSO" << endl;
-		std::string text;
-		getline(MyReadFile, name);// first line: username
-		std::cout << "this is name in me.info: "<<name << endl;
-		std::string uuid;
+		/*std::string text;
+		getline(MyReadFile, name);// first line: username*/
+		if (me_user != cc.username) {
+			cc.last_error_text = "me.info username mismatch. transfer.info=" + cc.username + " me.info=" + me_user;
+			std::cerr << "Fatal: " << cc.last_error_text << "\n";
+			return 1;
+		}
+		cc.client_id = me_cid;
+		std::cout << "this is name in me.info: "<< cc.username << endl;
+		/*std::string uuid;
 		getline(MyReadFile, uuid);// second line: client_id hex
-		cc.client_id = uuid;
+		cc.client_id = uuid;*/
 		/*std::cout << "this is uuid in me.info: " << uuid << endl;*/
 		std::cout << "this is uuid in me.info: " << cc.client_id << endl;
-		MyReadFile.close();
+		/*MyReadFile.close();*/
 		// 1) Send SSO / re-login request with existing client_id + username (827)
 		/*request_827(s, transfers[2].c_str(), uuid);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << uuid << "]" << std::endl;*/
-		request_827(s, transfers[2].c_str(), cc.client_id);
+		request_827(s, cc.username, cc.client_id);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		// 2) Wait for 1605 (or 1606). client_id remains stable; only AES key is refreshed if needed
 		/*update_uuid_if_present(answer_manager(s, transfers));*/
@@ -179,7 +188,7 @@ int main() {
 		if (r.step == NextStep::NeedRegister) {
 			// 825 -> 1600
 			if (debug_mode) cout << "making a new user with request_825" << endl;
-			request_825(s, transfers[2].c_str());
+			request_825(s, cc.username);
 			auto r2 = answer_manager(s, transfers, cc);
 			if (r2.step == NextStep::Fatal) {
 				std::cerr << "Fatal: " << cc.last_error_text << "\n";
@@ -189,7 +198,7 @@ int main() {
 			// 826 -> 1602
 			cout << "the public key not good making a new one with RSA" << endl;
 			/*making_RSAkeys(s, transfers, uuid);*/
-			making_RSAkeys(s, transfers, cc.client_id);
+			making_RSAkeys(s, cc);
 			auto r3 = answer_manager(s, transfers, cc);
 			if (r3.step == NextStep::Fatal) {
 				std::cerr << "Fatal: " << cc.last_error_text << "\n";
@@ -201,12 +210,13 @@ int main() {
 			cout << "has new client id, need to send 826 to get a key" << endl;
 			/*uuid = cc.client_id;*/
 			std::string keybin;
-			{
+			/* {
 				std::ifstream f("priv.key", std::ios::binary);
 				if (f) keybin.assign(std::istreambuf_iterator<char>(f), {});
-			}
+			}*/
+			if (seftp::util::files::read_private_key(keybin)) std::cout << "private key has been assigned" << std::endl;
 			/*making_RSAkeys(s, transfers, uuid, keybin);*/
-			making_RSAkeys(s, transfers, cc.client_id, keybin);
+			making_RSAkeys(s,cc, keybin);
 			auto r2 = answer_manager(s, transfers, cc);
 			if (r2.step == NextStep::Fatal) {
 				std::cerr << "Fatal: " << cc.last_error_text << "\n";
@@ -221,7 +231,13 @@ int main() {
 		
 	}
 	// Load AES key from aes.key (Base64), which was written by answer_1602/1605
+	if (!seftp::util::files::read_aes_key(key))//key in Base64
 	{
+		std::cerr << "cant open aes.key\n";
+		exit(1);
+	}
+	std::cout << "Loaded AES key from file (Base64, len=" << key.size() << ")" << std::endl;
+	/* {
 		std::ifstream f("aes.key");
 		if (!f) {
 			std::cerr << "cant open aes.key\n";
@@ -229,7 +245,7 @@ int main() {
 		}
 		std::getline(f, key);  //key in Base64
 		std::cout << "Loaded AES key from file (Base64, len=" << key.size() << ")" << std::endl;
-	}
+	}*/
 	if (debug_mode)cout << "this is the uuid "<<cc.client_id << endl;
 	if (debug_mode)cout << "before file send operation" << endl;
 	// Main loop: encrypt and send files to the server, one by one
@@ -287,7 +303,7 @@ std::string to_hex(const std::string& data)
 	}
 	return oss.str();
 }
-void making_RSAkeys(tcp::socket& s, vector<string> transfers, string& uuid, string key)
+void making_RSAkeys(tcp::socket& s, const ClientContext& cc, const std::string& key)
 {
 	// Generate a new RSA-2048 key pair or load an existing private key,
 	// send the public key to the server (request 826), and wait for the AES key (1602/1605).
@@ -333,18 +349,23 @@ void making_RSAkeys(tcp::socket& s, vector<string> transfers, string& uuid, stri
 	if (debug_mode)std::cout << "DER len: " << key_pair.publicKeyDer.size() << std::endl;
 	if (debug_mode) std::cout << "publicKeyB64 length: " << key_pair.publicKeyB64.size() << std::endl;
 	// approx 392 chars
-	ofstream myFile;
+	if (!seftp::util::files::write_me_public_key(key_pair.publicKeyB64))
+	{
+		cerr << "Failed to add to me.info public key" << endl;
+		exit(1);
+	}
+	/*ofstream myFile;
 	myFile.open("me.info", std::ios_base::app);
 	if (!myFile.is_open()) {
 		cerr << "Failed to add to me.info public key" << endl;
 		exit(1);
 	}
 	myFile << key_pair.publicKeyB64 << "\n";
-	myFile.close();
+	myFile.close();*/
 	
 	cout << "Public key (B64) added to me.info: "<< key_pair.publicKeyB64 << endl;
 	if(debug_mode)cout << "sending 826, b64 len: " << key_pair.publicKeyB64.size() << endl;
-	request_826(s, transfers[2].c_str(), key_pair.publicKeyB64, uuid);
+	request_826(s, cc.username, key_pair.publicKeyB64, cc.client_id);
 
 
 
@@ -628,7 +649,7 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, string encrypt_
 	while (retries < MAX_RETRIES && !*crc_ok) {
 		if (debug_mode)cout << "this is the uuid " << cc.client_id << endl;
 		// 1) Send encrypted file (828) and get original CRC of plaintext
-		uint32_t original_crc_file = request_828(s, transfers[2].c_str(), cc.client_id, components);
+		uint32_t original_crc_file = request_828(s, cc.username, cc.client_id, components);
 		// 2) Wait for 1603 from server (CRC verification) and update crc_ok
 		auto r = answer_manager(s, transfers, cc, original_crc_file, crc_ok);
 		if (debug_mode)cout << "this is the uuid " << cc.client_id << endl;
@@ -905,8 +926,13 @@ string answer_1600(vector<uint8_t>& payload, string name) {
 		oss << std::hex << std::setw(2) << std::setfill('0') << (int)byte;
 	}
 	string client_id_hex = oss.str();
-
 	//write to me.info
+	if (!seftp::util::files::write_me_identity(name,client_id_hex))
+	{
+		cerr << "Failed to open me.info for writing" << endl;
+		return "";
+	}
+	/*//write to me.info
 	ofstream myFile("me.info");
 	if (!myFile.is_open()) {
 		cerr << "Failed to open me.info for writing" << endl;
@@ -914,7 +940,8 @@ string answer_1600(vector<uint8_t>& payload, string name) {
 	}
 	myFile << name << "\n";
 	myFile << client_id_hex << "\n";
-	myFile.close();
+	myFile.close();*/
+
 	cout << "register for the client id: " << client_id_hex << " succeed" << endl;
 	return client_id_hex;
 }
@@ -994,7 +1021,14 @@ std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>
 		std::cerr << "Decryption error: " << e.what() << std::endl;
 	}*/
 	std::string aes_key_b64 = seftp::crypto::encode_base64(decrypted);
-	std::ofstream aesFile("aes.key", std::ios::trunc);
+	if (!seftp::util::files::write_aes_key(aes_key_b64))
+	{
+		std::cerr << "Failed to open aes.key for writing" << std::endl;
+	}
+	else {
+		std::cout << "AES key saved to aes.key (Base64, len=" << aes_key_b64.size() << ") <only for demonstrating>: " << aes_key_b64 << std::endl;
+	}
+	/*std::ofstream aesFile("aes.key", std::ios::trunc);
 	if (!aesFile) {
 		std::cerr << "Failed to open aes.key for writing" << std::endl;
 	}
@@ -1002,7 +1036,7 @@ std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>
 		aesFile << aes_key_b64 << std::endl;
 		aesFile.close();
 		std::cout << "AES key saved to aes.key (Base64, len=" << aes_key_b64.size() << ") <only for demonstrating>: "<< aes_key_b64 << std::endl;
-	}
+	}*/
 	return aes_key_b64;
 }
 string answer_1605(const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
@@ -1240,7 +1274,7 @@ DispatchResult answer_manager(tcp::socket& s, vector<string> transfers, ClientCo
 	switch (res_code) {
 	case  seftp::proto::ResCode::RegisterOk: {
 		auto r1600 = seftp::proto::parse_1600(pv);
-		cc.client_id = handle_1600(r1600, transfers[2].c_str());
+		cc.client_id = handle_1600(r1600, cc.username);
 		return {};
 	}
 	case seftp::proto::ResCode::RegisterFail: {

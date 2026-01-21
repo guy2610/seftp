@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server (v0.1.1)
+# Secure File Transfer - C++ Client & Python Server (v0.2.0)
 
 This project implements a simple **secure file transfer protocol** over TCP.
 
@@ -11,22 +11,25 @@ This project implements a simple **secure file transfer protocol** over TCP.
   * CRC32 for integrity verification
 
 !!Educational only - not production-grade security!!
-Stage 1 hardens several critical parts (random IV per file, RSA key validation, stable client identity).
-This is still not a production-ready design.
+Stage 2 focuses on **client-side architecture refactor**, modularization, and explicit flow control.  
+The system is functional end-to-end, but not hardened for real-world deployment.
 
 ---
 
 ## Version
 
-**v0.1.1 - Stage 1 (Stability + Security, before heavy refactor)**
+**v0.2.0 - Stage 2 (client architecture refactor)**
 
-* Fully functional end-to-end encrypted file transfer
-* Random IV per file (sent in the first 828 packet)
-* RSA public key validation (Base64 DER, public-only, 2048-bit)
-* Proper 1607 error responses with error message payload
-* Stable server-issued client_id (persisted on client)
-* Code still kept mostly in single files (minimal refactor)
-* Manually tested end-to-end; no automated tests yet
+* Fully functional encrypted file transfer (client <-> server)
+* Clear separation between protocol parsing, networking, crypto, and flow logic
+* Explicit client state management (`ClientContext`)
+* Centralized file I/O helpers for identity and key persistence
+* Random IV per file (sent in the first `828` packet)
+* RSA public key validation (DER, public-only, 2048-bit)
+* Stable server-issued `client_id` persisted on client
+* Proper `1607` error responses with textual payload
+* Manually tested; no automated tests yet
+
 
 ---
 
@@ -36,7 +39,19 @@ This is still not a production-ready design.
 client/
   src/
     client_tirgul.cpp
-  transfer.info        # client config (host, port, username)
+    crypto/
+      crypto.hpp
+      crypto.cpp
+    net/
+      net.hpp
+      net.cpp
+    protocol/
+      protocol.hpp
+    util/
+      util.hpp
+      files.hpp
+      files.cpp
+  transfer.info        # client configuration (host:port, username)
 
 server/
   server_tirgul.py
@@ -51,10 +66,11 @@ protocol/
 ## Features
 
 * Client registration (`825 -> 1600 / 1601`)
-* RSA public key upload & AES-256 exchange (`826 -> 1602`)
-* Re-login / SSO (`827 -> 1605 / 1606`)
+* RSA public key upload & AES-256 key exchange (`826 -> 1602`)
+* Re-login / SSO support (`827 -> 1605 / 1606`)
 * Encrypted file upload in fixed-size chunks (`828`)
 * CRC validation with retry logic (`900 / 901 / 902 + 1603`)
+* Persistent client identity and keys on the client side
 * Server-side logging of client activity
 
 ---
@@ -63,13 +79,13 @@ protocol/
 
 ```
 C++ client
-  - Reads config from transfer.info
-  - Registers / logs in
-  - Receives AES key (encrypted with RSA-2048)
-  - Encrypts a chosen file with AES-256-CBC using a random per-file IV
-  - Splits ciphertext into 1024-byte chunks
-  - Sends chunks with protocol code 828
-  - Compares CRC with server and retries if needed
+  - Reads configuration from transfer.info
+  - Maintains explicit client state (ClientContext)
+  - Handles registration or re-login
+  - Receives AES key encrypted with RSA-2048
+  - Encrypts files using AES-256-CBC with a random per-file IV
+  - Sends encrypted chunks via protocol code 828
+  - Verifies CRC and retries on mismatch
 
 Python server
   - Reads port.info and listens on TCP
@@ -195,8 +211,8 @@ Client stops retrying.
 * RSA private key stored in `priv.key`
 * No replay protection or authentication
 * Server supports only a single client connection
+  *(multi-client support planned in a later stage)*
 
-**Not intended for production use.**
 
 ---
 
@@ -273,24 +289,87 @@ g++ src/client_tirgul.cpp -o client -lcryptopp -lws2_32
 ```
 ---
 
-## Roadmap / TODO
+## Roadmap
 
-* Create header files, add comments, and clean existing code
-* Refactor client into modules (crypto, protocol, network)
-* Refactor server into modules (remove global state)
-* Random IV per file [DONE - Stage 1] 
-* RSA public key validation [DONE - Stage 1]
-* Add unit tests (protocol, CRC, retry logic)
-* Add integration tests (end-to-end client <-> server)
-* Add structured logging and improved configuration system
-* Add multi-client support (threading / asyncio)
-* Proper 1607 error response [DONE - Stage 1] 
-* Stable server-issued client_id [DONE - Stage 1]
-* Add a simple client-side console UI (menu for actions: reconnect, choose file, etc.)
+### **Stage 1 - Security & Protocol Correctness** DONE
+Completed
 
-### Additional Planned Tasks (Development Order)
-1. Add a database layer on the server (SQLite / JSON / Postgres)
-2. Implement advanced server-side concurrency for many clients
-3. (Optional) Implement a C++ version of the server
-4. Implement cross-client communication (client <-> server <-> client)
-5. Add optional GUI for the client (Qt / ImGui / Tkinter / DearPyGui)
+* Random IV per file (AES-256-CBC)
+* RSA-2048 public key validation (Base64 DER, public-only)
+* Stable server-issued `client_id`
+* Proper 1607 error response with payload
+
+---
+
+### **Stage 2 - Architecture & Refactor** DONE  
+Client complete, server refactor in progress
+
+**Client (completed):**
+* Refactored client into modules:
+  * `crypto` - AES, RSA, Base64, CRC helpers
+  * `protocol` - request/response framing and parsing
+  * `net` - TCP framing and IO
+  * `util` - file IO and helpers
+* Introduced `ClientContext` as a single source of truth
+* Explicit dispatch and flow handling (`DispatchResult`)
+* Removed raw protocol codes in favor of enums
+* File IO cleanup (`me.info`, `aes.key`, `priv.key`)
+* Configuration cleanup (replaced ad-hoc parsing with structured config)
+
+**Server (in progress):**
+* Planned refactor into modules
+* Removal of global state
+* Introduction of per-client session abstraction
+
+---
+
+### **Stage 3 - Testing & Reliability**
+Planned
+
+* Unit tests:
+  * Protocol build/parse
+  * Crypto helpers (AES, RSA, CRC)
+  * Retry and edge-case logic
+* Integration tests:
+  * End-to-end register -> upload -> success
+  * Re-login flows (1605 / 1606)
+  * CRC retry scenarios
+* CI setup (Linux + Windows)
+
+---
+
+### **Stage 4 - UX & Productization**
+Planned
+
+* Client-side console UI:
+  * Connect / reconnect
+  * Choose file / batch mode
+  * Clear, structured error messages
+* Structured logging (levels, client_id, request/response codes)
+* Improved configuration system (files + CLI overrides)
+
+---
+
+### **Stage 5 - Scalability & Persistence**
+Planned
+
+* Multi-client support:
+  * Thread-per-connection or async IO
+  * Basic race and isolation testing
+* Server-side persistence layer:
+  * SQLite or JSON (initially minimal persistence)
+  * Client metadata and session storage
+* Advanced server-side concurrency and limits
+
+---
+
+### **Stage 6 - Extensions & Portfolio Polish**
+Optional / Future work
+
+* Optional C++ server implementation
+* Cross-client communication (relay / messaging)
+* Optional GUI client (Qt / ImGui / DearPyGui)
+* Documentation:
+  * Full protocol specification
+  * Threat model
+  * Usage and demo instructions

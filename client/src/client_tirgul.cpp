@@ -49,6 +49,17 @@ struct ClientContext {
 	bool send_public_key = false;
 	std::string last_error_text;
 };
+struct ClientConfig
+{
+	std::string host;
+	std::string port;
+	std::string username;
+
+};
+struct ClientEvent {
+	string method;
+	string time_stamp;
+};
 
 enum class NextStep { None, NeedRegister, NeedSendPublicKey, Fatal };
 struct DispatchResult
@@ -57,13 +68,13 @@ struct DispatchResult
 	bool updated_client_id = false;
 };
 
-vector<string> transfer_file_info(string namefile);
+bool load_tranfer_info(const std::string& path, ClientConfig& out);
 string timestamp();
 void request_825(tcp::socket& s, const string& name);
 void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid);
 void request_827(tcp::socket& s, const string& name, const string & uuid);
 uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components);
-void request_828_retry(tcp::socket& s, vector<string> transfers, string encrypt_key, ClientContext& cc);
+void request_828_retry(tcp::socket& s, string encrypt_key, ClientContext& cc);
 void request_900(tcp::socket& s, const string& name, const string& uuid);
 void request_901(tcp::socket& s, const string& name, const string& uuid);
 void request_902(tcp::socket& s, const string& name, const string& uuid);
@@ -71,15 +82,13 @@ std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkS
 std::vector<string> encrypt_file(string key);
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 std::string to_hex(const std::string& data);
-DispatchResult answer_manager(tcp::socket& s, vector<string> transfers, ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
+DispatchResult answer_manager(tcp::socket& s, ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
 void making_RSAkeys(tcp::socket& s, const ClientContext& cc, const std::string& key = std::string());
-struct ClientEvent{
-	string method;
-	string time_stamp;
-};
+
 vector<ClientEvent> client_history;
 bool debug_mode = false;
 string file_name;
+constexpr const char* kTranserInfo = "transfer.info";
 int main() {
 	cout << "do you wish to see debug console promts? answer 'yes' or something else for no" << endl;
 	string ans;
@@ -90,18 +99,20 @@ int main() {
 
 	// Read connection and username info from transfer.info
 	// Expected: host, port, username
-	vector<string> transfers = transfer_file_info("transfer.info");
-	string address = transfers[0];
-	string port = transfers[1];
+	ClientConfig client_config{};
+	if (!load_tranfer_info(kTranserInfo, client_config)) {
+		std::cout << "there was a problem loading " << kTranserInfo << " file" << endl;
+		exit(1);
+	}
 	ClientContext cc{};
-	cc.username = transfers[2].c_str();
+	cc.username = client_config.username;
 	const int max_Length = 1042;
 	boost::asio::io_context io_context;
 	tcp::socket s(io_context);
 	tcp::resolver resolver(io_context);
 	try {
 		// Establish TCP connection to the server
-		boost::asio::connect(s, resolver.resolve(address, port));
+		boost::asio::connect(s, resolver.resolve(client_config.host, client_config.port));
 	}
 	catch (const boost::system::system_error& e) {
 		std::cerr << "Failed to connect: " << e.what() << std::endl;
@@ -123,7 +134,7 @@ int main() {
 		// 1) Send registration request with username (825)
 		request_825(s, cc.username);
 		// 2) Wait for 1600 and receive server-issued client_id from server
-		auto r = answer_manager(s, transfers, cc);
+		auto r = answer_manager(s, cc);
 		if (r.step == NextStep::Fatal) {
 			std::cerr << "Fatal: " << cc.last_error_text << "\n";
 			return 1;
@@ -132,7 +143,7 @@ int main() {
 		// 3) Generate RSA-2048 key pair, send public key (826), receive AES key (1602)
 		if (debug_mode)std::cout << "before entering making_RSAkeys " << std::endl;
 		making_RSAkeys(s, cc);
-		r = answer_manager(s, transfers, cc);
+		r = answer_manager(s, cc);
 		if (r.step == NextStep::Fatal) {
 			std::cerr << "Fatal: " << cc.last_error_text << "\n";
 			return 1;
@@ -154,13 +165,13 @@ int main() {
 		request_827(s, cc.username, cc.client_id);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		// 2) Wait for 1605 (or 1606). client_id remains stable; only AES key is refreshed if needed
-		auto r = answer_manager(s, transfers, cc);
+		auto r = answer_manager(s, cc);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		if (r.step == NextStep::NeedRegister) {
 			// 825 -> 1600
 			if (debug_mode) cout << "making a new user with request_825" << endl;
 			request_825(s, cc.username);
-			auto r2 = answer_manager(s, transfers, cc);
+			auto r2 = answer_manager(s, cc);
 			if (r2.step == NextStep::Fatal) {
 				std::cerr << "Fatal: " << cc.last_error_text << "\n";
 				return 1;
@@ -168,7 +179,7 @@ int main() {
 			// 826 -> 1602
 			cout << "the public key not good making a new one with RSA" << endl;
 			making_RSAkeys(s, cc);
-			auto r3 = answer_manager(s, transfers, cc);
+			auto r3 = answer_manager(s, cc);
 			if (r3.step == NextStep::Fatal) {
 				std::cerr << "Fatal: " << cc.last_error_text << "\n";
 				return 1;
@@ -179,7 +190,7 @@ int main() {
 			std::string keybin;
 			if (seftp::util::files::read_private_key(keybin)) std::cout << "private key has been assigned" << std::endl;
 			making_RSAkeys(s,cc, keybin);
-			auto r2 = answer_manager(s, transfers, cc);
+			auto r2 = answer_manager(s, cc);
 			if (r2.step == NextStep::Fatal) {
 				std::cerr << "Fatal: " << cc.last_error_text << "\n";
 				return 1;
@@ -203,9 +214,9 @@ int main() {
 	// Main loop: encrypt and send files to the server, one by one
 	while (true) {
 		// Sends file (828 + retry with 900/901/902 based on CRC)
-		request_828_retry(s, transfers, key, cc);
+		request_828_retry(s, key, cc);
 		// Read final response (e.g., 1604 – transfer finished)
-		auto r = answer_manager(s, transfers, cc);
+		auto r = answer_manager(s, cc);
 		if (debug_mode)std::cout << "uuid after answer_manager: [" << cc.client_id << "]" << std::endl;
 		// Ask user if they want to send another file
 		cout << "\nDo you want to send another file to the server? answer 'yes' or something else for no" << endl;
@@ -277,29 +288,27 @@ void making_RSAkeys(tcp::socket& s, const ClientContext& cc, const std::string& 
 
 	std::cout << "RSA keys generated and saved to files.\n";
 }
-vector<string> transfer_file_info(string namefile) {
+bool load_tranfer_info(const std::string& path, ClientConfig& out) {
 	// Read transfer.info and parse connection and username information.
 	// Expected format (per line):
-	//   host:127.0.0.1
-	//   port:1234
+	//   host-port: 127.0.0.1:1234
 	//   username:myname
-	// Returns a vector with tokens in the same order.
-	client_history.push_back({ "transfer_file_info",timestamp() });
-	vector<string> res;
-	string myText;
-	ifstream MyReadFile(namefile);
-	while (getline(MyReadFile, myText)) {
-		size_t i = myText.find(":");
-		if (i != string::npos) {
-			res.push_back(myText.substr(0, i));
-			res.push_back(myText.substr(i + 1, myText.length()));
-		}
-		else {
-			res.push_back(myText);
-		}
-	}
-	return res;
+	// Returns a object client config.
+	std::string myText,line1,line2;
+	std::ifstream MyReadFile(kTranserInfo);
+	if (!MyReadFile.is_open()) return false;
+	if (!std::getline(MyReadFile, line1)) return false;
+	if (!std::getline(MyReadFile, line2)) return false;
+
+	auto pos = line1.find(':');
+	if (pos == std::string::npos) return false;
+
+	out.host = line1.substr(0, pos);
+	out.port = line1.substr(pos + 1);
+	out.username = line2;
+	return !out.host.empty() && !out.port.empty() && !out.username.empty();
 }
+
 void request_825(tcp::socket& s, const string& name) {
 	// Build and send request 825: initial registration.
 	// Payload: username + '\0'.
@@ -437,7 +446,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		return 0;
 	}
 }
-void request_828_retry(tcp::socket& s, vector<string> transfers, string encrypt_key, ClientContext& cc) {
+void request_828_retry(tcp::socket& s, string encrypt_key, ClientContext& cc) {
 	// Wrapper for request_828 with retry logic based on CRC check (1603).
 	// If CRC mismatch:
 	//   - up to 3 retries: send 901 and resend file.
@@ -457,7 +466,7 @@ void request_828_retry(tcp::socket& s, vector<string> transfers, string encrypt_
 		// 1) Send encrypted file (828) and get original CRC of plaintext
 		uint32_t original_crc_file = request_828(s, cc.username, cc.client_id, components);
 		// 2) Wait for 1603 from server (CRC verification) and update crc_ok
-		auto r = answer_manager(s, transfers, cc, original_crc_file, crc_ok);
+		auto r = answer_manager(s, cc, original_crc_file, crc_ok);
 		if (debug_mode)cout << "this is the uuid " << cc.client_id << endl;
 		if (!*crc_ok) {
 			// CRC mismatch -> retry or give up
@@ -796,7 +805,7 @@ void answer_1607(string& text) {
 	if (debug_mode)std::cout << "in answer_1607" << std::endl;
 	cout << "general error {"<<text<<"}, please close the client and run again" << endl;
 }
-DispatchResult answer_manager(tcp::socket& s, vector<string> transfers, ClientContext& cc, uint32_t original_crc, bool* crc_ok) {
+DispatchResult answer_manager(tcp::socket& s, ClientContext& cc, uint32_t original_crc, bool* crc_ok) {
 	// Read a single response frame from the server and dispatch to the correct handler.
 	// The function may:
 	//   - write me.info (on registration success)

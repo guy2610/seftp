@@ -2,6 +2,7 @@
 #include <string_view>
 #include "../protocol/protocol.hpp"
 namespace seftp::util {
+
 	inline seftp::proto::ClientId parse_client_id_hex32(std::string_view hex32) {
 		if (hex32.size() != 32)
 			throw std::invalid_argument("client_id must be exactly 32 hex characters");

@@ -3,7 +3,9 @@ class ClientSession:
     def __init__(self, sock, debug_mode: bool = False):
         self.sock=sock
         self.debug_mode=debug_mode
-        self.framer = Framer()
+        self.framer=Framer()
+        self.transfer_iv=None
+        self.transfer_cipher=bytearray()
     def send(self,data:bytes)->None:
         if not data:
             return

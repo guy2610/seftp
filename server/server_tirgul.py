@@ -416,7 +416,7 @@ def request_828(payload_info,version,client_id):
         - ciphertext chunk
 
         Behavior:
-        - Accumulates ciphertext in a static buffer (request_828.cipher).
+        - Accumulates ciphertext in a static buffer (session.transfer_cipher).
         - On the last packet:
             * Decrypts using AES-256-CBC with a per-file random IV provided by the client in packet 0. IV is never static or reused across files.
             * Unpads (PKCS#7), trims to orig_file_size.
@@ -461,27 +461,27 @@ def request_828(payload_info,version,client_id):
             print("bad 828: IV too short")
             answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8")
             return
-        request_828.iv = bytes(cipher_chunk[:16])
-        print("IV(hex)=", request_828.iv.hex())
+        session.transfer_iv = bytes(cipher_chunk[:16])
+        print("IV(hex)=", session.transfer_iv.hex())
         return
     else:
         if packet_num==1:
             print(f"write the file {file_name} ")
-            request_828.cipher = bytearray()
+            session.transfer_cipher = bytearray()
             clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
             clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
         # Append chunk to the accumulated ciphertext
         print(f"\rgot packet with chunk size={len(cipher_chunk)}, {packet_num / total_packets * 100:.2f}% complete", end="")
-        request_828.cipher.extend(cipher_chunk)
-        if debug_mode: print(f"[SERVER] accumulated cipher size={len(request_828.cipher)}")
+        session.transfer_cipher.extend(cipher_chunk)
+        if debug_mode: print(f"[SERVER] accumulated cipher size={len(session.transfer_cipher)}")
         if debug_mode: print(f'packet number: {packet_num} of {total_packets}')
         # Once we have the last packet, decrypt and write file
         if packet_num == total_packets:
             clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-            cipher_total=bytes(request_828.cipher)
+            cipher_total=bytes(session.transfer_cipher)
             print(f"\nfinal cipher text total size={len(cipher_total)}, expected content size={content_size}")
             # AES-256-CBC with zero IV (same as client)
-            decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=request_828.iv)
+            decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=session.transfer_iv)
             decrypted_all = decrypt_cipher.decrypt(cipher_total)
             # Try to remove PKCS#7 padding
             try:

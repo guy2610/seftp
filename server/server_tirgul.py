@@ -20,7 +20,6 @@ import zlib
 from Crypto.Hash import SHA256
 from Crypto.Util.Padding import unpad
 import base64
-from src.framing import Framer
 from src.session import ClientSession
 HOST='127.0.0.1'
 try:
@@ -671,7 +670,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.listen(5)
     print("socket is listening")
     c, addr = s.accept()
-    framer = Framer()
     session = ClientSession(c, debug_mode)
     with c:
         print('Got connection from', addr)
@@ -681,7 +679,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 if not chunk:
                     print(f"Client {addr} disconnected.")
                     break
-                frames = framer.feed(chunk)
+                frames = session.feed(chunk)
                 for frame in frames:
                     get_request(frame)
         except (ConnectionResetError, BrokenPipeError):

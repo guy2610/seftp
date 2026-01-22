@@ -46,14 +46,16 @@ try:
         for line in file:
             if i%4==0:
                 name = line[:len(line) - 1]
-                clients_info[name]=["none"]*3
-            if i % 4 == 1:
-                clients_info[name][1]=line[:len(line) - 1]
-            if i % 4 == 2:
+                clients_info[name]=["none"]*4
+            elif i % 4 == 1:
+                clients_info[name][0]=line[:len(line) - 1]
+            elif i % 4 == 2:
+                clients_info[name][1] = line[:len(line) - 1]
+            elif i % 4 == 3:
                 clients_info[name][2] = line[:len(line) - 1]
-            if i % 4 == 3:
+            else:
                 clients_info[name][3] = line[:len(line) - 1]
-
+            i+=1
 
 except:
     print(f'file name clients.info not found')

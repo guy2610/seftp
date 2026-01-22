@@ -20,6 +20,7 @@ import zlib
 from Crypto.Hash import SHA256
 from Crypto.Util.Padding import unpad
 import base64
+from src.framing import Framer
 HOST='127.0.0.1'
 try:
     with open("port.info","r") as port_file:
@@ -45,13 +46,16 @@ try:
         for line in file:
             if i%4==0:
                 name = line[:len(line) - 1]
-                clients_info[name]=["none"]*3
-            if i % 4 == 1:
-                clients_info[name][1]=line[:len(line) - 1]
-            if i % 4 == 2:
+                clients_info[name]=["none"]*4
+            elif i % 4 == 1:
+                clients_info[name][0]=line[:len(line) - 1]
+            elif i % 4 == 2:
+                clients_info[name][1] = line[:len(line) - 1]
+            elif i % 4 == 3:
                 clients_info[name][2] = line[:len(line) - 1]
-            if i % 4 == 3:
+            else:
                 clients_info[name][3] = line[:len(line) - 1]
+            i+=1
 
 except:
     print(f'file name clients.info not found')
@@ -673,6 +677,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.listen(5)
     print("socket is listening")
     c, addr = s.accept()
+    framer = Framer()
     with c:
         print('Got connection from', addr)
         try:
@@ -681,18 +686,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 if not chunk:
                     print(f"Client {addr} disconnected.")
                     break
-                buf.extend(chunk)
-
-                while True:
-                    if len(buf) < HEADER_LEN:
-                        break
-                    payload_size = int.from_bytes(buf[19:23], 'little')
-                    frame_len = HEADER_LEN + payload_size
-                    if len(buf) < frame_len:
-                        break
-
-                    frame = bytes(buf[:frame_len])
-                    del buf[:frame_len]
+                frames = framer.feed(chunk)
+                for frame in frames:
                     get_request(frame)
         except (ConnectionResetError, BrokenPipeError):
             print(f"Client {addr} disconnected unexpectedly.")

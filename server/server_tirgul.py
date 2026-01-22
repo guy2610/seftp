@@ -21,6 +21,7 @@ from Crypto.Hash import SHA256
 from Crypto.Util.Padding import unpad
 import base64
 from src.framing import Framer
+from src.session import ClientSession
 HOST='127.0.0.1'
 try:
     with open("port.info","r") as port_file:
@@ -40,6 +41,7 @@ except:
 # }
 clients_info={}
 clients_recent_log = defaultdict(list)
+session = None
 try:
     with open("clients.info","r") as file:
         i=0
@@ -97,8 +99,7 @@ def answer_1600(client_id,version):
     clients_recent_log[client_id].append(["answer_1600",str(datetime.datetime.now())])
     message=message_answer(version,"1600","16",client_id)
     print(f"sign on succeed for {base64.b64encode(client_id).decode('utf-8')}")
-    global c
-    c.send(message)
+    session.send(message)
 
 def answer_1601(version):
     """
@@ -109,8 +110,7 @@ def answer_1601(version):
     if debug_mode: print("inside answer 1601")
     message = message_answer(version, "1601", "0", "")
     print(f"sign on failed")
-    global c
-    c.send(message)
+    session.send(message)
     #send error in answer format
 
 def request_825(payload_info,version):
@@ -162,8 +162,7 @@ def answer_1602(cipher_text_aes_encrypted,client_id,version):
     print(f"got the {name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
-    global c
-    c.send(message)
+    session.send(message)
 
 def answer_1606(client_id,version,name):
     """
@@ -181,8 +180,7 @@ def answer_1606(client_id,version,name):
     else:
         clients_recent_log[client_id].append(["answer_1606", str(datetime.datetime.now())])
         clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    global c
-    c.send(message)
+    session.send(message)
 
 def answer_1605(cipher_text_aes_encrypted,client_id,version):
     """
@@ -197,8 +195,7 @@ def answer_1605(cipher_text_aes_encrypted,client_id,version):
     print(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
-    global c
-    c.send(message)
+    session.send(message)
 
 def name_of_dict_from_id(client_id):
     """
@@ -405,8 +402,7 @@ def answer_1603(client_id,version,file_name,content_size,decrypted_total):
     # Send 1603 response with CRC to client
     message = message_answer(version, 1603, len(payload), payload)
     print(f'received {file_name} with valid CRC ')
-    global c
-    c.send(message)
+    session.send(message)
 
 def request_828(payload_info,version,client_id):
     """
@@ -528,8 +524,7 @@ def answer_1604(client_id,version):
     print(f'this is the recent client information on {client_name}:  {tmp}')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["answer_1604",str(datetime.datetime.now())])
-    global c
-    c.send(message)
+    session.send(message)
 
 def request_900(payload_info,version,client_id):
     """
@@ -604,8 +599,7 @@ def answer_1607(client_id,version,text):
         print(f'this is the recent client information on {client_name}:  {tmp}')
         clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
-    global c
-    c.send(message)
+    session.send(message)
 
 
 
@@ -678,6 +672,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     print("socket is listening")
     c, addr = s.accept()
     framer = Framer()
+    session = ClientSession(c, debug_mode)
     with c:
         print('Got connection from', addr)
         try:

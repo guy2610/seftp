@@ -40,7 +40,6 @@ except:
 # }
 clients_info={}
 clients_recent_log = defaultdict(list)
-session = None
 try:
     with open("clients.info","r") as file:
         i=0
@@ -83,7 +82,7 @@ def message_answer(version:bytes,code_num:str,payload_size:str,payload:bytes):
     if debug_mode: print(message)
     return message
 
-def answer_1600(client_id,version):
+def answer_1600(client_id,version,session:ClientSession):
     """
         Send response 1600: registration succeeded.
 
@@ -100,7 +99,7 @@ def answer_1600(client_id,version):
     print(f"sign on succeed for {base64.b64encode(client_id).decode('utf-8')}")
     session.send(message)
 
-def answer_1601(version):
+def answer_1601(version,session:ClientSession):
     """
     Send response 1601: registration failed (username already exists or invalid).
 
@@ -112,7 +111,7 @@ def answer_1601(version):
     session.send(message)
     #send error in answer format
 
-def request_825(payload_info,version):
+def request_825(payload_info,version,session:ClientSession):
     """
     Handle request 825: initial registration.
 
@@ -140,12 +139,12 @@ def request_825(payload_info,version):
             clients_recent_log[client_id].extend(user_past_log)
             clients_recent_log.pop(name)
         clients_recent_log[client_id].append(["request_825",str(datetime.datetime.now())])
-        answer_1600(client_id, version)
+        answer_1600(client_id, version,session)
     else:
         print(f'{payload_info} is in the clients info')
-        answer_1601(version)
+        answer_1601(version,session)
 
-def answer_1602(cipher_text_aes_encrypted,client_id,version):
+def answer_1602(cipher_text_aes_encrypted,client_id,version,session:ClientSession):
     """
     Send response 1602: AES key encrypted with client's RSA public key.
 
@@ -163,7 +162,7 @@ def answer_1602(cipher_text_aes_encrypted,client_id,version):
     clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
     session.send(message)
 
-def answer_1606(client_id,version,name):
+def answer_1606(client_id,version,name,session:ClientSession):
     """
     Send response 1606: re-login / sign-on rejected.
 
@@ -181,7 +180,7 @@ def answer_1606(client_id,version,name):
         clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     session.send(message)
 
-def answer_1605(cipher_text_aes_encrypted,client_id,version):
+def answer_1605(cipher_text_aes_encrypted,client_id,version,session:ClientSession):
     """
     Send response 1605: re-login approved.
 
@@ -208,7 +207,7 @@ def name_of_dict_from_id(client_id):
             return k
     return
 
-def request_826(client_id, payload_info: bytes, version):
+def request_826(client_id, payload_info: bytes, version,session:ClientSession):
     """
     Handle request 826: send/update RSA public key + receive AES key.
 
@@ -235,19 +234,19 @@ def request_826(client_id, payload_info: bytes, version):
     sep = payload_info.find(b'\x00')
     if sep == -1:
         print("bad 826 payload: missing NUL after name")
-        answer_1607(client_id,version,"bad 826 payload: missing NUL after name")
+        answer_1607(client_id,version,"bad 826 payload: missing NUL after name",session)
         return
 
     try:
         name = payload_info[:sep].decode('utf-8')
     except UnicodeDecodeError:
         print("bad 826 payload: name is not valid UTF-8")
-        answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8")
+        answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8",session)
         return
 
     if name != name_in_dict:
         print(f'name mismatch: got {name!r}, expected {name_in_dict!r}')
-        answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}')
+        answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}',session)
         return
     print(f"{name} logged successfully")
 
@@ -255,7 +254,7 @@ def request_826(client_id, payload_info: bytes, version):
     try:
         public_str = public_blob.decode('ascii')
     except UnicodeDecodeError:
-        answer_1607(client_id, version, "Public key is not ASCII base64")
+        answer_1607(client_id, version, "Public key is not ASCII base64",session)
         return
     if debug_mode: print("public_blob len:", len(public_str))  #need to be approx 392
 
@@ -264,18 +263,18 @@ def request_826(client_id, payload_info: bytes, version):
         key_rsa = RSA.import_key(der)
         print(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}")  # size need to be 2048
         if key_rsa.has_private():
-            answer_1606(clients_info[name][0], version, name)
+            answer_1606(clients_info[name][0], version, name,session)
             return
         if key_rsa.size_in_bits()!=2048:
-            answer_1606(clients_info[name][0], version, name)
+            answer_1606(clients_info[name][0], version, name,session)
             return
         e = int(key_rsa.e)
         if e < 3 or e % 2 == 0:
-            answer_1606(clients_info[name][0], version, name)
+            answer_1606(clients_info[name][0], version, name,session)
             return
     except Exception as e:
         print(f"RSA validation/import failed for 826: {e}")
-        answer_1607(client_id, version, "Invalid RSA public key")
+        answer_1607(client_id, version, "Invalid RSA public key",session)
         return
 
     clients_info[name_in_dict][1] = der  #keep DER, not Base64
@@ -292,7 +291,7 @@ def request_826(client_id, payload_info: bytes, version):
     print(f'the user: {name} has this list {tmp}.\nand this is the aes key encrypted by the public key: {base64.b64encode(ciphertext).decode('utf-8')}')
 
     # send 1602 aes key
-    answer_1602(ciphertext, clients_info[name][0], version)
+    answer_1602(ciphertext, clients_info[name][0], version,session)
 
 '''
 ####DEBUG ONLY###
@@ -320,7 +319,7 @@ def helper_for_now_for_sso():
     if debug_mode: print(f"client_id (hex): {client_id_hex}")
 '''
 
-def request_827(client_id,payload_info:bytes,version):
+def request_827(client_id,payload_info:bytes,version,session:ClientSession):
     """
         Handle request 827: "single sign-on" / re-login.
 
@@ -341,14 +340,14 @@ def request_827(client_id,payload_info:bytes,version):
         print(f'the user {name} not in the clients dictionary')
         #clients_info[name][2] = str(datetime.datetime.now())
         clients_recent_log[name].append(["request_827",str(datetime.datetime.now())])
-        answer_1606(b'\x00'*16, version,name)
+        answer_1606(b'\x00'*16, version,name,session)
     else:
         clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
         clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
         pub = RSA.import_key(clients_info[name][1])
         if pub.size_in_bits()!=2048:
             print(f"the public key: [{clients_info[name][1]}] in request 827 is not valid the len needs to be 2048 and is {str(len(clients_info[name][1]))}")
-            answer_1606(clients_info[name][0],version,name)
+            answer_1606(clients_info[name][0],version,name,session)
         else:
             # generate aes key
             key = get_random_bytes(32)
@@ -360,14 +359,14 @@ def request_827(client_id,payload_info:bytes,version):
             ciphertext = cipher.encrypt(key)
             print("request to sign on succeed")
             print(f'the name: {name} has this list {clients_info[name]}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
-            answer_1605(ciphertext, clients_info[name][0], version)
+            answer_1605(ciphertext, clients_info[name][0], version,session)
 def crc(fileName):
     prev = 0
     with open(fileName, "rb") as f:
         data = f.read()
     return zlib.crc32(data) & 0xFFFFFFFF
 
-def answer_1603(client_id,version,file_name,content_size,decrypted_total):
+def answer_1603(client_id,version,file_name,content_size,decrypted_total,session:ClientSession):
     """
        Send response 1603: CRC verification result.
 
@@ -403,7 +402,7 @@ def answer_1603(client_id,version,file_name,content_size,decrypted_total):
     print(f'received {file_name} with valid CRC ')
     session.send(message)
 
-def request_828(payload_info,version,client_id):
+def request_828(payload_info,version,client_id,session:ClientSession):
     """
         Handle request 828: receive encrypted file in chunks.
 
@@ -440,7 +439,7 @@ def request_828(payload_info,version,client_id):
         file_name = payload_info[12:sep].decode('utf-8')
     except UnicodeDecodeError:
         print("bad 828 payload: name is not valid UTF-8")
-        answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8")
+        answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
         return
     if debug_mode: print(sep)
     if debug_mode: print(file_name)
@@ -459,7 +458,7 @@ def request_828(payload_info,version,client_id):
     if packet_num==0:
         if len(cipher_chunk) < 16:
             print("bad 828: IV too short")
-            answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8")
+            answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
             return
         session.transfer_iv = bytes(cipher_chunk[:16])
         print("IV(hex)=", session.transfer_iv.hex())
@@ -505,11 +504,11 @@ def request_828(payload_info,version,client_id):
                   f"hex=0x{zlib.crc32(plaintext) & 0xFFFFFFFF:08X}")
                 print("======================")
             # Respond with 1603 including server-side CRC
-            answer_1603(client_id, version, file_name, content_size, plaintext)
+            answer_1603(client_id, version, file_name, content_size, plaintext,session)
         if packet_num > total_packets:
             print(f'the packet number: {packet_num} is greater than the total: {total_packets}')
 
-def answer_1604(client_id,version):
+def answer_1604(client_id,version,session:ClientSession):
     """
     Send response 1604: file transfer finished (client already knows if CRC was valid).
 
@@ -525,7 +524,7 @@ def answer_1604(client_id,version):
     clients_recent_log[client_id].append(["answer_1604",str(datetime.datetime.now())])
     session.send(message)
 
-def request_900(payload_info,version,client_id):
+def request_900(payload_info,version,client_id,session:ClientSession):
     """
     Handle request 900: client confirms valid CRC.
 
@@ -541,9 +540,9 @@ def request_900(payload_info,version,client_id):
     print(f'file name: {file_name} came with valid CRC, sending confirmation ')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["request_900",str(datetime.datetime.now())])
-    answer_1604(client_id,version)
+    answer_1604(client_id,version,session)
 
-def request_901(payload_info,version,client_id):
+def request_901(payload_info,version,client_id,session:ClientSession):
     """
     Handle request 900: client confirms valid CRC.
 
@@ -560,7 +559,7 @@ def request_901(payload_info,version,client_id):
     clients_recent_log[client_id].append(["request_901",str(datetime.datetime.now())])
     if debug_mode: print('waiting for request 828')
 
-def request_902(payload_info,version,client_id):
+def request_902(payload_info,version,client_id,session:ClientSession):
     """
     Handle request 902: client reports invalid CRC after max retries.
 
@@ -575,8 +574,8 @@ def request_902(payload_info,version,client_id):
     print(f'file name: {file_name} came with invalid CRC on the 4th time')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
-    answer_1604(client_id,version)
-def answer_1607(client_id,version,text):
+    answer_1604(client_id,version,session)
+def answer_1607(client_id,version,text,session:ClientSession):
     """
     Send response 1607: protocol-level error.
     Client must abort the current flow and must not continue with subsequent requests.
@@ -602,7 +601,7 @@ def answer_1607(client_id,version,text):
 
 
 
-def get_request(request:bytes):
+def get_request(request:bytes,session:ClientSession):
     """
      Parse a full frame from the client and dispatch to the correct handler.
 
@@ -628,39 +627,37 @@ def get_request(request:bytes):
     version = request[16]
     try:
         if len(request)<23:
-            answer_1607(client_id, version, "request length too short, missing code number/payload size")
+            answer_1607(client_id, version, "request length too short, missing code number/payload size",session)
             return
         code_num = str(int.from_bytes(request[17:19], 'little'))
         payload_size = int.from_bytes(request[19:23], 'little')
         if len(request)<23+payload_size:
-            answer_1607(client_id, version, "request length too short from the actual payload size")
+            answer_1607(client_id, version, "request length too short from the actual payload size",session)
             return
         if debug_mode: print(f'this is the code num: {str(code_num)}')
         if debug_mode: print(f'this is the size of the payload: {payload_size}')
         payload_info = request[23:23 + payload_size]
         if debug_mode: print(f'this is the payload: {payload_info}')
         if code_num=="825":
-            request_825(payload_info, version)
+            request_825(payload_info, version,session)
         elif code_num=="827":
-            request_827(client_id,payload_info, version)
+            request_827(client_id,payload_info, version,session)
         elif code_num == "826":
-            request_826(client_id, payload_info, version)
+            request_826(client_id, payload_info, version,session)
         elif code_num == "828":
-            request_828(payload_info,version,client_id)
+            request_828(payload_info,version,client_id,session)
         elif code_num == "900":
-            request_900(payload_info, version, client_id)
+            request_900(payload_info, version, client_id,session)
         elif code_num == "901":
-            request_901(payload_info, version, client_id)
+            request_901(payload_info, version, client_id,session)
         elif code_num == "902":
-            request_902(payload_info, version, client_id)
+            request_902(payload_info, version, client_id,session)
         else:
-            answer_1607(client_id, version, "unknown code")
+            answer_1607(client_id, version, "unknown code",session)
     except Exception as e:
         print(e)
-        answer_1607(client_id,version,"generic error in server, please try again later")
+        answer_1607(client_id,version,"generic error in server, please try again later",session)
 
-HEADER_LEN = 23  # 16 client_id + 1 version + 2 code + 4 payload_size
-buf = bytearray()
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
 
@@ -681,7 +678,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     break
                 frames = session.feed(chunk)
                 for frame in frames:
-                    get_request(frame)
+                    get_request(frame,session)
         except (ConnectionResetError, BrokenPipeError):
             print(f"Client {addr} disconnected unexpectedly.")
         finally:

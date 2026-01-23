@@ -33,8 +33,8 @@ def answer_1600(client_id,version,session):
         - Prints the client_id in Base64 for debugging
         """
     if session.debug_mode: print("inside answer 1600")
-    clients_recent_log = session.store.clients_recent_log
-    clients_recent_log[client_id].append(["answer_1600",str(datetime.datetime.now())])
+    store = session.store
+    store.clients_recent_log[client_id].append(["answer_1600",str(datetime.datetime.now())])
     message=message_answer(version,"1600","16",client_id,session)
     print(f"sign on succeed for {base64.b64encode(client_id).decode('utf-8')}")
     session.send(message)
@@ -61,13 +61,12 @@ def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     Also updates last_seen and logs the event.
     """
     if session.debug_mode: print("inside answer 1602")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     payload = cipher_text_aes_encrypted + client_id
     message = message_answer(version, "1602", str(len(payload)), payload,session)
-    print(f"got the {name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
+    print(f"got the {store.name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
     session.send(message)
 
 def answer_1606(client_id,version,name,session):
@@ -79,15 +78,14 @@ def answer_1606(client_id,version,name,session):
     - Stored public key is invalid (e.g., wrong size or format)
     """
     if session.debug_mode: print("inside answer 1606")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     message = message_answer(version, "1606", "16", client_id,session)
     print(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} rejected (client is not register or the public key is invalid. need to re-register)')
     if client_id==b'\x00'*16:
-        clients_recent_log[name].append(["answer_1606", str(datetime.datetime.now())])
+        store.clients_recent_log[name].append(["answer_1606", str(datetime.datetime.now())])
     else:
-        clients_recent_log[client_id].append(["answer_1606", str(datetime.datetime.now())])
-        clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+        store.clients_recent_log[client_id].append(["answer_1606", str(datetime.datetime.now())])
+        store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     session.send(message)
 
 def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
@@ -99,12 +97,11 @@ def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     - 16 bytes client_id
     """
     if session.debug_mode: print("inside answer 1605")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     message = message_answer(version, "1605", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id,session)
     print(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key')
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
     session.send(message)
 def answer_1603(client_id,version,file_name,content_size,decrypted_total,session):
     """
@@ -120,10 +117,9 @@ def answer_1603(client_id,version,file_name,content_size,decrypted_total,session
        - Logs success and sends the message to the client.
        """
     if session.debug_mode: print("inside answer 1603")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["answer_1603",str(datetime.datetime.now())])
+    store = session.store
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["answer_1603",str(datetime.datetime.now())])
     # Compute CRC32 over the decrypted plaintext
     checksum=zlib.crc32(decrypted_total) & 0xFFFFFFFF
     checksum_bytes = checksum.to_bytes(4, "little")
@@ -149,15 +145,14 @@ def answer_1604(client_id,version,session):
     Also prints the most recent state of the client in clients_info.
     """
     if session.debug_mode: print("inside answer 1604")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     message = message_answer(version, "1604", "16", client_id,session)
     print("file transferring success if the the CRC is valid. Otherwise failed.")
-    client_name=name_of_dict_from_id(client_id)
-    tmp = [base64.b64encode(clients_info[client_name][0]).decode('utf-8'), base64.b64encode(clients_info[client_name][1]).decode('utf-8'), clients_info[client_name][2],clients_info[client_name][3]]
+    client_name=store.name_of_dict_from_id(client_id)
+    tmp = [base64.b64encode(store.clients_info[client_name][0]).decode('utf-8'), base64.b64encode(store.clients_info[client_name][1]).decode('utf-8'), store.clients_info[client_name][2],store.clients_info[client_name][3]]
     print(f'this is the recent client information on {client_name}:  {tmp}')
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["answer_1604",str(datetime.datetime.now())])
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["answer_1604",str(datetime.datetime.now())])
     session.send(message)
 def answer_1607(client_id,version,text,session):
     """
@@ -167,20 +162,19 @@ def answer_1607(client_id,version,text,session):
     Also prints the most recent state of the client in clients_info.
     """
     if session.debug_mode: print("inside answer 1607")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     payload = client_id + text.encode("utf-8")
     message = message_answer(version, "1607", str(len(payload)), payload,session)
     print(f"error occurred: {text}")
-    client_name=name_of_dict_from_id(client_id)
+    client_name=store.name_of_dict_from_id(client_id)
     if client_name !=None:
-        if isinstance(clients_info[client_name][1],str) :
-            public_key_tmp=clients_info[client_name][1]
+        if isinstance(store.clients_info[client_name][1],str) :
+            public_key_tmp=store.clients_info[client_name][1]
         else:
-            public_key_tmp=base64.b64encode(clients_info[client_name][1]).decode('utf-8')
+            public_key_tmp=base64.b64encode(store.clients_info[client_name][1]).decode('utf-8')
 
-        tmp = [base64.b64encode(clients_info[client_name][0]).decode('utf-8'), public_key_tmp, clients_info[client_name][2],clients_info[client_name][3]]
+        tmp = [base64.b64encode(store.clients_info[client_name][0]).decode('utf-8'), public_key_tmp, store.clients_info[client_name][2],store.clients_info[client_name][3]]
         print(f'this is the recent client information on {client_name}:  {tmp}')
-        clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
+        store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
     session.send(message)

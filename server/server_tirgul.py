@@ -10,8 +10,6 @@ Secure File Transfer Server
 import socket
 from src.session import ClientSession
 from src import router
-import src.answers as answers
-import src.handlers as handlers
 from src.store import Store
 
 HOST='127.0.0.1'
@@ -22,28 +20,8 @@ try:
 except:
     PORT=1256
 
-# clients_info structure:
-# {
-#   "username": [
-#       client_id (16-byte UUID as bytes),
-#       public_key (RSA public key in DER format, as bytes),
-#       last_seen (string timestamp),
-#       aes_key_b64 (AES-256 key, Base64-encoded string)
-#   ]
-# }
 store=Store()
 store.load_client_info("clients.info")
-
-def name_of_dict_from_id(client_id):
-    """
-        Given client_id (bytes), return the associated username from clients_info.
-        Returns None if not found.
-        """
-    if debug_mode: print("inside name_of_dict_from_id")
-    for k, vals in store.clients_info.items():
-        if vals[0] == client_id:
-            return k
-    return
 
 
 
@@ -76,22 +54,6 @@ def helper_for_now_for_sso():
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
 
-answers.clients_info = store.clients_info
-answers.clients_recent_log = store.clients_recent_log
-answers.name_of_dict_from_id = name_of_dict_from_id
-
-handlers.clients_info = store.clients_info
-handlers.clients_recent_log = store.clients_recent_log
-handlers.name_of_dict_from_id = name_of_dict_from_id
-
-handlers.answer_1600 = answers.answer_1600
-handlers.answer_1601 = answers.answer_1601
-handlers.answer_1602 = answers.answer_1602
-handlers.answer_1603 = answers.answer_1603
-handlers.answer_1604 = answers.answer_1604
-handlers.answer_1605 = answers.answer_1605
-handlers.answer_1606 = answers.answer_1606
-handlers.answer_1607 = answers.answer_1607
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((HOST, PORT))
     print("socket binded to %s" % PORT)
@@ -114,4 +76,4 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             print(f"Client {addr} disconnected unexpectedly.")
         finally:
             c.close()
-print(dict(clients_recent_log))
+print(dict(store.clients_recent_log))

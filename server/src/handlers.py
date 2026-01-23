@@ -8,6 +8,7 @@ from Crypto.Cipher import PKCS1_OAEP
 import zlib
 from Crypto.Util.Padding import unpad
 import base64
+from src import answers
 
 def request_825(payload_info,version,session):
     """
@@ -21,27 +22,26 @@ def request_825(payload_info,version,session):
     - If username exists: reply with 1601.
     """
     if session.debug_mode: print("inside request 825")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     payload_info=payload_info.rstrip(b'\x00').decode()
-    if not payload_info in clients_info:
+    if not payload_info in store.clients_info:
         client_id=uuid.uuid4().bytes
         name=payload_info.strip()
         public_key="public_key_none_for_now"
         last_seen=str(datetime.datetime.now())
         aes_key="aes_key_none_for_now"
-        clients_info[name] = [client_id, public_key, last_seen, aes_key]
-        tmp = [base64.b64encode(clients_info[name][0]).decode('utf-8'),clients_info[name][1], clients_info[name][2], clients_info[name][3]]
+        store.clients_info[name] = [client_id, public_key, last_seen, aes_key]
+        tmp = [base64.b64encode(store.clients_info[name][0]).decode('utf-8'),store.clients_info[name][1], store.clients_info[name][2], store.clients_info[name][3]]
         print(f'{name} has created. this is his list: {tmp}')
-        if name in clients_recent_log.keys():
-            user_past_log=clients_recent_log.get(name)
-            clients_recent_log[client_id].extend(user_past_log)
-            clients_recent_log.pop(name)
-        clients_recent_log[client_id].append(["request_825",str(datetime.datetime.now())])
-        answer_1600(client_id, version,session)
+        if name in store.clients_recent_log.keys():
+            user_past_log=store.clients_recent_log.get(name)
+            store.clients_recent_log[client_id].extend(user_past_log)
+            store.clients_recent_log.pop(name)
+        store.clients_recent_log[client_id].append(["request_825",str(datetime.datetime.now())])
+        answers.answer_1600(client_id, version,session)
     else:
         print(f'{payload_info} is in the clients info')
-        answer_1601(version,session)
+        answers.answer_1601(version,session)
 def request_826(client_id, payload_info: bytes, version,session):
     """
     Handle request 826: send/update RSA public key + receive AES key.
@@ -57,32 +57,31 @@ def request_826(client_id, payload_info: bytes, version,session):
     - Responds with 1602 containing the encrypted AES key.
     """
     if session.debug_mode: print("inside request 826")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
-    name_in_dict = name_of_dict_from_id(client_id)
-    clients_info[name_in_dict][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
+    store=session.store
+    name_in_dict = store.name_of_dict_from_id(client_id)
+    store.clients_info[name_in_dict][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
     if not name_in_dict:
-        if session.debug_mode: print(clients_info)
+        if session.debug_mode: print(store.clients_info)
         print(f'uuid not in client_info; client_id={client_id!r}')
         return
 
     sep = payload_info.find(b'\x00')
     if sep == -1:
         print("bad 826 payload: missing NUL after name")
-        answer_1607(client_id,version,"bad 826 payload: missing NUL after name",session)
+        answers.answer_1607(client_id,version,"bad 826 payload: missing NUL after name",session)
         return
 
     try:
         name = payload_info[:sep].decode('utf-8')
     except UnicodeDecodeError:
         print("bad 826 payload: name is not valid UTF-8")
-        answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8",session)
+        answers.answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8",session)
         return
 
     if name != name_in_dict:
         print(f'name mismatch: got {name!r}, expected {name_in_dict!r}')
-        answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}',session)
+        answers.answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}',session)
         return
     print(f"{name} logged successfully")
 
@@ -90,7 +89,7 @@ def request_826(client_id, payload_info: bytes, version,session):
     try:
         public_str = public_blob.decode('ascii')
     except UnicodeDecodeError:
-        answer_1607(client_id, version, "Public key is not ASCII base64",session)
+        answers.answer_1607(client_id, version, "Public key is not ASCII base64",session)
         return
     if session.debug_mode: print("public_blob len:", len(public_str))  #need to be approx 392
 
@@ -99,35 +98,35 @@ def request_826(client_id, payload_info: bytes, version,session):
         key_rsa = RSA.import_key(der)
         print(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}")  # size need to be 2048
         if key_rsa.has_private():
-            answer_1606(clients_info[name][0], version, name,session)
+            answers.answer_1606(store.clients_info[name][0], version, name,session)
             return
         if key_rsa.size_in_bits()!=2048:
-            answer_1606(clients_info[name][0], version, name,session)
+            answers.answer_1606(store.clients_info[name][0], version, name,session)
             return
         e = int(key_rsa.e)
         if e < 3 or e % 2 == 0:
-            answer_1606(clients_info[name][0], version, name,session)
+            answers.answer_1606(store.clients_info[name][0], version, name,session)
             return
     except Exception as e:
         print(f"RSA validation/import failed for 826: {e}")
-        answer_1607(client_id, version, "Invalid RSA public key",session)
+        answers.answer_1607(client_id, version, "Invalid RSA public key",session)
         return
 
-    clients_info[name_in_dict][1] = der  #keep DER, not Base64
+    store.clients_info[name_in_dict][1] = der  #keep DER, not Base64
 
     # generate AES key
     key = get_random_bytes(32)
-    clients_info[name][3] = base64.b64encode(key).decode('ascii')
-    if session.debug_mode: print(f'the name: {name} has this list {clients_info[name]}')
+    store.clients_info[name][3] = base64.b64encode(key).decode('ascii')
+    if session.debug_mode: print(f'the name: {name} has this list {store.clients_info[name]}')
 
     # encrypt AES key with RSA public
     cipher = PKCS1_OAEP.new(key_rsa)
     ciphertext = cipher.encrypt(key)
-    tmp=[base64.b64encode(clients_info[name][0]).decode('utf-8'),base64.b64encode(clients_info[name][1]).decode('utf-8'),clients_info[name][2],clients_info[name][3]]
+    tmp=[base64.b64encode(store.clients_info[name][0]).decode('utf-8'),base64.b64encode(store.clients_info[name][1]).decode('utf-8'),store.clients_info[name][2],store.clients_info[name][3]]
     print(f'the user: {name} has this list {tmp}.\nand this is the aes key encrypted by the public key: {base64.b64encode(ciphertext).decode('utf-8')}')
 
     # send 1602 aes key
-    answer_1602(ciphertext, clients_info[name][0], version,session)
+    answers.answer_1602(ciphertext, store.clients_info[name][0], version,session)
 def request_827(client_id,payload_info:bytes,version,session):
     """
         Handle request 827: "single sign-on" / re-login.
@@ -141,35 +140,33 @@ def request_827(client_id,payload_info:bytes,version,session):
         - Otherwise: generate new AES key, encrypt with stored public key, reply with 1605.
         """
     if session.debug_mode: print("inside request 827")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store=session.store
     payload_info = payload_info.decode()
     name=payload_info[:-1]
-    if not name in clients_info:
+    if not name in store.clients_info:
         #the user doesnt exist
         print(f'the user {name} not in the clients dictionary')
-        #clients_info[name][2] = str(datetime.datetime.now())
-        clients_recent_log[name].append(["request_827",str(datetime.datetime.now())])
-        answer_1606(b'\x00'*16, version,name,session)
+        store.clients_recent_log[name].append(["request_827",str(datetime.datetime.now())])
+        answers.answer_1606(b'\x00'*16, version,name,session)
     else:
-        clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-        clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
-        pub = RSA.import_key(clients_info[name][1])
+        store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+        store.clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
+        pub = RSA.import_key(store.clients_info[name][1])
         if pub.size_in_bits()!=2048:
-            print(f"the public key: [{clients_info[name][1]}] in request 827 is not valid the len needs to be 2048 and is {str(len(clients_info[name][1]))}")
-            answer_1606(clients_info[name][0],version,name,session)
+            print(f"the public key: [{store.clients_info[name][1]}] in request 827 is not valid the len needs to be 2048 and is {str(len(store.clients_info[name][1]))}")
+            answers.answer_1606(store.clients_info[name][0],version,name,session)
         else:
             # generate aes key
             key = get_random_bytes(32)
-            clients_info[name][3] = base64.b64encode(key).decode('ascii')
-            if session.debug_mode: print(f'the person with the name: {name} has this list {clients_info[name]}')
+            store.clients_info[name][3] = base64.b64encode(key).decode('ascii')
+            if session.debug_mode: print(f'the person with the name: {name} has this list {store.clients_info[name]}')
             # encrypt aes key
-            key_rsa = RSA.importKey(clients_info[name][1])
+            key_rsa = RSA.importKey(store.clients_info[name][1])
             cipher = PKCS1_OAEP.new(key_rsa)
             ciphertext = cipher.encrypt(key)
             print("request to sign on succeed")
-            print(f'the name: {name} has this list {clients_info[name]}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
-            answer_1605(ciphertext, clients_info[name][0], version,session)
+            print(f'the name: {name} has this list {store.clients_info[name]}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
+            answers.answer_1605(ciphertext, store.clients_info[name][0], version,session)
 
 
 
@@ -194,8 +191,7 @@ def request_828(payload_info,version,client_id,session):
             * Calls answer_1603 to send CRC result back.
         """
     if session.debug_mode: print("inside request 828")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store=session.store
     # Parse header fields from payload
     content_size=int.from_bytes(payload_info[:4], byteorder="little")
     orig_file_size=int.from_bytes(payload_info[4:8], byteorder="little")
@@ -211,26 +207,26 @@ def request_828(payload_info,version,client_id,session):
         file_name = payload_info[12:sep].decode('utf-8')
     except UnicodeDecodeError:
         print("bad 828 payload: name is not valid UTF-8")
-        answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+        answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
         return
     if session.debug_mode: print(sep)
     if session.debug_mode: print(file_name)
     # The rest of the payload is the ciphertext chunk
     cipher_chunk = payload_info[sep + 1:]
     # Resolve username from client_id
-    name_in_dict = name_of_dict_from_id(client_id)
+    name_in_dict = store.name_of_dict_from_id(client_id)
     if not name_in_dict:
-        print(clients_info)
+        print(store.clients_info)
         print(f'uuid not in client_info; client_id={client_id!r}')
         return
     # Decode AES key (Base64) for this client
-    raw_key = base64.b64decode(clients_info[name_in_dict][3])
+    raw_key = base64.b64decode(store.clients_info[name_in_dict][3])
     aes_key = raw_key
 
     if packet_num==0:
         if len(cipher_chunk) < 16:
             print("bad 828: IV too short")
-            answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+            answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
             return
         session.transfer_iv = bytes(cipher_chunk[:16])
         print("IV(hex)=", session.transfer_iv.hex())
@@ -239,8 +235,8 @@ def request_828(payload_info,version,client_id,session):
         if packet_num==1:
             print(f"write the file {file_name} ")
             session.transfer_cipher = bytearray()
-            clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-            clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
+            store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+            store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
         # Append chunk to the accumulated ciphertext
         print(f"\rgot packet with chunk size={len(cipher_chunk)}, {packet_num / total_packets * 100:.2f}% complete", end="")
         session.transfer_cipher.extend(cipher_chunk)
@@ -248,7 +244,7 @@ def request_828(payload_info,version,client_id,session):
         if session.debug_mode: print(f'packet number: {packet_num} of {total_packets}')
         # Once we have the last packet, decrypt and write file
         if packet_num == total_packets:
-            clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+            store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
             cipher_total=bytes(session.transfer_cipher)
             print(f"\nfinal cipher text total size={len(cipher_total)}, expected content size={content_size}")
             # AES-256-CBC with zero IV (same as client)
@@ -276,7 +272,7 @@ def request_828(payload_info,version,client_id,session):
                   f"hex=0x{zlib.crc32(plaintext) & 0xFFFFFFFF:08X}")
                 print("======================")
             # Respond with 1603 including server-side CRC
-            answer_1603(client_id, version, file_name, content_size, plaintext,session)
+            answers.answer_1603(client_id, version, file_name, content_size, plaintext,session)
         if packet_num > total_packets:
             print(f'the packet number: {packet_num} is greater than the total: {total_packets}')
 
@@ -291,14 +287,13 @@ def request_900(payload_info,version,client_id,session):
     - Log success and send 1604.
     """
     if session.debug_mode: print("inside request 900")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store=session.store
     file_name=payload_info.decode()
     file_name = file_name.rstrip('\x00')
     print(f'file name: {file_name} came with valid CRC, sending confirmation ')
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["request_900",str(datetime.datetime.now())])
-    answer_1604(client_id,version,session)
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["request_900",str(datetime.datetime.now())])
+    answers.answer_1604(client_id,version,session)
 
 def request_901(payload_info,version,client_id,session):
     """
@@ -311,12 +306,11 @@ def request_901(payload_info,version,client_id,session):
     - Log success and send 1604.
     """
     if session.debug_mode: print("inside request 901")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     file_name = payload_info.decode()
     print(f'file name: {file_name} came with invalid CRC from client id: {client_id},version:{version}')
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["request_901",str(datetime.datetime.now())])
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["request_901",str(datetime.datetime.now())])
     if session.debug_mode: print('waiting for request 828')
 
 def request_902(payload_info,version,client_id,session):
@@ -330,10 +324,9 @@ def request_902(payload_info,version,client_id,session):
     - Logs failure and sends 1604 (transfer finished with error).
     """
     if session.debug_mode: print("inside request 902")
-    clients_info = session.store.clients_info
-    clients_recent_log = session.store.clients_recent_log
+    store = session.store
     file_name=payload_info.decode()
     print(f'file name: {file_name} came with invalid CRC on the 4th time')
-    clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
-    answer_1604(client_id,version,session)
+    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
+    answers.answer_1604(client_id,version,session)

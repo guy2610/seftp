@@ -8,11 +8,11 @@ Secure File Transfer Server
 """
 
 import socket
-from collections import defaultdict
 from src.session import ClientSession
 from src import router
 import src.answers as answers
 import src.handlers as handlers
+from src.store import Store
 
 HOST='127.0.0.1'
 try:
@@ -31,28 +31,8 @@ except:
 #       aes_key_b64 (AES-256 key, Base64-encoded string)
 #   ]
 # }
-clients_info={}
-clients_recent_log = defaultdict(list)
-try:
-    with open("clients.info","r") as file:
-        i=0
-        for line in file:
-            if i%4==0:
-                name = line[:len(line) - 1]
-                clients_info[name]=["none"]*4
-            elif i % 4 == 1:
-                clients_info[name][0]=line[:len(line) - 1]
-            elif i % 4 == 2:
-                clients_info[name][1] = line[:len(line) - 1]
-            elif i % 4 == 3:
-                clients_info[name][2] = line[:len(line) - 1]
-            else:
-                clients_info[name][3] = line[:len(line) - 1]
-            i+=1
-
-except:
-    print(f'file name clients.info not found')
-
+store=Store()
+store.load_client_info("clients.info")
 
 def name_of_dict_from_id(client_id):
     """
@@ -60,8 +40,7 @@ def name_of_dict_from_id(client_id):
         Returns None if not found.
         """
     if debug_mode: print("inside name_of_dict_from_id")
-    global clients_info
-    for k, vals in clients_info.items():
+    for k, vals in store.clients_info.items():
         if vals[0] == client_id:
             return k
     return
@@ -97,12 +76,12 @@ def helper_for_now_for_sso():
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
 
-answers.clients_info = clients_info
-answers.clients_recent_log = clients_recent_log
+answers.clients_info = store.clients_info
+answers.clients_recent_log = store.clients_recent_log
 answers.name_of_dict_from_id = name_of_dict_from_id
 
-handlers.clients_info = clients_info
-handlers.clients_recent_log = clients_recent_log
+handlers.clients_info = store.clients_info
+handlers.clients_recent_log = store.clients_recent_log
 handlers.name_of_dict_from_id = name_of_dict_from_id
 
 handlers.answer_1600 = answers.answer_1600

@@ -600,65 +600,6 @@ def answer_1607(client_id,version,text,session:ClientSession):
     clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
     session.send(message)
 
-
-
-def get_request(request:bytes,session:ClientSession):
-    """
-     Parse a full frame from the client and dispatch to the correct handler.
-
-     Frame format:
-     - 16 bytes: client_id
-     - 1 byte: version
-     - 2 bytes: code (little-endian)
-     - 4 bytes: payload_size (little-endian)
-     - N bytes: payload
-
-     Supported codes:
-     - 825: registration
-     - 826: submit/update public key
-     - 827: re-login (SSO)
-     - 828: encrypted file chunk
-     - 900/901/902: CRC result / retry control
-     """
-    if debug_mode: print("inside the request manager")
-    global clients_recent_log
-    if len(request)<17:
-        return
-    client_id = request[:16]
-    version = request[16]
-    try:
-        if len(request)<23:
-            answer_1607(client_id, version, "request length too short, missing code number/payload size",session)
-            return
-        code_num = str(int.from_bytes(request[17:19], 'little'))
-        payload_size = int.from_bytes(request[19:23], 'little')
-        if len(request)<23+payload_size:
-            answer_1607(client_id, version, "request length too short from the actual payload size",session)
-            return
-        if debug_mode: print(f'this is the code num: {str(code_num)}')
-        if debug_mode: print(f'this is the size of the payload: {payload_size}')
-        payload_info = request[23:23 + payload_size]
-        if debug_mode: print(f'this is the payload: {payload_info}')
-        if code_num=="825":
-            request_825(payload_info, version,session)
-        elif code_num=="827":
-            request_827(client_id,payload_info, version,session)
-        elif code_num == "826":
-            request_826(client_id, payload_info, version,session)
-        elif code_num == "828":
-            request_828(payload_info,version,client_id,session)
-        elif code_num == "900":
-            request_900(payload_info, version, client_id,session)
-        elif code_num == "901":
-            request_901(payload_info, version, client_id,session)
-        elif code_num == "902":
-            request_902(payload_info, version, client_id,session)
-        else:
-            answer_1607(client_id, version, "unknown code",session)
-    except Exception as e:
-        print(e)
-        answer_1607(client_id,version,"generic error in server, please try again later",session)
-
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
 router.answer_1607 = answer_1607

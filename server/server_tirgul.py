@@ -21,6 +21,7 @@ from Crypto.Hash import SHA256
 from Crypto.Util.Padding import unpad
 import base64
 from src.session import ClientSession
+from src import router
 HOST='127.0.0.1'
 try:
     with open("port.info","r") as port_file:
@@ -660,7 +661,14 @@ def get_request(request:bytes,session:ClientSession):
 
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
-
+router.answer_1607 = answer_1607
+router.request_825 = request_825
+router.request_826 = request_826
+router.request_827 = request_827
+router.request_828 = request_828
+router.request_900 = request_900
+router.request_901 = request_901
+router.request_902 = request_902
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((HOST, PORT))
     print("socket binded to %s" % PORT)
@@ -678,7 +686,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     break
                 frames = session.feed(chunk)
                 for frame in frames:
-                    get_request(frame,session)
+                    router.handle_frame(frame, session)
         except (ConnectionResetError, BrokenPipeError):
             print(f"Client {addr} disconnected unexpectedly.")
         finally:

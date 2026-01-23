@@ -33,6 +33,7 @@ def answer_1600(client_id,version,session):
         - Prints the client_id in Base64 for debugging
         """
     if session.debug_mode: print("inside answer 1600")
+    clients_recent_log = session.store.clients_recent_log
     clients_recent_log[client_id].append(["answer_1600",str(datetime.datetime.now())])
     message=message_answer(version,"1600","16",client_id,session)
     print(f"sign on succeed for {base64.b64encode(client_id).decode('utf-8')}")
@@ -60,6 +61,8 @@ def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     Also updates last_seen and logs the event.
     """
     if session.debug_mode: print("inside answer 1602")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     payload = cipher_text_aes_encrypted + client_id
     message = message_answer(version, "1602", str(len(payload)), payload,session)
     print(f"got the {name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
@@ -76,6 +79,8 @@ def answer_1606(client_id,version,name,session):
     - Stored public key is invalid (e.g., wrong size or format)
     """
     if session.debug_mode: print("inside answer 1606")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     message = message_answer(version, "1606", "16", client_id,session)
     print(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} rejected (client is not register or the public key is invalid. need to re-register)')
     if client_id==b'\x00'*16:
@@ -94,6 +99,8 @@ def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     - 16 bytes client_id
     """
     if session.debug_mode: print("inside answer 1605")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     message = message_answer(version, "1605", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id,session)
     print(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
@@ -113,6 +120,8 @@ def answer_1603(client_id,version,file_name,content_size,decrypted_total,session
        - Logs success and sends the message to the client.
        """
     if session.debug_mode: print("inside answer 1603")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["answer_1603",str(datetime.datetime.now())])
     # Compute CRC32 over the decrypted plaintext
@@ -140,6 +149,8 @@ def answer_1604(client_id,version,session):
     Also prints the most recent state of the client in clients_info.
     """
     if session.debug_mode: print("inside answer 1604")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     message = message_answer(version, "1604", "16", client_id,session)
     print("file transferring success if the the CRC is valid. Otherwise failed.")
     client_name=name_of_dict_from_id(client_id)
@@ -156,6 +167,8 @@ def answer_1607(client_id,version,text,session):
     Also prints the most recent state of the client in clients_info.
     """
     if session.debug_mode: print("inside answer 1607")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     payload = client_id + text.encode("utf-8")
     message = message_answer(version, "1607", str(len(payload)), payload,session)
     print(f"error occurred: {text}")

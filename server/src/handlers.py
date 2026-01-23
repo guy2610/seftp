@@ -8,6 +8,7 @@ from Crypto.Cipher import PKCS1_OAEP
 import zlib
 from Crypto.Util.Padding import unpad
 import base64
+
 def request_825(payload_info,version,session):
     """
     Handle request 825: initial registration.
@@ -20,7 +21,8 @@ def request_825(payload_info,version,session):
     - If username exists: reply with 1601.
     """
     if session.debug_mode: print("inside request 825")
-    global  clients_info,clients_recent_log
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     payload_info=payload_info.rstrip(b'\x00').decode()
     if not payload_info in clients_info:
         client_id=uuid.uuid4().bytes
@@ -55,7 +57,8 @@ def request_826(client_id, payload_info: bytes, version,session):
     - Responds with 1602 containing the encrypted AES key.
     """
     if session.debug_mode: print("inside request 826")
-    global clients_info
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     name_in_dict = name_of_dict_from_id(client_id)
     clients_info[name_in_dict][2] = str(datetime.datetime.now())
     clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
@@ -138,7 +141,8 @@ def request_827(client_id,payload_info:bytes,version,session):
         - Otherwise: generate new AES key, encrypt with stored public key, reply with 1605.
         """
     if session.debug_mode: print("inside request 827")
-    global clients_info
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     payload_info = payload_info.decode()
     name=payload_info[:-1]
     if not name in clients_info:
@@ -190,7 +194,8 @@ def request_828(payload_info,version,client_id,session):
             * Calls answer_1603 to send CRC result back.
         """
     if session.debug_mode: print("inside request 828")
-    global clients_info
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     # Parse header fields from payload
     content_size=int.from_bytes(payload_info[:4], byteorder="little")
     orig_file_size=int.from_bytes(payload_info[4:8], byteorder="little")
@@ -286,6 +291,8 @@ def request_900(payload_info,version,client_id,session):
     - Log success and send 1604.
     """
     if session.debug_mode: print("inside request 900")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     file_name=payload_info.decode()
     file_name = file_name.rstrip('\x00')
     print(f'file name: {file_name} came with valid CRC, sending confirmation ')
@@ -304,6 +311,8 @@ def request_901(payload_info,version,client_id,session):
     - Log success and send 1604.
     """
     if session.debug_mode: print("inside request 901")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     file_name = payload_info.decode()
     print(f'file name: {file_name} came with invalid CRC from client id: {client_id},version:{version}')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
@@ -321,6 +330,8 @@ def request_902(payload_info,version,client_id,session):
     - Logs failure and sends 1604 (transfer finished with error).
     """
     if session.debug_mode: print("inside request 902")
+    clients_info = session.store.clients_info
+    clients_recent_log = session.store.clients_recent_log
     file_name=payload_info.decode()
     print(f'file name: {file_name} came with invalid CRC on the 4th time')
     clients_info[name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())

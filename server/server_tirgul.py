@@ -98,7 +98,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.listen(5)
     print("socket is listening")
     c, addr = s.accept()
-    session = ClientSession(c, debug_mode)
+    session = ClientSession(c,store, debug_mode)
     with c:
         print('Got connection from', addr)
         try:

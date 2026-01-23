@@ -1,11 +1,12 @@
 from src.framing import Framer
 class ClientSession:
-    def __init__(self, sock, debug_mode: bool = False):
+    def __init__(self, sock,store ,debug_mode: bool = False):
         self.sock=sock
         self.debug_mode=debug_mode
         self.framer=Framer()
         self.transfer_iv=None
         self.transfer_cipher=bytearray()
+        self.store=store
     def send(self,data:bytes)->None:
         if not data:
             return

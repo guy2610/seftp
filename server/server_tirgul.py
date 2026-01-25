@@ -19,37 +19,9 @@ try:
             PORT=int(line)
 except:
     PORT=1256
-
+DATA_PATH = "data/clients_info.json"
 store=Store()
-store.load_client_info("clients.info")
-
-
-
-'''
-####DEBUG ONLY###
-def helper_for_now_for_sso():
-    if debug_mode: print("inside helper_for_now_for_sso")
-    global clients_info
-    with open("your\\path\\to\\me.info",'r') as f:
-        data=f.read()
-    lines=[ln.strip() for ln in data.splitlines() if ln.strip()]
-    if len(lines)<3:
-        raise ValueError("me.info must have 3 line: name, client_id_hex, public_key")
-    name=lines[0]
-    client_id_hex = lines[1]
-    if len(client_id_hex) != 32:
-        raise ValueError(f"client_id hex with invalid len: {len(client_id_hex)} needs 32 ")
-    client_id_bytes = bytes.fromhex(client_id_hex)
-    public_key_blob = b64decode(lines[2], validate=True)
-    pub = RSA.import_key(public_key_blob)
-    print("public key bits:", pub.size_in_bits())
-
-    last_seen="none for now"
-    aes_key="will be generated"
-    clients_info[name] = [client_id_bytes, public_key_blob, last_seen, aes_key]
-    if debug_mode: print(f"name: {name}")
-    if debug_mode: print(f"client_id (hex): {client_id_hex}")
-'''
+store.load_client_info(DATA_PATH)
 
 ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
 debug_mode=True if ans.lower()=="yes" else False
@@ -76,4 +48,5 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             print(f"Client {addr} disconnected unexpectedly.")
         finally:
             c.close()
+store.save_clients_info(DATA_PATH)
 print(dict(store.clients_recent_log))

@@ -18,7 +18,7 @@ The system is functional end-to-end, but not hardened for real-world deployment.
 
 ## Version
 
-**v0.2.0 - Stage 2 (client architecture refactor)**
+**v0.2.x - Stage 2 (client refactor complete, server refactor + JSON persistence)**
 
 * Fully functional encrypted file transfer (client <-> server)
 * Clear separation between protocol parsing, networking, crypto, and flow logic
@@ -56,7 +56,15 @@ client/
 server/
   server_tirgul.py
   port.info            # server port configuration
-
+  data/
+    clients_info.json
+  src/
+    router.py
+    handlers.py
+    answers.py
+    session.py
+    store.py           # JSON persistence; single-process; best-effort; no locking/atomic writes
+    framing.py
 protocol/
   spec.md              # full protocol specification
 ```
@@ -72,6 +80,7 @@ protocol/
 * CRC validation with retry logic (`900 / 901 / 902 + 1603`)
 * Persistent client identity and keys on the client side
 * Server-side logging of client activity
+* Minimal server-side persistence (clients_info.json)
 
 ---
 
@@ -212,6 +221,7 @@ Client stops retrying.
 * No replay protection or authentication
 * Server supports only a single client connection
   *(multi-client support planned in a later stage)*
+  *(Server state is persisted to server/data/clients_info.json (best-effort).)*
 
 
 ---
@@ -245,6 +255,11 @@ g++ client/src/client_tirgul.cpp -o client -lboost_system -lcryptopp
 ### 1. Start the server
 
 ```
+Prerequisites (persistence)
+- Create: server/data/clients_info.json
+- Initialize it with: {}
+The server loads this file on startup and saves updates on shutdown (Ctrl+C / process exit).
+
 cd server
 python server_tirgul.py
 ```
@@ -316,10 +331,11 @@ Client complete, server refactor in progress
 * File IO cleanup (`me.info`, `aes.key`, `priv.key`)
 * Configuration cleanup (replaced ad-hoc parsing with structured config)
 
-**Server (in progress):**
-* Planned refactor into modules
-* Removal of global state
-* Introduction of per-client session abstraction
+**Server (completed up to 2.3.5):**
+* Modular router/handlers/answers
+* ClientSession + Store (no global state)
+* Pure handlers (no socket logic)
+* JSON persistence (startup load / shutdown save)
 
 ---
 

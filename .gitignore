@@ -1,3 +1,15 @@
+# Secrets / runtime identity (do not commit)
+**/me.info
+**/aes.key
+**/priv.key
+**/*.key
+
+# Runtime state (do not commit)
+server/data/clients_info.json
+server/src/__pycache__/
+__pycache__/
+*.pyc
+
 # Build outputs
 *.exe
 *.dll
@@ -15,17 +27,5 @@
 **/Debug/
 **/Release/
 
-# Secrets / runtime identity
-*.key
-*.info
-
-# Server runtime state
-server/clients.info
-server/port.info
-
 # Personal / local files
 *.xlsx
-
-# Python
-__pycache__/
-*.pyc

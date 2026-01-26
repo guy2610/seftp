@@ -1,8 +1,8 @@
 {
-    "Michael Jackson": {
-        "client_id_b64": "by5BZyFyTw6Z40qsklseyw==",
-        "public_key_b64": "MIIBIDANBgkqhkiG9w0BAQEFAAOCAQ0AMIIBCAKCAQEAu4QxxlnFs7WzuKj7eddhJ8uVz6EQopqpqKDOCESmcVLolUw2wdGTg6m/Q71uqbhfkvyCDn7moimkP36AkwUs9hpIJQjSMsXiJ3pZdry6mJB6IpJRfxUTj0Pr3uykIO6hTKcQn1obmOEwnyrSvINB2uCn6bAI6Humxd0or37TJZFVSlKFO/PsCC+AjLpaIBS69I5EQVPGWidhAMzc2RRdzRR9qWG0VBETIFADlx+UG85L64y1NJCQHFtNxxE10EEpm+5XpFvVT0hIcCVa+YvLeywd/F8hYhL7PP37H8/ju1tzTJIiLfaDHjZUX4GjoXqAhQ8cXXdsg16AsvP14OY4IwIBEQ==",
-        "last_seen": "2026-01-26 12:46:08.621818",
-        "aes_key_b64": "T6nepfae6ZGDHwArcX7n3MdkU5aQ0zrQ4TpiStQ5lLQ="
+    "USERNAME_HERE": {
+        "client_id_b64": "lVMp5EOXR5mi1YNxfE8XOQ==",
+        "public_key_b64": "MIIBIDANBgkqhkiG9w0BAQEFAAOCAQ0AMIIBCAKCAQEApx9+XDHfk2H6Leha8bBRe6XoOUZ92kSNjebLBWl2fYCBspl2h/ZSTrTfh45up8xOp28kUf6gwTgPXL8Ebzf36DpIZ+/mr4GUytb/9UieRttsVds+GgHgNCewZ3I86FunYt+1bB1rvvbCVP+6spcd1z4yX7HD6tr7kJxwbJRP5HQfpW3cKpVIFh/NYlIpewTuSNWBAoCggHT4KORTEyoC4Yc8lxJKDNXTjv2nwr6YplylM97lTgz8E3Q5E6viuaTfT49+cfSYZ056eqtRQuQPyYbOEeT2E7dalfmCQFxrtPCTWtEBd0kBjhYESv7nDMhJmfAFjILKE+T/YvVRe7PZqwIBEQ==",
+        "last_seen": "2026-01-26 12:55:01.434580",
+        "aes_key_b64": "BJlDGLG7NdbZb+CN4mzmQAu+hUee+4zxpw4rdzIY+8k="
     }
 }

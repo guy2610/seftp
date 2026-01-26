@@ -1,4 +1,16 @@
-# Build outputs
+# Visual Studio workspace + build output
+client/SEFFP-CLIENT/.vs/
+client/SEFFP-CLIENT/x64/
+client/SEFFP-CLIENT/**/Debug/
+client/SEFFP-CLIENT/**/Release/
+
+# Secrets / runtime identity
+client/SEFFP-CLIENT/me.info
+client/SEFFP-CLIENT/aes.key
+client/SEFFP-CLIENT/priv.key
+*.key
+
+# Binaries / build artifacts
 *.exe
 *.dll
 *.obj
@@ -9,31 +21,22 @@
 *.tlog
 *.recipe
 
-# Visual Studio
-.vs/
-**/x64/
-**/Debug/
-**/Release/
+# CMake build
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
 
-# Local Visual Studio project folder (do not track)
-client/SEFFP-CLIENT/
-
-# Secrets / runtime identity
-*.key
-**/me.info
-**/aes.key
-**/priv.key
-
-# Runtime state (do not commit)
+# Server runtime state (do not commit)
 server/data/clients_info.json
 
-# Config files (keep tracked)
-!client/transfer.info
+# Keep config files tracked
+!client/SEFFP-CLIENT/transfer.info
 !server/port.info
 
-# Personal / local files
+# Local / personal files
 *.xlsx
-*.txt
+תכנון.txt
 
 # Python
 __pycache__/

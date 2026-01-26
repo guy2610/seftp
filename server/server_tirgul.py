@@ -23,7 +23,7 @@ DATA_PATH = "data/clients_info.json"
 store=Store()
 store.load_client_info(DATA_PATH)
 
-ans=input("do you wish to see debug console promts? answer 'yes' or something else for no ")
+ans=input("do you wish to see debug console promts? answer 'yes' or something else for no: ")
 debug_mode=True if ans.lower()=="yes" else False
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

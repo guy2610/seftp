@@ -46,7 +46,7 @@ def answer_1601(version,session):
     No payload.
     """
     if session.debug_mode: print("inside answer 1601")
-    message = message_answer(version, "1601", "0", "",session)
+    message = message_answer(version, "1601", "0",b"",session)
     print(f"sign on failed")
     session.send(message)
     #send error in answer format

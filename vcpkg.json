@@ -1,0 +1,9 @@
+{
+  "name": "seffp-client",
+  "version-string": "0.2.0",
+  "dependencies": [
+    "cryptopp",
+    "boost-asio",
+    "boost-system"
+  ]
+}

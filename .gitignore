@@ -3,6 +3,8 @@ client/SEFFP-CLIENT/.vs/
 client/SEFFP-CLIENT/x64/
 client/SEFFP-CLIENT/**/Debug/
 client/SEFFP-CLIENT/**/Release/
+client/SEFFP-CLIENT/*.sln
+client/SEFFP-CLIENT/*.vcxproj*
 
 # Secrets / runtime identity
 client/SEFFP-CLIENT/me.info
@@ -31,8 +33,9 @@ cmake_install.cmake
 server/data/clients_info.json
 
 # Keep config files tracked
-!client/SEFFP-CLIENT/transfer.info
 !server/port.info
+**/transfer.info
+!client/SEFFP-CLIENT/transfer.info
 
 # Local / personal files
 *.xlsx

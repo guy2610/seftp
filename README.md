@@ -30,6 +30,24 @@ The system is functional end-to-end, but not hardened for real-world deployment.
 * Proper `1607` error responses with textual payload
 * Manually tested; no automated tests yet
 
+---
+
+## Prebuilt Client (Windows x64)
+
+A prebuilt Windows x64 client binary is available.
+
+- No build required
+- Includes example runtime configuration
+- Built in Release mode
+
+Download:
+https://github.com/guy2610/Portfolio/releases/tag/v0.2.0-client-win-x64
+
+Run:
+1. Start the server (see below)
+2. Extract the zip
+3. Edit `transfer.info`
+4. Run `SEFFP-CLIENT.exe`
 
 ---
 
@@ -237,16 +255,13 @@ Client stops retrying.
 pip install pycryptodome
 ```
 
-### Client
+### Client (Build from source)
 
 * C++17 compiler
-* Boost.Asio
-* Crypto++
-  Example build:
-
-```
-g++ client/src/client_tirgul.cpp -o client -lboost_system -lcryptopp
-```
+* CMake 3.21+
+* vcpkg
+* Boost (via vcpkg)
+* Crypto++ (via vcpkg)
 
 ---
 
@@ -286,23 +301,35 @@ file name (not in use)
 Michael Jackson
 New_product_spec.docx
 ```
-### 3. Build and run the client
+### 3. Build from Source (Windows, CMake + vcpkg)
+
+### Prerequisites
+
+- Visual Studio 2022 (Desktop C++ workload)
+- Git
+- Python 3.9+ (for server)
+
+### Build
 
 ```
-cd client
-g++ src/client_tirgul.cpp -o client -lcryptopp -lws2_32
-./client
-```
----
-### Windows / MSYS2 Build
+git clone https://github.com/guy2610/Portfolio/tree/main/Secure-Encrypted-File-Transfer-Protocol
+cd Secure-Encrypted-File-Transfer-Protocol
 
-If you're compiling on Windows using MSYS2 (ucrt64), install Crypto++ and compile using:
+git clone https://github.com/microsoft/vcpkg
 
-```bash
-pacman -S mingw-w64-ucrt-x86_64-crypto++
-g++ src/client_tirgul.cpp -o client -lcryptopp -lws2_32
+.\vcpkg\bootstrap-vcpkg.bat
+
+cmake --preset vs2022-x64 --fresh
+cmake --build --preset release
 ```
----
+### Run
+```
+cd build\Release
+.\seffp_client.exe
+```
+### Notes:
+
+- `transfer.info` is automatically copied next to the built executable.
 
 ## Roadmap
 

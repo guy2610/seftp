@@ -1,15 +1,3 @@
-# Secrets / runtime identity (do not commit)
-**/me.info
-**/aes.key
-**/priv.key
-**/*.key
-
-# Runtime state (do not commit)
-server/data/clients_info.json
-server/src/__pycache__/
-__pycache__/
-*.pyc
-
 # Build outputs
 *.exe
 *.dll
@@ -27,5 +15,26 @@ __pycache__/
 **/Debug/
 **/Release/
 
+# Local Visual Studio project folder (do not track)
+client/SEFFP-CLIENT/
+
+# Secrets / runtime identity
+*.key
+**/me.info
+**/aes.key
+**/priv.key
+
+# Runtime state (do not commit)
+server/data/clients_info.json
+
+# Config files (keep tracked)
+!client/transfer.info
+!server/port.info
+
 # Personal / local files
 *.xlsx
+*.txt
+
+# Python
+__pycache__/
+*.pyc

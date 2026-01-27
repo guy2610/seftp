@@ -11,42 +11,37 @@ import socket
 from src.session import ClientSession
 from src import router
 from src.store import Store
+from src.config import Config
+from src.logging_setup import setup_logging
 
-HOST='127.0.0.1'
-try:
-    with open("port.info","r") as port_file:
-        for line in port_file:
-            PORT=int(line)
-except:
-    PORT=1256
-DATA_PATH = "data/clients_info.json"
+config=Config.load()
+logger=setup_logging(config.log_level)
+
 store=Store()
-store.load_client_info(DATA_PATH)
-
-ans=input("do you wish to see debug console promts? answer 'yes' or something else for no: ")
-debug_mode=True if ans.lower()=="yes" else False
+store.load_client_info(config.data_path)
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
-    print("socket binded to %s" % PORT)
+    s.bind((config.host, config.port))
+    logger.info("socket binded to %d", config.port)
     s.listen(5)
-    print("socket is listening")
+    logger.info("socket is listening")
     c, addr = s.accept()
-    session = ClientSession(c,store, debug_mode)
+    session = ClientSession(c,store,logger)
+    session.log.info("Got connection from %s", addr)
     with c:
-        print('Got connection from', addr)
         try:
             while True:
                 chunk = c.recv(1024)
                 if not chunk:
-                    print(f"Client {addr} disconnected.")
+                    session.log.info("Client %s disconnected", addr)
                     break
                 frames = session.feed(chunk)
                 for frame in frames:
                     router.handle_frame(frame, session)
         except (ConnectionResetError, BrokenPipeError):
-            print(f"Client {addr} disconnected unexpectedly.")
+            session.log.warning("Client %s disconnected unexpectedly", addr)
         finally:
             c.close()
-store.save_clients_info(DATA_PATH)
-print(dict(store.clients_recent_log))
+store.save_clients_info(config.data_path)
+logger.debug("clients_recent_log=%r", dict(store.clients_recent_log))
+

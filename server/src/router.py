@@ -1,3 +1,4 @@
+import uuid
 from src import answers
 from src import handlers
 def handle_frame(frame:bytes,session):
@@ -18,8 +19,10 @@ def handle_frame(frame:bytes,session):
      - 828: encrypted file chunk
      - 900/901/902: CRC result / retry control
      """
-    if session.debug_mode: print("inside the frame handler")
+
+    session.log.request_id = uuid.uuid4().hex
     if len(frame)<17:
+        session.log.warning(f"short frame (<17), request_id={session.log.request_id}")
         return
     client_id = frame[:16]
     version = frame[16]
@@ -29,13 +32,14 @@ def handle_frame(frame:bytes,session):
             return
         code_num = str(int.from_bytes(frame[17:19], 'little'))
         payload_size = int.from_bytes(frame[19:23], 'little')
+
+        session.log.info(f"frame received code={code_num} payload_size={payload_size}")
+
         if len(frame)<23+payload_size:
             answers.answer_1607(client_id, version, "request length too short from the actual payload size",session)
             return
-        if session.debug_mode: print(f'this is the code num: {str(code_num)}')
-        if session.debug_mode: print(f'this is the size of the payload: {payload_size}')
+
         payload_info = frame[23:23 + payload_size]
-        if session.debug_mode: print(f'this is the payload: {payload_info}')
         if code_num=="825":
             handlers.request_825(payload_info, version,session)
         elif code_num=="827":
@@ -52,6 +56,12 @@ def handle_frame(frame:bytes,session):
             handlers.request_902(payload_info, version, client_id,session)
         else:
             answers.answer_1607(client_id, version, "unknown code",session)
-    except Exception as e:
-        print(e)
-        answers.answer_1607(client_id,version,"generic error in server, please try again later",session)
+    except Exception:
+        session.log.exception(f"unhandled exception in handle_frame")
+        try:
+            answers.answer_1607(client_id,version,"generic error in server, please try again later",session)
+        except Exception:
+            pass
+    finally:
+        session.request_id=None
+        session.log.request_id = "-"

@@ -14,7 +14,7 @@ async def main():
 
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
-        session = ClientSession(None, store, logger)
+        session = ClientSession(writer, store, logger)
         session.log.info("Got connection from %s", addr)
         try:
             while True:
@@ -28,7 +28,7 @@ async def main():
                     break
                 frames = session.feed(chunk)
                 for frame in frames:
-                    router.handle_frame(frame, session)
+                    await router.handle_frame(frame, session)
         except (ConnectionResetError, BrokenPipeError):
             session.log.warning("Client %s disconnected unexpectedly", addr)
         finally:
@@ -39,7 +39,14 @@ async def main():
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     logger.info("async server listening on %s", addrs)
     async with server:
-        await server.serve_forever()
+        try:
+            await server.serve_forever()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            store.save_clients_info(config.data_path)
+            logger.debug("clients_recent_log=%r", dict(store.clients_recent_log))
+            logger.info("shutting down")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ def message_answer(version:bytes,code_num:str,payload_size:str,payload:bytes,ses
     session.log.debug(message)
     return message
 
-def answer_1600(client_id,version,session):
+async def answer_1600(client_id,version,session):
     """
         Send response 1600: registration succeeded.
 
@@ -37,9 +37,9 @@ def answer_1600(client_id,version,session):
     store.clients_recent_log[client_id].append(["answer_1600",str(datetime.datetime.now())])
     message=message_answer(version,"1600","16",client_id,session)
     session.log.info(f"sign on succeed for {base64.b64encode(client_id).decode('utf-8')}")
-    session.send(message)
+    await session.send(message)
 
-def answer_1601(version,session):
+async def answer_1601(version,session):
     """
     Send response 1601: registration failed (username already exists or invalid).
 
@@ -48,9 +48,9 @@ def answer_1601(version,session):
     session.log.debug("inside answer 1601")
     message = message_answer(version, "1601", "0",b"",session)
     session.log.info("sign on failed")
-    session.send(message)
+    await session.send(message)
     #send error in answer format
-def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
+async def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     """
     Send response 1602: AES key encrypted with client's RSA public key.
 
@@ -67,9 +67,9 @@ def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     session.log.info(f"got the {store.name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
-    session.send(message)
+    await session.send(message)
 
-def answer_1606(client_id,version,name,session):
+async def answer_1606(client_id,version,name,session):
     """
     Send response 1606: re-login / sign-on rejected.
 
@@ -86,9 +86,9 @@ def answer_1606(client_id,version,name,session):
     else:
         store.clients_recent_log[client_id].append(["answer_1606", str(datetime.datetime.now())])
         store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    session.send(message)
+    await session.send(message)
 
-def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
+async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     """
     Send response 1605: re-login approved.
 
@@ -102,8 +102,9 @@ def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     session.log.info(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key')
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
-    session.send(message)
-def answer_1603(client_id,version,file_name,content_size,decrypted_total,session):
+    await session.send(message)
+
+async def answer_1603(client_id,version,file_name,content_size,decrypted_total,session):
     """
        Send response 1603: CRC verification result.
 
@@ -137,8 +138,8 @@ def answer_1603(client_id,version,file_name,content_size,decrypted_total,session
     # Send 1603 response with CRC to client
     message = message_answer(version, 1603, len(payload), payload,session)
     session.log.info(f'received {file_name} with valid CRC ')
-    session.send(message)
-def answer_1604(client_id,version,session):
+    await session.send(message)
+async def answer_1604(client_id,version,session):
     """
     Send response 1604: file transfer finished (client already knows if CRC was valid).
 
@@ -153,8 +154,8 @@ def answer_1604(client_id,version,session):
     session.log.info(f'this is the recent client information on {client_name}:  {tmp}')
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1604",str(datetime.datetime.now())])
-    session.send(message)
-def answer_1607(client_id,version,text,session):
+    await session.send(message)
+async def answer_1607(client_id,version,text,session):
     """
     Send response 1607: protocol-level error.
     Client must abort the current flow and must not continue with subsequent requests.
@@ -177,4 +178,4 @@ def answer_1607(client_id,version,text,session):
         session.log.info(f'this is the recent client information on {client_name}:  {tmp}')
         store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
-    session.send(message)
+    await session.send(message)

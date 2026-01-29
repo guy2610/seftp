@@ -12,7 +12,7 @@ import sys
 import  logging
 from src import answers
 
-def request_825(payload_info,version,session):
+async def request_825(payload_info,version,session):
     """
     Handle request 825: initial registration.
 
@@ -40,11 +40,11 @@ def request_825(payload_info,version,session):
             store.clients_recent_log[client_id].extend(user_past_log)
             store.clients_recent_log.pop(name)
         store.clients_recent_log[client_id].append(["request_825",str(datetime.datetime.now())])
-        answers.answer_1600(client_id, version,session)
+        await answers.answer_1600(client_id, version,session)
     else:
         session.log.info(f'{payload_info} is in the clients info')
-        answers.answer_1601(version,session)
-def request_826(client_id, payload_info: bytes, version,session):
+        await answers.answer_1601(version,session)
+async def request_826(client_id, payload_info: bytes, version,session):
     """
     Handle request 826: send/update RSA public key + receive AES key.
 
@@ -72,19 +72,19 @@ def request_826(client_id, payload_info: bytes, version,session):
     sep = payload_info.find(b'\x00')
     if sep == -1:
         session.log.warning("bad 826 payload: missing NUL after name")
-        answers.answer_1607(client_id,version,"bad 826 payload: missing NUL after name",session)
+        await answers.answer_1607(client_id,version,"bad 826 payload: missing NUL after name",session)
         return
 
     try:
         name = payload_info[:sep].decode('utf-8')
     except UnicodeDecodeError:
         session.log.error("bad 826 payload: name is not valid UTF-8")
-        answers.answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8",session)
+        await answers.answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8",session)
         return
 
     if name != name_in_dict:
         session.log.warning(f'name mismatch: got {name!r}, expected {name_in_dict!r}')
-        answers.answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}',session)
+        await answers.answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}',session)
         return
     session.log.info(f"{name} logged successfully")
 
@@ -93,7 +93,7 @@ def request_826(client_id, payload_info: bytes, version,session):
         public_str = public_blob.decode('ascii')
     except UnicodeDecodeError:
         session.log.error("Public key is not ASCII base64")
-        answers.answer_1607(client_id, version, "Public key is not ASCII base64",session)
+        await answers.answer_1607(client_id, version, "Public key is not ASCII base64",session)
         return
     session.log.debug("public_blob len:", len(public_str))  #need to be approx 392
 
@@ -103,18 +103,18 @@ def request_826(client_id, payload_info: bytes, version,session):
         if session.log.isEnabledFor(logging.DEBUG):
             session.log.debug(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}")  # size need to be 2048
         if key_rsa.has_private():
-            answers.answer_1606(store.clients_info[name][0], version, name,session)
+            await answers.answer_1606(store.clients_info[name][0], version, name,session)
             return
         if key_rsa.size_in_bits()!=2048:
-            answers.answer_1606(store.clients_info[name][0], version, name,session)
+            await answers.answer_1606(store.clients_info[name][0], version, name,session)
             return
         e = int(key_rsa.e)
         if e < 3 or e % 2 == 0:
-            answers.answer_1606(store.clients_info[name][0], version, name,session)
+            await answers.answer_1606(store.clients_info[name][0], version, name,session)
             return
     except Exception as e:
         session.log.error(f"RSA validation/import failed for 826: {e}")
-        answers.answer_1607(client_id, version, "Invalid RSA public key",session)
+        await answers.answer_1607(client_id, version, "Invalid RSA public key",session)
         return
 
     store.clients_info[name_in_dict][1] = der  #keep DER, not Base64
@@ -132,8 +132,8 @@ def request_826(client_id, payload_info: bytes, version,session):
         session.log.debug(f'the user: {name} has this list {tmp}.\nand this is the aes key encrypted by the public key: {base64.b64encode(ciphertext).decode('utf-8')}')
 
     # send 1602 aes key
-    answers.answer_1602(ciphertext, store.clients_info[name][0], version,session)
-def request_827(client_id,payload_info:bytes,version,session):
+    await answers.answer_1602(ciphertext, store.clients_info[name][0], version,session)
+async def request_827(client_id,payload_info:bytes,version,session):
     """
         Handle request 827: "single sign-on" / re-login.
 
@@ -153,14 +153,14 @@ def request_827(client_id,payload_info:bytes,version,session):
         #the user doesnt exist
         session.log.info(f'the user {name} not in the clients dictionary')
         store.clients_recent_log[name].append(["request_827",str(datetime.datetime.now())])
-        answers.answer_1606(b'\x00'*16, version,name,session)
+        await answers.answer_1606(b'\x00'*16, version,name,session)
     else:
         store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
         store.clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
         pub = RSA.import_key(store.clients_info[name][1])
         if pub.size_in_bits()!=2048:
             session.log.info(f"the public key: [{store.clients_info[name][1]}] in request 827 is not valid the len needs to be 2048 and is {str(len(store.clients_info[name][1]))}")
-            answers.answer_1606(store.clients_info[name][0],version,name,session)
+            await answers.answer_1606(store.clients_info[name][0],version,name,session)
         else:
             # generate aes key
             key = get_random_bytes(32)
@@ -172,20 +172,18 @@ def request_827(client_id,payload_info:bytes,version,session):
             ciphertext = cipher.encrypt(key)
             session.log.info("request to sign on succeed")
             session.log.debug(f'the name: {name} has this list {store.clients_info[name]}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
-            answers.answer_1605(ciphertext, store.clients_info[name][0], version,session)
+            await answers.answer_1605(ciphertext, store.clients_info[name][0], version,session)
 
 def _draw_progress(packet_num, total_packets, chunk_size):
     percent = packet_num / total_packets * 100
-    sys.stderr.write(
-        f"\rgot packet with chunk size={chunk_size}, {percent:.2f}% complete"
-    )
+    sys.stderr.write(f"\rgot packet with chunk size={chunk_size}, {percent:.2f}% complete")
     sys.stderr.flush()
 
     if packet_num == total_packets:
         sys.stderr.write("\n")
         sys.stderr.flush()
 
-def request_828(payload_info,version,client_id,session):
+async def request_828(payload_info,version,client_id,session):
     """
         Handle request 828: receive encrypted file in chunks.
 
@@ -222,7 +220,7 @@ def request_828(payload_info,version,client_id,session):
         file_name = payload_info[12:sep].decode('utf-8')
     except UnicodeDecodeError:
         session.log.error("bad 828 payload: name is not valid UTF-8")
-        answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+        await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
         return
     session.log.debug(sep)
     session.log.debug(file_name)
@@ -241,7 +239,7 @@ def request_828(payload_info,version,client_id,session):
     if packet_num==0:
         if len(cipher_chunk) < 16:
             session.log.info("bad 828: IV too short")
-            answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+            await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
             return
         session.transfer_iv = bytes(cipher_chunk[:16])
         if session.log.isEnabledFor(logging.DEBUG):
@@ -289,11 +287,11 @@ def request_828(payload_info,version,client_id,session):
                 session.log.debug("======================")
 
             # Respond with 1603 including server-side CRC
-            answers.answer_1603(client_id, version, file_name, content_size, plaintext,session)
+            await answers.answer_1603(client_id, version, file_name, content_size, plaintext,session)
         if packet_num > total_packets:
             session.log.info(f'the packet number: {packet_num} is greater than the total: {total_packets}')
 
-def request_900(payload_info,version,client_id,session):
+async def request_900(payload_info,version,client_id,session):
     """
     Handle request 900: client confirms valid CRC.
 
@@ -310,9 +308,9 @@ def request_900(payload_info,version,client_id,session):
     session.log.info(f'file name: {file_name} came with valid CRC, sending confirmation ')
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["request_900",str(datetime.datetime.now())])
-    answers.answer_1604(client_id,version,session)
+    await answers.answer_1604(client_id,version,session)
 
-def request_901(payload_info,version,client_id,session):
+async def request_901(payload_info,version,client_id,session):
     """
     Handle request 900: client confirms valid CRC.
 
@@ -330,7 +328,7 @@ def request_901(payload_info,version,client_id,session):
     store.clients_recent_log[client_id].append(["request_901",str(datetime.datetime.now())])
     session.log.debug('waiting for request 828')
 
-def request_902(payload_info,version,client_id,session):
+async def request_902(payload_info,version,client_id,session):
     """
     Handle request 902: client reports invalid CRC after max retries.
 
@@ -346,4 +344,4 @@ def request_902(payload_info,version,client_id,session):
     session.log.info(f'file name: {file_name} came with invalid CRC on the 4th time')
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
-    answers.answer_1604(client_id,version,session)
+    await answers.answer_1604(client_id,version,session)

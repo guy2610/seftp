@@ -16,6 +16,9 @@ class ClientSession:
     def send(self,data:bytes)->None:
         if not data:
             return
+        if not self.sock:
+            print(data)
+            return
         self.sock.sendall(data)
 
     def feed(self, chunk: bytes) -> list[bytes]:

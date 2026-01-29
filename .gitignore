@@ -44,3 +44,18 @@ server/data/clients_info.json
 # Python
 __pycache__/
 *.pyc
+# Server runtime data
+server/data/
+
+# Client packaged artifacts
+client/dist/
+*.zip
+
+# vcpkg
+vcpkg/
+
+# Random local media
+*.png
+*.jpg
+*.jpeg
+*.jfif

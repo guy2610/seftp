@@ -36,7 +36,7 @@ class Store:
             print(f"Successfully loaded data from {path}")
 
         except FileNotFoundError:
-            print(f"Error: The file {path} was not found.")
+            print(f"Warning: The file {path} was not found.")
         except json.JSONDecodeError:
             print(f"Error: The file {path} is not a valid JSON.")
         except Exception as e:

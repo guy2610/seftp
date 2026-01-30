@@ -3,7 +3,7 @@
 This project implements a simple **secure file transfer protocol** over TCP.
 
 * **Client**: C++ (Boost.Asio, Crypto++)
-* **Server**: Python (sockets, PyCryptodome)
+* **Server**: Python (asyncio, PyCryptodome)
 * **Crypto**:
 
   * RSA-2048 (OAEP) for key exchange
@@ -29,6 +29,7 @@ The system is functional end-to-end, but not hardened for real-world deployment.
 * Stable server-issued `client_id` persisted on client
 * Proper `1607` error responses with textual payload
 * Manually tested; no automated tests yet
+* Async multi-client server with per-connection session isolation (Stage 2.5)
 
 ---
 
@@ -72,7 +73,8 @@ client/
   transfer.info        # client configuration (host:port, username)
 
 server/
-  server_tirgul.py
+  server_async.py      # asyncio-based multi-client server
+  server_tirgul.py     # legacy not in use
   port.info            # server port configuration
   data/
     clients_info.json
@@ -195,6 +197,9 @@ uint16  packet_number
 uint16  total_packets
 filename + '\0'
 cipher_chunk
+
+* packet_number and total_packets are uint16 (max 65535 packets per file)
+* Client dynamically adjusts chunk size to stay within this limit
 ```
 
 Purpose:
@@ -237,9 +242,11 @@ Client stops retrying.
 * AES key stored in `aes.key` on client (demo only)
 * RSA private key stored in `priv.key`
 * No replay protection or authentication
-* Server supports only a single client connection
-  *(multi-client support planned in a later stage)*
+* Server supports multiple concurrent clients (asyncio, single-process, best-effort isolation).
   *(Server state is persisted to server/data/clients_info.json (best-effort).)*
+* Concurrent uploads are isolated per client
+* Server stores uploaded files under data/uploads/<username>/<filename>
+* Uploads with identical filenames from different clients do not overwrite each other
 
 
 ---
@@ -276,7 +283,8 @@ Prerequisites (persistence)
 The server loads this file on startup and saves updates on shutdown (Ctrl+C / process exit).
 
 cd server
-python server_tirgul.py
+python server_async.py
+(python server_tirgul.py legacy not in use)
 ```
 
 ### 2. Prepare client configuration

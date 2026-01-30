@@ -430,10 +430,17 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		logger.info("cipher_prefix(hex)=" + to_hex(components[2].substr(0, 32)));
 		/*std::cout << "IV(hex)=" << to_hex(components[4]) << "\n";
 		std::cout << "cipher_prefix(hex)=" << to_hex(components[2].substr(0, 32)) << "\n";*/
-		const size_t CHUNK_SIZE = 1024;
+		const size_t cipher_size = components[2].size();
+		const size_t MAX_PACKETS = 65535;
+		size_t chunk_min = (cipher_size + MAX_PACKETS - 1) / MAX_PACKETS;
+		size_t chunk_size = std::max<size_t>(8192,chunk_min);
+		chunk_size = ((chunk_size + 1023) / 1024) * 1024;
+		const size_t CHUNK_SIZE = chunk_size;
 		// Split ciphertext into fixed-size chunks
 		vector<string> chunks = splitStringBySize(components[2], CHUNK_SIZE);
 		const size_t total_packets = chunks.size();
+		logger.info("dynamic chunk_size=" + std::to_string(CHUNK_SIZE) +" cipher_size=" + std::to_string(cipher_size) +
+			" total_packets=" + std::to_string(total_packets));
 		
 		// Packet 0: send IV only (16 bytes). Packets 1..N: send ciphertext chunks.
 		CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];

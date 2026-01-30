@@ -1,3 +1,4 @@
+import os.path
 import uuid
 import datetime
 from base64 import b64decode
@@ -11,6 +12,7 @@ import base64
 import sys
 import  logging
 from src import answers
+import asyncio
 
 async def request_825(payload_info,version,session):
     """
@@ -274,8 +276,13 @@ async def request_828(payload_info,version,client_id,session):
             plaintext = plaintext[:orig_file_size]
             session.log.debug(f"[SERVER] after trim: len(plaintext)={len(plaintext)}, orig_file_size={orig_file_size}")
             # Write plaintext to disk
-            with open(file_name, "wb") as f:
+            base_dir = "data/uploads"
+            user_dir=os.path.join(base_dir,name_in_dict)
+            os.makedirs(user_dir, exist_ok=True)
+            out_path = os.path.join(user_dir, file_name)
+            with open(out_path, "wb") as f:
                 f.write(plaintext)
+                session.log.info("writing file to %s", out_path)
             session.log.info(f"length of the plaintext= {len(plaintext)}, original file size={orig_file_size}")
 
             if session.log.isEnabledFor(logging.DEBUG):

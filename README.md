@@ -11,7 +11,7 @@ This project implements a simple **secure file transfer protocol** over TCP.
   * CRC32 for integrity verification
 
 !!Educational only - not production-grade security!!
-Stage 2 focuses on **client-side architecture refactor**, modularization, and explicit flow control.  
+Stage 2 focuses on client-side refactor and server-side architecture, including async multi-client support.
 The system is functional end-to-end, but not hardened for real-world deployment.
 
 ---
@@ -30,6 +30,7 @@ The system is functional end-to-end, but not hardened for real-world deployment.
 * Proper `1607` error responses with textual payload
 * Manually tested; no automated tests yet
 * Async multi-client server with per-connection session isolation (Stage 2.5)
+* Async server with concurrent uploads and CPU-bound crypto offloaded to worker threads (asyncio.to_thread)
 
 ---
 
@@ -78,6 +79,9 @@ server/
   port.info            # server port configuration
   data/
     clients_info.json
+    uploads/
+      <username>/
+        <filename>
   src/
     router.py
     handlers.py
@@ -198,7 +202,7 @@ uint16  total_packets
 filename + '\0'
 cipher_chunk
 
-* packet_number and total_packets are uint16 (max 65535 packets per file)
+* packet_number and total_packets are uint16 (max 65535 packets per file) This avoids protocol changes while allowing large files without overflow.
 * Client dynamically adjusts chunk size to stay within this limit
 ```
 
@@ -242,7 +246,7 @@ Client stops retrying.
 * AES key stored in `aes.key` on client (demo only)
 * RSA private key stored in `priv.key`
 * No replay protection or authentication
-* Server supports multiple concurrent clients (asyncio, single-process, best-effort isolation).
+* Server supports multiple concurrent clients (asyncio, single-process, event-loop based concurrency).
   *(Server state is persisted to server/data/clients_info.json (best-effort).)*
 * Concurrent uploads are isolated per client
 * Server stores uploaded files under data/uploads/<username>/<filename>
@@ -285,6 +289,7 @@ The server loads this file on startup and saves updates on shutdown (Ctrl+C / pr
 cd server
 python server_async.py
 (python server_tirgul.py legacy not in use)
+*(server_tirgul.py is kept for reference only and is not maintained.)*
 ```
 
 ### 2. Prepare client configuration
@@ -352,7 +357,7 @@ Completed
 ---
 
 ### **Stage 2 - Architecture & Refactor** DONE  
-Client complete, server refactor in progress
+Client refactor complete, server async refactor and multi-client support complete (up to 2.5.4)
 
 **Client (completed):**
 * Refactored client into modules:
@@ -366,11 +371,17 @@ Client complete, server refactor in progress
 * File IO cleanup (`me.info`, `aes.key`, `priv.key`)
 * Configuration cleanup (replaced ad-hoc parsing with structured config)
 
-**Server (completed up to 2.3.5):**
+**Server (completed up to 2.5.4):**
 * Modular router/handlers/answers
 * ClientSession + Store (no global state)
-* Pure handlers (no socket logic)
 * JSON persistence (startup load / shutdown save)
+* Asyncio-based server with per-connection session isolation
+* Concurrent multi-client support (single-process, event-loop based)
+* Concurrent file uploads with per-client isolation
+* CPU-bound crypto and file writes offloaded using `asyncio.to_thread`
+* User-scoped upload directories to avoid filename collisions
+* Pure protocol handlers (no direct socket or transport logic)
+
 
 ---
 

@@ -104,7 +104,7 @@ async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
     await session.send(message)
 
-async def answer_1603(client_id,version,file_name,content_size,decrypted_total,session):
+async def answer_1603(client_id,version,file_name,content_size,crc32_val,session):
     """
        Send response 1603: CRC verification result.
 
@@ -122,10 +122,10 @@ async def answer_1603(client_id,version,file_name,content_size,decrypted_total,s
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1603",str(datetime.datetime.now())])
     # Compute CRC32 over the decrypted plaintext
-    checksum=zlib.crc32(decrypted_total) & 0xFFFFFFFF
+    checksum=crc32_val
     checksum_bytes = checksum.to_bytes(4, "little")
     content_size_bytes = content_size.to_bytes(4, "little")
-    file_name_bytes = file_name.encode("utf-8")
+    file_name_bytes = file_name.encode("utf-8")+ b"\x00"
 
     # Build binary payload:
     #   client_id (16 bytes)
@@ -136,7 +136,7 @@ async def answer_1603(client_id,version,file_name,content_size,decrypted_total,s
     session.log.debug(f"server CRC dec={checksum}, hex=0x{checksum:08X}")
 
     # Send 1603 response with CRC to client
-    message = message_answer(version, 1603, len(payload), payload,session)
+    message = message_answer(version, "1603", str(len(payload)), payload,session)
     session.log.info(f'received {file_name} with valid CRC ')
     await session.send(message)
 async def answer_1604(client_id,version,session):

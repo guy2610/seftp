@@ -184,6 +184,23 @@ def _draw_progress(packet_num, total_packets, chunk_size):
     if packet_num == total_packets:
         sys.stderr.write("\n")
         sys.stderr.flush()
+def finalize_upload(file_path, cipher_bytes, iv, expected_size,aes_key):
+    # AES-256-CBC with random IV
+    decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=iv)
+    decrypted_all = decrypt_cipher.decrypt(cipher_bytes)
+    # Try to remove PKCS#7 padding
+    try:
+        plaintext = unpad(decrypted_all, AES.block_size)
+    except ValueError:
+        # In case padding is wrong, keep raw decrypted data
+        plaintext = decrypted_all
+    # Trim plaintext to the original size specified by client
+    plaintext = plaintext[:expected_size]
+    # Write plaintext to disk
+    with open(file_path, "wb") as f:
+        f.write(plaintext)
+    # Compute CRC32 over the decrypted plaintext
+    return  zlib.crc32(plaintext) & 0xFFFFFFFF , len(plaintext)
 
 async def request_828(payload_info,version,client_id,session):
     """
@@ -220,6 +237,7 @@ async def request_828(payload_info,version,client_id,session):
     try:
         sep += 12  # convert to absolute index inside payload_info
         file_name = payload_info[12:sep].decode('utf-8')
+        file_name = os.path.basename(file_name) #absolute path
     except UnicodeDecodeError:
         session.log.error("bad 828 payload: name is not valid UTF-8")
         await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
@@ -249,7 +267,7 @@ async def request_828(payload_info,version,client_id,session):
         return
     else:
         if packet_num==1:
-            session.log.info(f"write the file {file_name} ")
+            session.log.info(f"writing the file {file_name} ")
             session.transfer_cipher = bytearray()
             store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
             store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
@@ -263,7 +281,7 @@ async def request_828(payload_info,version,client_id,session):
             store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
             cipher_total=bytes(session.transfer_cipher)
             session.log.info(f"final cipher text total size={len(cipher_total)}, expected content size={content_size}")
-            # AES-256-CBC with zero IV (same as client)
+            ''''# AES-256-CBC with random IV
             decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=session.transfer_iv)
             decrypted_all = decrypt_cipher.decrypt(cipher_total)
             # Try to remove PKCS#7 padding
@@ -274,27 +292,29 @@ async def request_828(payload_info,version,client_id,session):
                 plaintext = decrypted_all
             # Trim plaintext to the original size specified by client
             plaintext = plaintext[:orig_file_size]
-            session.log.debug(f"[SERVER] after trim: len(plaintext)={len(plaintext)}, orig_file_size={orig_file_size}")
-            # Write plaintext to disk
+            session.log.debug(f"[SERVER] after trim: len(plaintext)={len(plaintext)}, orig_file_size={orig_file_size}")'''
+            # making directory if not exist for user
             base_dir = "data/uploads"
             user_dir=os.path.join(base_dir,name_in_dict)
             os.makedirs(user_dir, exist_ok=True)
             out_path = os.path.join(user_dir, file_name)
-            with open(out_path, "wb") as f:
-                f.write(plaintext)
-                session.log.info("writing file to %s", out_path)
-            session.log.info(f"length of the plaintext= {len(plaintext)}, original file size={orig_file_size}")
+            out_path = os.path.normpath(out_path)
+            '''with open(out_path, "wb") as f:
+                f.write(plaintext)'''
+            crc32_val, pt_len= await asyncio.to_thread(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
+            session.log.info("writing file to %s", out_path)
+            session.log.info(f"length of the plaintext= {pt_len}, original file size={orig_file_size}")
 
             if session.log.isEnabledFor(logging.DEBUG):
                 session.log.debug("==== SERVER DEBUG ====")
                 session.log.debug(f"File name: {file_name}")
                 session.log.debug(f"orig_file_size (from header)={orig_file_size}")
-                session.log.debug(f"len(plaintext after decrypt)={len(plaintext)}")
-                session.log.debug(f"CRC of plaintext (dec)={zlib.crc32(plaintext) & 0xFFFFFFFF}, "f"hex=0x{zlib.crc32(plaintext) & 0xFFFFFFFF:08X}")
+                session.log.debug(f"len(plaintext after decrypt)={pt_len}")
+                session.log.debug(f"CRC of plaintext (dec)={crc32_val}, "f"hex=0x{crc32_val:08X}")
                 session.log.debug("======================")
 
             # Respond with 1603 including server-side CRC
-            await answers.answer_1603(client_id, version, file_name, content_size, plaintext,session)
+            await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
         if packet_num > total_packets:
             session.log.info(f'the packet number: {packet_num} is greater than the total: {total_packets}')
 

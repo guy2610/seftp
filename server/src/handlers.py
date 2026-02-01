@@ -255,7 +255,9 @@ async def request_828(payload_info,version,client_id,session):
     # Decode AES key (Base64) for this client
     raw_key = base64.b64decode(store.clients_info[name_in_dict][3])
     aes_key = raw_key
-
+    if packet_num < 0 or packet_num > total_packets:
+        session.log.info("bad 828: packet_num out of range packet_num=%d total_packets=%d", packet_num, total_packets)
+        return
     if packet_num==0:
         if len(cipher_chunk) < 16:
             session.log.info("bad 828: IV too short")
@@ -267,6 +269,8 @@ async def request_828(payload_info,version,client_id,session):
         return
     else:
         if packet_num==1:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
             session.log.info(f"writing the file {file_name} ")
             session.transfer_cipher = bytearray()
             store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
@@ -315,8 +319,6 @@ async def request_828(payload_info,version,client_id,session):
 
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
-        if packet_num > total_packets:
-            session.log.info(f'the packet number: {packet_num} is greater than the total: {total_packets}')
 
 async def request_900(payload_info,version,client_id,session):
     """

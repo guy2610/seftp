@@ -20,15 +20,19 @@ async def handle_frame(frame:bytes,session):
      - 900/901/902: CRC result / retry control
      """
 
-    session.log.request_id = uuid.uuid4().hex
+    session.request_id = uuid.uuid4().hex
+    session.log.request_id = session.request_id
+
     if len(frame)<17:
+        session.on_frame_bad("short_frame_lt_17")
         session.log.warning(f"short frame (<17), request_id={session.log.request_id}")
         return
     client_id = frame[:16]
     version = frame[16]
     try:
         if len(frame)<23:
-            answers.answer_1607(client_id, version, "request length too short, missing code number/payload size",session)
+            session.on_frame_bad("short_frame_missing_header")
+            await answers.answer_1607(client_id, version, "request length too short, missing code number/payload size",session)
             return
         code_num = str(int.from_bytes(frame[17:19], 'little'))
         payload_size = int.from_bytes(frame[19:23], 'little')
@@ -36,9 +40,11 @@ async def handle_frame(frame:bytes,session):
         session.log.info(f"frame received code={code_num} payload_size={payload_size}")
 
         if len(frame)<23+payload_size:
-            answers.answer_1607(client_id, version, "request length too short from the actual payload size",session)
+            session.on_frame_bad("short_frame_payload_truncated")
+            await answers.answer_1607(client_id, version, "request length too short from the actual payload size",session)
             return
 
+        session.on_frame_ok()
         payload_info = frame[23:23 + payload_size]
         if code_num=="825":
             await handlers.request_825(payload_info, version,session)
@@ -55,12 +61,18 @@ async def handle_frame(frame:bytes,session):
         elif code_num == "902":
             await handlers.request_902(payload_info, version, client_id,session)
         else:
+            session.on_frame_bad("unknown_code")
             await answers.answer_1607(client_id, version, "unknown code",session)
     except Exception:
+        session.on_frame_bad("handle_frame_exception")
         session.log.exception(f"unhandled exception in handle_frame")
         try:
             await answers.answer_1607(client_id,version,"generic error in server, please try again later",session)
         except Exception:
             pass
     finally:
-        session.log.request_id = "-"
+        session.request_id = "-"
+        try:
+            session.log.request_id = "-"
+        except Exception:
+            pass

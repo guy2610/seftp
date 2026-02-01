@@ -66,6 +66,8 @@ async def handle_frame(frame:bytes,session):
     except Exception:
         session.on_frame_bad("handle_frame_exception")
         session.log.exception(f"unhandled exception in handle_frame")
+        if session.disconnect_reason == "send_error":
+            raise
         try:
             await answers.answer_1607(client_id,version,"generic error in server, please try again later",session)
         except Exception:

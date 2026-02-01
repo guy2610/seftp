@@ -19,19 +19,24 @@ async def main():
         session.peer = addr
         session.log.info("Got connection from %s", addr)
         reason = "unknown"
+        idle_timeouts = 0
         try:
             while True:
                 try:
                     chunk = await asyncio.wait_for(reader.read(1024), timeout=10)
                 except asyncio.TimeoutError:
-                    session.disconnect_reason = "timeout_tick"
-                    session.log.debug("read timeout, keeping connection alive")
+                    idle_timeouts += 1
+                    session.log.debug("read timeout (%d), keeping connection alive", idle_timeouts)
+                    if idle_timeouts>=6: #60 sec timeout
+                        session.disconnect_reason="timeout"
+                        break
                     continue
                 if not chunk:
                     reason = "eof"
                     session.disconnect_reason = reason
                     session.log.info("Client %s disconnected", addr)
                     break
+                idle_timeouts = 0
                 session.on_frame_received(len(chunk))
                 frames = session.feed(chunk)
                 for frame in frames:

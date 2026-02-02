@@ -29,6 +29,8 @@ async def handle_frame(frame:bytes,session):
         return
     client_id = frame[:16]
     version = frame[16]
+    session.last_client_id =client_id
+    session.last_version=version
     try:
         if len(frame)<23:
             session.on_frame_bad("short_frame_missing_header")

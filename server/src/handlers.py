@@ -269,6 +269,9 @@ async def request_828(payload_info,version,client_id,session):
         return
     else:
         if packet_num==1:
+            session.upload_active = True
+            session.upload_filename = file_name
+            session.mark_upload_progress()
             sys.stderr.write("\n")
             sys.stderr.flush()
             session.log.info(f"writing the file {file_name} ")
@@ -277,6 +280,7 @@ async def request_828(payload_info,version,client_id,session):
             store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
         # Append chunk to the accumulated ciphertext
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
+        session.mark_upload_progress()
         session.transfer_cipher.extend(cipher_chunk)
         session.log.debug(f"[SERVER] accumulated cipher size={len(session.transfer_cipher)}")
         session.log.debug(f'packet number: {packet_num} of {total_packets}')
@@ -285,26 +289,12 @@ async def request_828(payload_info,version,client_id,session):
             store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
             cipher_total=bytes(session.transfer_cipher)
             session.log.info(f"final cipher text total size={len(cipher_total)}, expected content size={content_size}")
-            ''''# AES-256-CBC with random IV
-            decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=session.transfer_iv)
-            decrypted_all = decrypt_cipher.decrypt(cipher_total)
-            # Try to remove PKCS#7 padding
-            try:
-                plaintext = unpad(decrypted_all, AES.block_size)
-            except ValueError:
-                # In case padding is wrong, keep raw decrypted data
-                plaintext = decrypted_all
-            # Trim plaintext to the original size specified by client
-            plaintext = plaintext[:orig_file_size]
-            session.log.debug(f"[SERVER] after trim: len(plaintext)={len(plaintext)}, orig_file_size={orig_file_size}")'''
             # making directory if not exist for user
             base_dir = "data/uploads"
             user_dir=os.path.join(base_dir,name_in_dict)
             os.makedirs(user_dir, exist_ok=True)
             out_path = os.path.join(user_dir, file_name)
             out_path = os.path.normpath(out_path)
-            '''with open(out_path, "wb") as f:
-                f.write(plaintext)'''
             crc32_val, pt_len= await asyncio.to_thread(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
             session.log.info("writing file to %s", out_path)
             session.log.info(f"length of the plaintext= {pt_len}, original file size={orig_file_size}")
@@ -319,6 +309,8 @@ async def request_828(payload_info,version,client_id,session):
 
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
+            session.upload_active = False
+            session.upload_filename = None
 
 async def request_900(payload_info,version,client_id,session):
     """

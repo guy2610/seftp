@@ -5,7 +5,7 @@ from src.store import Store
 from src.config import Config
 from src.logging_setup import setup_logging
 import time
-
+from src import answers
 async def main():
     config = Config.load()
     logger = setup_logging(config.log_level)
@@ -25,11 +25,22 @@ async def main():
                 try:
                     chunk = await asyncio.wait_for(reader.read(1024), timeout=10)
                 except asyncio.TimeoutError:
-                    idle_timeouts += 1
-                    session.log.debug("read timeout (%d), keeping connection alive", idle_timeouts)
-                    if idle_timeouts>=6: #60 sec timeout
-                        session.disconnect_reason="timeout"
-                        break
+                    now=time.monotonic()
+                    if session.upload_active:
+                        last=session.last_upload_progress_ts or session.connected_at
+                        if (now - last) >= config.upload_inactivity_timeout_s:
+                            session.disconnect_reason = "upload_timeout"
+                            if session.last_client_id is not None and session.last_version is not None:
+                                try:
+                                    await answers.answer_1607(session.last_client_id, session.last_version,
+                                                              "upload inactivity timeout", session)
+                                except Exception:
+                                    pass
+                            break
+                    else:
+                        if (now - session.last_activity) >= config.idle_timeout_s:
+                            session.disconnect_reason = "idle_timeout"
+                            break
                     continue
                 if not chunk:
                     reason = "eof"

@@ -22,6 +22,11 @@ class ClientSession:
         self.frames_ok = 0
         self.frames_bad = 0
         self.disconnect_reason = "unknown"
+        self.last_client_id = None
+        self.last_version = None
+        self.upload_active = False
+        self.last_upload_progress_ts = None
+        self.upload_filename = None
 
     async def send(self,data:bytes)->None:
         if not data:
@@ -57,3 +62,6 @@ class ClientSession:
         self.frames_bad += 1
         if reason:
             self.disconnect_reason = reason
+    def mark_upload_progress(self):
+        self.last_upload_progress_ts=time.monotonic()
+        self.mark_activity()

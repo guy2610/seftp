@@ -1,4 +1,4 @@
-# Secure File Transfer Protocol - Specification (v0.1.1)
+# Secure File Transfer Protocol - Specification (v0.2.0)
 
 This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, and CRC validation for correctness.
 
@@ -116,6 +116,21 @@ Server logic:
 8. Responds with `1603`
 
 ---
+#### Validation Rules (Server-side)
+
+The server enforces strict validation for code 828:
+
+- `packet_number = 0` (IV packet) must be received before any data packets
+- Packets must arrive strictly in order (`packet_number` increments by 1)
+- `total_packets`, `total_cipher_size`, and `original_plain_size` must remain consistent across all packets
+- Total received ciphertext must exactly match `total_cipher_size`
+- Uploads exceeding configured limits (file size, packet count, chunk size) are rejected
+- Any protocol violation results in:
+  - `1607` error response
+  - Upload state reset
+  - The connection may remain open after an error, but the current upload is aborted.
+- Note: Timeouts and inactivity limits are server-side policy and are not part of the wire protocol.
+---
 
 ### **900 - CRC OK**
 
@@ -213,7 +228,8 @@ Meaning:
 ### **1607 - General Error**
 
 Indicates protocol/logic error.
-client_id (16 bytes) + UTF-8 error message
+client_id (16 bytes)
+error_message (UTF-8 string)
 ---
 
 ## 4. Cryptography Details
@@ -237,20 +253,18 @@ client_id (16 bytes) + UTF-8 error message
 
 ---
 
-## 5. Known Limitations (v0.1.1)
+## 5. Known Limitations (v0.2.0)
 
-* Single-client server (no concurrency)
+* Single-process asyncio server (multi-client, event-loop based)
 * No replay protection or authentication
-* No database
-* CRC32 provides integrity only (not authentication)
+* CRC32 is used for transmission integrity only and provides no authenticity or tamper resistance.
 
 ---
 
 ## 6. Future Improvements
 
-* HMAC or authenticated encryption
-* Multi-client support
-* Database-backed client management
-* Stronger error handling
+* Database-backed persistence
+* Authenticated encryption
+* Rate limiting
 
 ```

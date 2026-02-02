@@ -10,15 +10,15 @@ This project implements a simple **secure file transfer protocol** over TCP.
   * AES-256-CBC for file encryption
   * CRC32 for integrity verification
 
-!!Educational only - not production-grade security!!
+Educational project - not production-grade security.
 Stage 2 focuses on client-side refactor and server-side architecture, including async multi-client support.
-The system is functional end-to-end, but not hardened for real-world deployment.
+The system is functional end-to-end and includes defensive protocol validation, timeouts, and crash-safe persistence.
 
 ---
 
 ## Version
 
-**v0.2.x - Stage 2 (client refactor complete, server refactor + JSON persistence)**
+**v0.2.x - Stage 2 complete (architecture, concurrency, and stabilization)**
 
 * Fully functional encrypted file transfer (client <-> server)
 * Clear separation between protocol parsing, networking, crypto, and flow logic
@@ -31,6 +31,10 @@ The system is functional end-to-end, but not hardened for real-world deployment.
 * Manually tested; no automated tests yet
 * Async multi-client server with per-connection session isolation (Stage 2.5)
 * Async server with concurrent uploads and CPU-bound crypto offloaded to worker threads (asyncio.to_thread)
+* Graceful disconnect handling and session cleanup
+* Idle and upload inactivity timeouts
+* Defensive protocol validation for uploads (828)
+* Atomic persistence for server state (crash-safe JSON writes)
 
 ---
 
@@ -87,8 +91,8 @@ server/
     handlers.py
     answers.py
     session.py
-    store.py           # JSON persistence; single-process; best-effort; no locking/atomic writes
-    framing.py
+    store.py           # JSON persistence; single-process; atomic save on shutdown
+    framing.py         # TCP stream framing and reassembly
 protocol/
   spec.md              # full protocol specification
 ```
@@ -105,7 +109,10 @@ protocol/
 * Persistent client identity and keys on the client side
 * Server-side logging of client activity
 * Minimal server-side persistence (clients_info.json)
-
+* Crash-safe persistence using atomic file replacement
+* Server-side idle and upload inactivity timeouts
+* Server-side strict validation of upload sequencing and size limits
+* Graceful handling of client disconnects and protocol violations
 ---
 
 ## High-level Architecture
@@ -141,6 +148,7 @@ Python server
 [4 bytes] payload_size
 [payload] depends on code
 ```
+For the full, authoritative protocol definition, see protocol/spec.md.
 
 ---
 
@@ -247,11 +255,12 @@ Client stops retrying.
 * RSA private key stored in `priv.key`
 * No replay protection or authentication
 * Server supports multiple concurrent clients (asyncio, single-process, event-loop based concurrency).
-  *(Server state is persisted to server/data/clients_info.json (best-effort).)*
+  *(Server state is persisted to server/data/clients_info.json using atomic writes on shutdown.)*
 * Concurrent uploads are isolated per client
 * Server stores uploaded files under data/uploads/<username>/<filename>
 * Uploads with identical filenames from different clients do not overwrite each other
-
+* Upload protocol enforces strict packet ordering and size limits
+* Malformed or out-of-order uploads are rejected with 1607
 
 ---
 
@@ -357,7 +366,7 @@ Completed
 ---
 
 ### **Stage 2 - Architecture & Refactor** DONE  
-Client refactor complete, server async refactor and multi-client support complete (up to 2.5.4)
+Client refactor complete, server async refactor, multi-client support, and stabilization complete (up to 2.6.5)
 
 **Client (completed):**
 * Refactored client into modules:
@@ -371,7 +380,7 @@ Client refactor complete, server async refactor and multi-client support complet
 * File IO cleanup (`me.info`, `aes.key`, `priv.key`)
 * Configuration cleanup (replaced ad-hoc parsing with structured config)
 
-**Server (completed up to 2.5.4):**
+**Server (completed up to 2.6.5):**
 * Modular router/handlers/answers
 * ClientSession + Store (no global state)
 * JSON persistence (startup load / shutdown save)
@@ -381,6 +390,10 @@ Client refactor complete, server async refactor and multi-client support complet
 * CPU-bound crypto and file writes offloaded using `asyncio.to_thread`
 * User-scoped upload directories to avoid filename collisions
 * Pure protocol handlers (no direct socket or transport logic)
+* Graceful disconnect handling with disconnect summaries
+* Idle and upload inactivity timeouts
+* Defensive upload protocol validation for 828 (ordering, consistency, limits)
+* Atomic persistence for clients_info.json (temp file + replace)
 
 
 ---
@@ -415,9 +428,10 @@ Planned
 ### **Stage 5 - Scalability & Persistence**
 Planned
 
-* Multi-client support:
-  * Thread-per-connection or async IO
-  * Basic race and isolation testing
+* Scalability beyond single process:
+  * Multi-process or sharded server architecture
+  * Horizontal scaling considerations
+  * Rate limiting and back-pressure
 * Server-side persistence layer:
   * SQLite or JSON (initially minimal persistence)
   * Client metadata and session storage

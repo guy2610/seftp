@@ -35,6 +35,7 @@ async def handle_frame(frame:bytes,session):
         if len(frame)<23:
             session.on_frame_bad("short_frame_missing_header")
             await answers.answer_1607(client_id, version, "request length too short, missing code number/payload size",session)
+            session.reset_transfer_state("protocol_error_1607")
             return
         code_num = str(int.from_bytes(frame[17:19], 'little'))
         payload_size = int.from_bytes(frame[19:23], 'little')
@@ -44,6 +45,7 @@ async def handle_frame(frame:bytes,session):
         if len(frame)<23+payload_size:
             session.on_frame_bad("short_frame_payload_truncated")
             await answers.answer_1607(client_id, version, "request length too short from the actual payload size",session)
+            session.reset_transfer_state("protocol_error_1607")
             return
 
         session.on_frame_ok()
@@ -65,6 +67,8 @@ async def handle_frame(frame:bytes,session):
         else:
             session.on_frame_bad("unknown_code")
             await answers.answer_1607(client_id, version, "unknown code",session)
+            if session.upload_active:
+                session.reset_transfer_state("protocol_error_1607")
     except Exception:
         session.on_frame_bad("handle_frame_exception")
         session.log.exception(f"unhandled exception in handle_frame")
@@ -74,6 +78,9 @@ async def handle_frame(frame:bytes,session):
             await answers.answer_1607(client_id,version,"generic error in server, please try again later",session)
         except Exception:
             pass
+        finally:
+            if session.upload_active:
+                session.reset_transfer_state("protocol_error_1607")
     finally:
         session.request_id = "-"
         try:

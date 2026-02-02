@@ -233,6 +233,7 @@ async def request_828(payload_info,version,client_id,session):
     sep = payload_info[12:].find(b'\x00')
     if sep == -1:
         session.log.info("bad 828 payload: cant find the name of the file")
+        session.reset_transfer_state("bad_828_filename_missing_null")
         return
     try:
         sep += 12  # convert to absolute index inside payload_info
@@ -241,6 +242,7 @@ async def request_828(payload_info,version,client_id,session):
     except UnicodeDecodeError:
         session.log.error("bad 828 payload: name is not valid UTF-8")
         await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+        session.reset_transfer_state("bad_828_filename_utf8")
         return
     session.log.debug(sep)
     session.log.debug(file_name)
@@ -251,17 +253,20 @@ async def request_828(payload_info,version,client_id,session):
     if not name_in_dict:
         session.log.info(store.clients_info)
         session.log.info(f'uuid not in client_info; client_id={client_id!r}')
+        session.reset_transfer_state("bad_828_client_or_name")
         return
     # Decode AES key (Base64) for this client
     raw_key = base64.b64decode(store.clients_info[name_in_dict][3])
     aes_key = raw_key
     if packet_num < 0 or packet_num > total_packets:
         session.log.info("bad 828: packet_num out of range packet_num=%d total_packets=%d", packet_num, total_packets)
+        session.reset_transfer_state("bad_828_range")
         return
     if packet_num==0:
         if len(cipher_chunk) < 16:
             session.log.info("bad 828: IV too short")
             await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+            session.reset_transfer_state("bad_828_iv")
             return
         session.transfer_iv = bytes(cipher_chunk[:16])
         if session.log.isEnabledFor(logging.DEBUG):
@@ -309,8 +314,7 @@ async def request_828(payload_info,version,client_id,session):
 
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
-            session.upload_active = False
-            session.upload_filename = None
+            session.reset_transfer_state("upload_complete")
 
 async def request_900(payload_info,version,client_id,session):
     """

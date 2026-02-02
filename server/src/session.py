@@ -65,3 +65,13 @@ class ClientSession:
     def mark_upload_progress(self):
         self.last_upload_progress_ts=time.monotonic()
         self.mark_activity()
+    def reset_transfer_state(self,reason: str|None =None):
+        self.transfer_iv=None
+        self.transfer_cipher=bytearray()
+        self.upload_active=False
+        self.last_upload_progress_ts=None
+        self.upload_filename=None
+        if reason:
+            self.log.info("reset transfer state reason=%s",reason)
+
+

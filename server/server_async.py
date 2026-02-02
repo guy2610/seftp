@@ -36,6 +36,7 @@ async def main():
                                                               "upload inactivity timeout", session)
                                 except Exception:
                                     pass
+                            session.reset_transfer_state("upload_timeout")
                             break
                     else:
                         if (now - session.last_activity) >= config.idle_timeout_s:
@@ -70,6 +71,8 @@ async def main():
                 await writer.wait_closed()
             except Exception:
                 pass
+            if session.upload_active:
+                session.reset_transfer_state(f"disconnect_{session.disconnect_reason}")
             duration_ms = int((time.monotonic() - session.connected_at) * 1000)
             session.log.info(
                 "disconnect summary peer=%s reason=%s duration_ms=%d bytes_in=%d bytes_out=%d frames_ok=%d frames_bad=%d",

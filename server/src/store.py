@@ -1,6 +1,8 @@
 from collections import defaultdict
 import base64
 import json
+import tempfile
+import os
 class Store:
     def __init__(self):
         self.clients_info={}
@@ -67,10 +69,24 @@ class Store:
                     "last_seen":values[2],
                     "aes_key_b64":values[3]
             }
+        dir_path = os.path.dirname(os.path.abspath(name_file))
+        os.makedirs(dir_path, exist_ok=True)
+        temp_path=None
         try:
-            with open(name_file,"w",encoding="utf-8") as f:
+            fd, tmp_path = tempfile.mkstemp(prefix=".clients_info.", suffix=".tmp", dir=dir_path)
+            with os.fdopen(fd,"w",encoding="utf-8") as f:
                 json.dump(out,f,indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path,name_file)
+            tmp_path= None
             print(f'Data successfully saved to {name_file}')
         except OSError as e:
             print(f"Error saving file: {e}")
+        finally:
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 

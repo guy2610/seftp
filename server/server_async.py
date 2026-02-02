@@ -94,9 +94,12 @@ async def main():
         except asyncio.CancelledError:
             pass
         finally:
-            store.save_clients_info(config.data_path)
-            logger.debug("clients_recent_log=%r", dict(store.clients_recent_log))
+            try:
+                store.save_clients_info(config.data_path)
+            except Exception:
+                logger.exception("failed saving clients_info on shutdown")
             logger.info("shutting down")
+            logger.debug("clients_recent_log=%r", dict(store.clients_recent_log))
 
 
 if __name__ == "__main__":

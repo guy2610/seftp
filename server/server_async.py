@@ -15,7 +15,7 @@ async def main():
 
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
-        session = ClientSession(writer, store, logger)
+        session = ClientSession(writer, store, logger,config)
         session.peer = addr
         session.log.info("Got connection from %s", addr)
         reason = "unknown"

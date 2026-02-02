@@ -5,7 +5,8 @@ import asyncio
 import time
 
 class ClientSession:
-    def __init__(self, writer,store ,base_logger):
+    def __init__(self, writer,store ,base_logger,config):
+        self.config=config
         self.writer=writer
         self.store = store
         self.connection_id=uuid.uuid4().hex
@@ -27,6 +28,11 @@ class ClientSession:
         self.upload_active = False
         self.last_upload_progress_ts = None
         self.upload_filename = None
+        self.expected_packet_num = None
+        self.expected_total_packets = None
+        self.expected_content_size = None
+        self.expected_orig_file_size = None
+        self.received_cipher_bytes = 0
 
     async def send(self,data:bytes)->None:
         if not data:
@@ -71,6 +77,12 @@ class ClientSession:
         self.upload_active=False
         self.last_upload_progress_ts=None
         self.upload_filename=None
+
+        self.expected_packet_num = None
+        self.expected_total_packets = None
+        self.expected_content_size = None
+        self.expected_orig_file_size = None
+        self.received_cipher_bytes = 0
         if reason:
             self.log.info("reset transfer state reason=%s",reason)
 

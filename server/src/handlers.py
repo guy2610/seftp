@@ -201,6 +201,39 @@ def finalize_upload(file_path, cipher_bytes, iv, expected_size,aes_key):
         f.write(plaintext)
     # Compute CRC32 over the decrypted plaintext
     return  zlib.crc32(plaintext) & 0xFFFFFFFF , len(plaintext)
+def validate_header(session,packet_num,total_packets,content_size,orig_file_size):
+    if total_packets<=0:
+        session.log.info("bad 828: total_packets=%d not valid", total_packets)
+        session.reset_transfer_state("bad_828_range")
+        return False
+    if packet_num < 0 or packet_num > total_packets:
+        session.log.info("bad 828: packet_num out of range packet_num=%d total_packets=%d", packet_num, total_packets)
+        session.reset_transfer_state("bad_828_range")
+        return False
+    if content_size<=0:
+        session.log.info("bad 828: content_size=%d not valid",content_size)
+        session.reset_transfer_state("bad_828_range")
+        return False
+    if orig_file_size<=0:
+        session.log.info("bad 828: orig_file_size=%d not valid", orig_file_size)
+        session.reset_transfer_state("bad_828_range")
+        return False
+    if total_packets > session.config.max_packets:
+        session.log.info("bad 828: total_packets too large total_packets=%d", total_packets)
+        session.reset_transfer_state("bad_828_limits")
+        return False
+
+    if orig_file_size > session.config.max_file_size:
+        session.log.info("bad 828: orig_file_size too large orig_file_size=%d", orig_file_size)
+        session.reset_transfer_state("bad_828_limits")
+        return False
+
+    if content_size > session.config.max_file_size:
+        session.log.info("bad 828: content_size too large content_size=%d", content_size)
+        session.reset_transfer_state("bad_828_limits")
+        return False
+    return True
+
 
 async def request_828(payload_info,version,client_id,session):
     """
@@ -258,21 +291,55 @@ async def request_828(payload_info,version,client_id,session):
     # Decode AES key (Base64) for this client
     raw_key = base64.b64decode(store.clients_info[name_in_dict][3])
     aes_key = raw_key
-    if packet_num < 0 or packet_num > total_packets:
-        session.log.info("bad 828: packet_num out of range packet_num=%d total_packets=%d", packet_num, total_packets)
-        session.reset_transfer_state("bad_828_range")
+    if not validate_header(session,packet_num,total_packets,content_size,orig_file_size):
         return
     if packet_num==0:
+        if session.upload_active or session.transfer_iv:
+            session.log.info("bad 828: upload_active or transfer_iv")
+            await answers.answer_1607(client_id, version, "bad 828 payload: currently uploading with new upload", session)
+            session.reset_transfer_state("bad_828_iv")
+            return
         if len(cipher_chunk) < 16:
             session.log.info("bad 828: IV too short")
             await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
             session.reset_transfer_state("bad_828_iv")
             return
         session.transfer_iv = bytes(cipher_chunk[:16])
+        session.expected_packet_num = 1
+        session.expected_total_packets = total_packets
+        session.expected_content_size=content_size
+        session.expected_orig_file_size = orig_file_size
+        session.received_cipher_bytes = 0
         if session.log.isEnabledFor(logging.DEBUG):
             session.log.debug(f"IV(hex)={session.transfer_iv.hex()}")
         return
     else:
+        if not session.transfer_iv:
+            session.log.info("bad 828: missing IV packet")
+            await answers.answer_1607(client_id, version, "bad 828: missing IV packet", session)
+            session.reset_transfer_state("bad_828_iv")
+            return
+        if not session.expected_packet_num:
+            session.log.info("bad 828: expected_packet_num is None")
+            await answers.answer_1607(client_id, version, "bad 828: expected packet num is not initialize", session)
+            session.reset_transfer_state("bad_828_expected_packet_num")
+            return
+        if total_packets!=session.expected_total_packets:
+            session.log.info("bad 828:total_packets != expected_total_packets")
+            await answers.answer_1607(client_id, version, "bad 828:total_packets != expected_total_packets", session)
+            session.reset_transfer_state("bad_828_expected_total_packet")
+            return
+        if content_size != session.expected_content_size or orig_file_size != session.expected_orig_file_size:
+            session.log.info("bad 828: content_size or orig_file_size not as expected")
+            await answers.answer_1607(client_id, version, "bad 828: content_size or orig_file_size not as expected", session)
+            session.reset_transfer_state("bad_828 content_size or orig_file_size")
+            return
+        if len(cipher_chunk) > session.config.max_chunk_size:
+            session.log.info("bad 828: cipher_chunk bigger than the max")
+            await answers.answer_1607(client_id, version, "bad 828: cipher_chunk bigger than the max",
+                                      session)
+            session.reset_transfer_state("bad_828 cipher_chunk bigger than the max")
+            return
         if packet_num==1:
             session.upload_active = True
             session.upload_filename = file_name
@@ -285,12 +352,29 @@ async def request_828(payload_info,version,client_id,session):
             store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
         # Append chunk to the accumulated ciphertext
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
+        if session.received_cipher_bytes + len(cipher_chunk) > session.expected_content_size:
+            session.log.info("bad 828: content_size will overflow")
+            await answers.answer_1607(client_id, version, "bad 828: content_size will overflow",session)
+            session.reset_transfer_state("bad_828 content_size will overflow")
+            return
+        if packet_num != session.expected_packet_num:
+            session.log.info("bad 828: out of order packet_num=%d expected=%d", packet_num, session.expected_packet_num)
+            await answers.answer_1607(client_id, version, "bad 828: out of order", session)
+            session.reset_transfer_state("bad_828_out_of_order")
+            return
         session.mark_upload_progress()
         session.transfer_cipher.extend(cipher_chunk)
+        session.expected_packet_num += 1
+        session.received_cipher_bytes+=len(cipher_chunk)
         session.log.debug(f"[SERVER] accumulated cipher size={len(session.transfer_cipher)}")
         session.log.debug(f'packet number: {packet_num} of {total_packets}')
         # Once we have the last packet, decrypt and write file
         if packet_num == total_packets:
+            if session.received_cipher_bytes != session.expected_content_size:
+                session.log.info("bad 828: received_cipher_bytes != expected_content_size")
+                await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size", session)
+                session.reset_transfer_state("bad_828 received_cipher_bytes  != expected_content_size")
+                return
             store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
             cipher_total=bytes(session.transfer_cipher)
             session.log.info(f"final cipher text total size={len(cipher_total)}, expected content size={content_size}")

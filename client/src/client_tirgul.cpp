@@ -11,24 +11,20 @@
 #include <string>
 #include <boost/asio.hpp>
 #include <vector>
-#include <cryptlib.h>
-#include <rsa.h>
-#include <osrng.h>          // AutoSeededRandomPool
-#include <files.h>          // FileSink, FileSource
-#include <hex.h>
-#include <sha.h>
-#include <aes.h>
-#include <filters.h>
-#include <modes.h>
-#include <osrng.h>
+#include <cryptopp/cryptlib.h>
+#include <cryptopp/rsa.h>
+#include <cryptopp/osrng.h>          // AutoSeededRandomPool
+#include <cryptopp/files.h>          // FileSink, FileSource
+#include <cryptopp/hex.h>
+#include <cryptopp/sha.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/filters.h>  // For HashFilter, HexEncoder, StringSink
+#include <cryptopp/modes.h>
 #include <iomanip>
 #include <sstream>
-#include <base64.h>   // CryptoPP::Base64Encoder
-#include <crc.h> // For CRC32
-#include <files.h> // For FileSource
-#include <filters.h> // For HashFilter, HexEncoder, StringSink
+#include <cryptopp/base64.h>   // CryptoPP::Base64Encoder
+#include <cryptopp/crc.h> // For CRC32
 #include <chrono>
-#include <iomanip>
 #include <filesystem>
 #include <random>
 #include "protocol/protocol.hpp"
@@ -68,6 +64,12 @@ struct DispatchResult
 	NextStep step = NextStep::None;
 	bool updated_client_id = false;
 };
+struct CliOptions {
+	bool debug_set = false;
+	bool debug = false;
+	std::vector<std::string> files;
+	size_t file_index = 0;
+};
 
 bool load_tranfer_info(const std::string& path, ClientConfig& out);
 string timestamp();
@@ -85,29 +87,35 @@ std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 std::string to_hex(const std::string& data);
 DispatchResult answer_manager(tcp::socket& s, ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
 void making_RSAkeys(tcp::socket& s, const ClientContext& cc, const std::string& key = std::string());
+CliOptions parse_cli(int argc, char* argv[]);
 
 vector<ClientEvent> client_history;
 bool debug_mode = false;
 string file_name;
 constexpr const char* kTranserInfo = "transfer.info";
 auto& logger = seftp::logger::Logger::getInstance();
-int main() {
-	cout << "do you wish to see debug console promts? answer 'yes' or something else for no" << endl;
+CliOptions options;
+int main(int argc, char* argv[]) {
+	options = parse_cli(argc, argv);
 	string ans;
-	getline(cin, ans);
-	transform(ans.begin(), ans.end(), ans.begin(),
-		[](unsigned char c) { return std::tolower(c); });;
-	if (ans == "yes") {
-		logger.setLevel(seftp::logger::logLevel::Debug);
+	if (options.debug_set) {
+		logger.setLevel(options.debug ? seftp::logger::logLevel::Debug
+			: seftp::logger::logLevel::Info);
 	}
-	else { logger.setLevel(seftp::logger::logLevel::Info); }
-
+	else {
+		cout << "do you wish to see debug console promts? answer 'yes' or something else for no" << endl;
+		getline(cin, ans);
+		transform(ans.begin(), ans.end(), ans.begin(),
+			[](unsigned char c) { return std::tolower(c); });;
+		logger.setLevel(ans == "yes" ? seftp::logger::logLevel::Debug
+			: seftp::logger::logLevel::Info);
+	}
 
 	// Read connection and username info from transfer.info
 	// Expected: host, port, username
 	ClientConfig client_config{};
 	if (!load_tranfer_info(kTranserInfo, client_config)) {
-		logger.error("there was a problem loading " + std::string(kTranserInfo)+ " file");
+		logger.error("there was a problem loading " + std::string(kTranserInfo) + " file");
 		exit(1);
 	}
 	ClientContext cc{};
@@ -120,7 +128,7 @@ int main() {
 		// Establish TCP connection to the server
 		boost::asio::connect(s, resolver.resolve(client_config.host, client_config.port));
 	}
-	catch (const boost::system::system_error& e) {	
+	catch (const boost::system::system_error& e) {
 		logger.error("Failed to connect: " + std::string(e.what()));
 		return 1;
 	}
@@ -151,7 +159,7 @@ int main() {
 		making_RSAkeys(s, cc);
 		r = answer_manager(s, cc);
 		if (r.step == NextStep::Fatal) {
-			logger.error("Fatal: " + cc.last_error_text);	
+			logger.error("Fatal: " + cc.last_error_text);
 			return 1;
 		}
 		logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
@@ -161,7 +169,7 @@ int main() {
 		logger.info("file me.info exist, handle SSO");
 		if (me_user != cc.username) {
 			cc.last_error_text = "me.info username mismatch. transfer.info=" + cc.username + " me.info=" + me_user;
-			logger.error("Fatal: " + cc.last_error_text);	
+			logger.error("Fatal: " + cc.last_error_text);
 			return 1;
 		}
 		cc.client_id = me_cid;
@@ -186,7 +194,7 @@ int main() {
 			logger.info("the public key not good making a new one with RSA");
 			making_RSAkeys(s, cc);
 			auto r3 = answer_manager(s, cc);
-			if (r3.step == NextStep::Fatal) {	
+			if (r3.step == NextStep::Fatal) {
 				logger.error("Fatal: " + cc.last_error_text);
 				return 1;
 			}
@@ -195,10 +203,10 @@ int main() {
 			logger.info("has new client id, need to send 826 to get a key");
 			std::string keybin;
 			if (seftp::util::files::read_private_key(keybin)) logger.info("private key has been assigned");
-			making_RSAkeys(s,cc, keybin);
+			making_RSAkeys(s, cc, keybin);
 			auto r2 = answer_manager(s, cc);
 			if (r2.step == NextStep::Fatal) {
-				logger.error("Fatal: " + cc.last_error_text);	
+				logger.error("Fatal: " + cc.last_error_text);
 				return 1;
 			}
 		}
@@ -206,7 +214,7 @@ int main() {
 			logger.error("fatal during relogin: " + cc.last_error_text);
 			return 1;
 		}
-		
+
 	}
 	// Load AES key from aes.key (Base64), which was written by answer_1602/1605
 	if (!seftp::util::files::read_aes_key(key))//key in Base64
@@ -217,29 +225,74 @@ int main() {
 	logger.info("Loaded AES key from file (Base64, len=" + std::to_string(key.size()) + " )");
 	logger.debug("this is the uuid " + cc.client_id);
 	logger.debug("before file send operation");
-	// Main loop: encrypt and send files to the server, one by one
-	while (true) {
-		// Sends file (828 + retry with 900/901/902 based on CRC)
-		request_828_retry(s, key, cc);
-		// Read final response (e.g., 1604 – transfer finished)
-		auto r = answer_manager(s, cc);
-		logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
-		// Ask user if they want to send another file
-		logger.info("\nDo you want to send another file to the server? answer 'yes' or something else for no");
-		getline(cin, ans);
-		transform(ans.begin(), ans.end(), ans.begin(),
-			[](unsigned char c) { return std::tolower(c); });
-		if (ans != "yes") break;
+	if (!options.files.empty()) {
+		// headless: send provided files
+		for (options.file_index = 0; options.file_index < options.files.size(); ++options.file_index) {
+			file_name = options.files[options.file_index];
+			request_828_retry(s, key, cc);
+			auto r = answer_manager(s, cc);
+			logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
+			logger.info("transferred file " + std::to_string(options.file_index + 1) + "/" + std::to_string(options.files.size()));
+		}
 	}
-	cout << "Thanks, Goodbye!!" << endl;
-	// Print client event history for debugging
-	cout << "\n\nclient history: [";
-	for (const ClientEvent event : client_history) {
-		cout << "'" << event.method << "' "<<event.time_stamp<<"; ";
-	}
-	cout << "]" << endl;
+	else {
+		// Main loop: encrypt and send files to the server, one by one
+		while (true) {
+			// Sends file (828 + retry with 900/901/902 based on CRC)
+			request_828_retry(s, key, cc);
+			// Read final response (e.g., 1604 – transfer finished)
+			auto r = answer_manager(s, cc);
+			logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
+			// Ask user if they want to send another file
+			logger.info("\nDo you want to send another file to the server? answer 'yes' or something else for no");
+			getline(cin, ans);
+			transform(ans.begin(), ans.end(), ans.begin(),
+				[](unsigned char c) { return std::tolower(c); });
+			if (ans != "yes") break;
+		}
+		cout << "Thanks, Goodbye!!" << endl;
+		// Print client event history for debugging
+		cout << "\n\nclient history: [";
+		for (const ClientEvent event : client_history) {
+			cout << "'" << event.method << "' " << event.time_stamp << "; ";
+		}
+		cout << "]" << endl;
 
-	return 0;
+		return 0;
+	}
+}
+CliOptions parse_cli(int argc, char* argv[]) {
+	CliOptions cli;
+	for (int i = 1; i < argc; ++i) {
+		std::string a = argv[i];
+		if (a == "--info") {
+			cli.debug_set = true;
+			cli.debug = false;
+			continue;
+		}
+		if (a == "--debug") {
+			cli.debug_set = true;
+			cli.debug = true;
+			continue;
+		}
+		if (a.rfind("--debug=", 0) == 0) {
+			cli.debug_set = true;
+			cli.debug = (a.substr(8) == "1" || a.substr(8) == "true");
+			continue;
+		}
+		if (a.rfind("--files=", 0) == 0) {
+			std::string list = a.substr(8);
+			std::stringstream ss(list);
+			std::string item;
+			while (std::getline(ss, item, ',')) {
+				if (!item.empty()) cli.files.push_back(item);
+			}
+			continue;
+		}
+		// backward-compat: treat bare args as files
+		if (!a.empty() && a[0] != '-') cli.files.push_back(a);
+	}
+	return cli;
 }
 string timestamp() {
 	using namespace std::chrono;
@@ -586,18 +639,31 @@ std::vector<string> encrypt_file(string key) {
 	client_history.push_back({ "encrypt_file", timestamp() });	
 	logger.debug("in encrypt_file");
 	std::ifstream file;
-	while (true) {
-		// Ask user for file name to send
-		std::cout << "\nWhat is the name of the file you want to send:" << std::endl;
-		std::getline(cin, file_name);
-		// Try to open the file in binary mode
-		logger.info("reading file ");		
-		file.open(file_name, std::ios::binary);
-		if (file.is_open()) break;
-		// If failed, report and ask again
-		logger.error("Error opening file: " + file_name);		
-		file.clear();
+	if (file_name.empty()) {
+		//interactive loop
+		while (true) {
+			// Ask user for file name to send
+			std::cout << "\nWhat is the name of the file you want to send:" << std::endl;
+			std::getline(cin, file_name);
+			// Try to open the file in binary mode
+			logger.info("reading file ");
+			file.open(file_name, std::ios::binary);
+			if (file.is_open()) break;
+			// If failed, report and ask again
+			logger.error("Error opening file: " + file_name);
+			file.clear();
+			file_name.clear();
 
+		}
+	}
+	else {
+		// headless
+		logger.info("reading file " + file_name);
+		file.open(file_name, std::ios::binary);
+		if (!file.is_open()) {
+			logger.error("Error opening file: " + file_name);
+			exit(1);
+		}
 	}
 	// Read entire file into plaintext string
 	std::string plain_text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());

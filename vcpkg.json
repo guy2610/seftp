@@ -4,6 +4,7 @@
   "dependencies": [
     "cryptopp",
     "boost-asio",
-    "boost-system"
+    "boost-system",
+    "gtest"
   ]
 }

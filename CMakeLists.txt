@@ -9,6 +9,7 @@ add_executable(seffp_client
     client/src/crypto/crypto.cpp
     client/src/net/net.cpp
     client/src/util/files.cpp
+    client/src/logger/logger.cpp
 )
 
 target_include_directories(seffp_client PRIVATE
@@ -17,17 +18,12 @@ target_include_directories(seffp_client PRIVATE
     client/src/net
     client/src/protocol
     client/src/util
+    client/src/logger
 )
-# Make Crypto++ headers available for includes like "cryptlib.h"
-if (DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-    target_include_directories(seffp_client PRIVATE
-        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/cryptopp"
-    )
-endif()
-
 
 if (WIN32)
     target_link_libraries(seffp_client PRIVATE ws2_32)
+    target_compile_definitions(seffp_client PRIVATE _WIN32_WINNT=0x0A00)
 endif()
 
 find_package(boost_system CONFIG REQUIRED)
@@ -37,7 +33,6 @@ target_link_libraries(seffp_client PRIVATE Boost::system Boost::asio)
 find_package(cryptopp CONFIG REQUIRED)
 target_link_libraries(seffp_client PRIVATE cryptopp::cryptopp)
 
-# Copy runtime config next to the built exe (working dir = exe dir)
 set(TRANSFER_INFO_SRC "${CMAKE_SOURCE_DIR}/client/SEFFP-CLIENT/transfer.info")
 add_custom_command(TARGET seffp_client POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -45,3 +40,22 @@ add_custom_command(TARGET seffp_client POST_BUILD
             "$<TARGET_FILE_DIR:seffp_client>/transfer.info"
     VERBATIM
 )
+
+include(CTest)
+enable_testing()
+
+if (BUILD_TESTING)
+    find_package(GTest CONFIG REQUIRED)
+
+    add_executable(seffp_tests
+        tests/test_dummy.cpp
+    )
+    target_link_libraries(seffp_tests PRIVATE GTest::gtest_main)
+
+    if (WIN32)
+        target_compile_definitions(seffp_tests PRIVATE _WIN32_WINNT=0x0A00)
+    endif()
+
+    include(GoogleTest)
+    gtest_discover_tests(seffp_tests)
+endif()

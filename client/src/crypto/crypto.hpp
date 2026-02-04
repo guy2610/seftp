@@ -1,16 +1,16 @@
 #pragma once
 #include <string>
-#include <cryptlib.h>
-#include <base64.h>   // CryptoPP::Base64Encoder
+#include <cryptopp/cryptlib.h>
+#include <cryptopp/base64.h>   // CryptoPP::Base64Encoder
 #include <random>
 #include <array>
-#include <files.h>          // FileSink, FileSource
-#include <rsa.h>
-#include <osrng.h>          // AutoSeededRandomPool
-#include <filters.h>
-#include <aes.h>
-#include <crc.h>
-#include <modes.h>
+#include <cryptopp/files.h>          // FileSink, FileSource
+#include <cryptopp/rsa.h>
+#include <cryptopp/osrng.h>          // AutoSeededRandomPool
+#include <cryptopp/filters.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/crc.h>
+#include <cryptopp/modes.h>
 
 namespace seftp::crypto {
 	struct PublicKeyFormat

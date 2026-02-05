@@ -51,6 +51,7 @@ if (BUILD_TESTING)
         tests/test_dummy.cpp
 	tests/le_helpers_test.cpp
 	tests/request_base_test.cpp
+	tests/response_parsers_test.cpp
     )
     target_link_libraries(seffp_tests PRIVATE GTest::gtest_main)
 

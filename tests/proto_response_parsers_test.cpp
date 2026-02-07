@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "../client/src/protocol/protocol.hpp"
-TEST(ProtocolResParse, ResParseLayout) {
+TEST(ProtocolResParse, ResParse1600) {
     //Arrenge
     //parse_1600
     struct seftp::proto::ByteView payload {};
@@ -10,7 +10,7 @@ TEST(ProtocolResParse, ResParseLayout) {
     0x99, 0x02, 0xF5, 0x1B, 0xC3, 0x66, 0x78, 0xAD
     };
 
-    payload.data= rawData;
+    payload.data = rawData;
     payload.size = sizeof(rawData) / sizeof(rawData[0]);
 
     seftp::proto::ClientId client = {
@@ -18,16 +18,25 @@ TEST(ProtocolResParse, ResParseLayout) {
     0x99, 0x02, 0xF5, 0x1B, 0xC3, 0x66, 0x78, 0xAD
     };
     EXPECT_NO_THROW(seftp::proto::parse_1600(payload));
-    
+
     const auto msg = seftp::proto::parse_1600(payload);
     ASSERT_EQ(msg.client_id.size(), seftp::proto::kClientIdLen);
-    EXPECT_EQ(msg.client_id,client);
-    
+    EXPECT_EQ(msg.client_id, client);
+}
+TEST(ProtocolResParse, ResParse1602) {
     //parse_1602
+    const uint8_t rawData[] = {
+    0x4F, 0x92, 0xBC, 0x11, 0x8A, 0x3D, 0x47, 0x5E,
+    0x99, 0x02, 0xF5, 0x1B, 0xC3, 0x66, 0x78, 0xAD
+    };
+    seftp::proto::ClientId client = {
+    0x4F, 0x92, 0xBC, 0x11, 0x8A, 0x3D, 0x47, 0x5E,
+    0x99, 0x02, 0xF5, 0x1B, 0xC3, 0x66, 0x78, 0xAD
+    };
     seftp::proto::ByteView too_short_1602{ rawData, 16 };
-    EXPECT_THROW(parse_1602(too_short_1602), std::runtime_error);
-    
-    const uint8_t rawData256_1602[256] = { 0x4F};
+    EXPECT_THROW(seftp::proto::parse_1602(too_short_1602), std::runtime_error);
+
+    const uint8_t rawData256_1602[256] = { 0x4F };
     const uint8_t rawData16_1602[16] = { 0x4F, 0x92, 0xBC, 0x11, 0x8A, 0x3D, 0x47, 0x5E,
     0x99, 0x02, 0xF5, 0x1B, 0xC3, 0x66, 0x78, 0xAD };
     uint8_t rawDataCombined_1602[272];
@@ -49,8 +58,8 @@ TEST(ProtocolResParse, ResParseLayout) {
     EXPECT_EQ(msg_1602.encrypted_key.size(), 256u);
     EXPECT_EQ(msg_1602.encrypted_key[0], 0x4F);
     EXPECT_EQ(msg_1602.encrypted_key, key);
-
-
+}
+TEST(ProtocolResParse, ResParse1603){
     //parse_1603
     seftp::proto::ByteView bv_1603{};
     EXPECT_THROW(seftp::proto::parse_1603(bv_1603), std::runtime_error);

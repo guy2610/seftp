@@ -49,10 +49,11 @@ if (BUILD_TESTING)
 
     add_executable(seffp_tests
         tests/test_dummy.cpp
-	tests/le_helpers_test.cpp
-	tests/request_base_test.cpp
-	tests/response_parsers_test.cpp
-	tests/request_builders_test.cpp
+	tests/proto_le_helpers_test.cpp
+	tests/proto_request_base_test.cpp
+	tests/proto_response_parsers_test.cpp
+	tests/proto_request_builders_test.cpp
+	tests/net_test.cpp
     )
     target_link_libraries(seffp_tests PRIVATE GTest::gtest_main)
 

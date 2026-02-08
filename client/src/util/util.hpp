@@ -1,5 +1,10 @@
 #pragma once
 #include <string_view>
+#include <iomanip>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <array>
 #include "../protocol/protocol.hpp"
 namespace seftp::util {
 

@@ -54,6 +54,7 @@ if (BUILD_TESTING)
 	tests/proto_response_parsers_test.cpp
 	tests/proto_request_builders_test.cpp
 	tests/net_test.cpp
+	tests/util_test.cpp
     )
     target_link_libraries(seffp_tests PRIVATE GTest::gtest_main)
 

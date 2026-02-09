@@ -55,8 +55,23 @@ if (BUILD_TESTING)
 	tests/proto_request_builders_test.cpp
 	tests/net_test.cpp
 	tests/util_test.cpp
+	tests/files_test.cpp
+
+	client/src/net/net.cpp	
+	client/src/util/files.cpp
     )
-    target_link_libraries(seffp_tests PRIVATE GTest::gtest_main)
+  target_include_directories(seffp_tests PRIVATE
+       client/src
+       client/src/crypto
+       client/src/net
+       client/src/protocol
+       client/src/util
+       client/src/logger
+)
+    target_link_libraries(seffp_tests PRIVATE GTest::gtest_main Boost::system Boost::asio)
+   if (WIN32)
+      target_link_libraries(seffp_tests PRIVATE ws2_32)
+   endif()
 
     if (WIN32)
         target_compile_definitions(seffp_tests PRIVATE _WIN32_WINNT=0x0A00)

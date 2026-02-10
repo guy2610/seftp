@@ -56,9 +56,11 @@ if (BUILD_TESTING)
 	tests/net_test.cpp
 	tests/util_test.cpp
 	tests/files_test.cpp
+	tests/logger_test.cpp
 
 	client/src/net/net.cpp	
 	client/src/util/files.cpp
+	client/src/logger/logger.cpp
     )
   target_include_directories(seffp_tests PRIVATE
        client/src

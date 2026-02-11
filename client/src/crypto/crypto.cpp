@@ -1,6 +1,6 @@
 #include "crypto.hpp"
 namespace seftp::crypto {
-	
+
 	std::string encode_base64(const std::string& raw_key) {
 		std::string encoded;
 		CryptoPP::StringSource(reinterpret_cast<const unsigned char*>(raw_key.data()), raw_key.size(), true,
@@ -25,7 +25,7 @@ namespace seftp::crypto {
 
 		return iv;
 	}
-	PublicKeyFormat generate_rsa2048_keypair_der(std::string key) {
+	PublicKeyFormat generate_rsa2048_keypair_der(std::string key, std::string priv_key_file_name) {
 		PublicKeyFormat key_pair;
 		CryptoPP::RSA::PrivateKey privateKey;
 		CryptoPP::RSA::PublicKey publicKey;
@@ -46,10 +46,9 @@ namespace seftp::crypto {
 			}
 			catch (const CryptoPP::Exception& e) {
 				std::cerr << "Failed to load priv.key (DER): " << e.what() << std::endl;
-				exit(1);
+				throw e;
 			}
 		}
-		// send public key to the server
 		publicKey.Save(CryptoPP::StringSink(key_pair.publicKeyDer).Ref());
 
 		CryptoPP::StringSource(key_pair.publicKeyDer, true,
@@ -57,7 +56,7 @@ namespace seftp::crypto {
 		);
 		// keep private key
 		if (key.empty()) {
-			privateKey.Save(CryptoPP::FileSink("priv.key").Ref());
+			privateKey.Save(CryptoPP::FileSink(priv_key_file_name.c_str()).Ref());
 		}
 		return key_pair;
 	}
@@ -105,6 +104,33 @@ namespace seftp::crypto {
 		}
 		return cipher_text;
 
+	}
+	std::string aes256_cbc_decrypt(std::string ciphertext, std::string_view key32, const std::array<uint8_t, 16>& iv_arr) {
+		if (key32.size() != CryptoPP::AES::MAX_KEYLENGTH) {
+			std::cerr << "AES key must be exactly 32 bytes (got " << key32.size() << ")\n";
+			return {};
+		}
+		CryptoPP::SecByteBlock aes_key(reinterpret_cast<const CryptoPP::byte*>(key32.data()),CryptoPP::AES::MAX_KEYLENGTH);
+
+		CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
+		std::memcpy(iv, iv_arr.data(), CryptoPP::AES::BLOCKSIZE);
+
+		std::string plain;
+		try {
+			CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption decryptor;
+			decryptor.SetKeyWithIV(aes_key, aes_key.size(), iv);
+
+			CryptoPP::StringSource(ciphertext, true,
+				new CryptoPP::StreamTransformationFilter(decryptor,
+					new CryptoPP::StringSink(plain)
+				)
+			);
+		}
+		catch (const CryptoPP::Exception& e) {
+			std::cerr << "Decryption error: " << e.what() << std::endl;
+			return {};
+		}
+		return plain;
 	}
 	std::string rsa_oaep_sha1_decrypt_from_file(const std::string& privkey_filename, const std::vector<uint8_t>& ciphertext) {
 

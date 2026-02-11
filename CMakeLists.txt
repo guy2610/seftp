@@ -57,10 +57,13 @@ if (BUILD_TESTING)
 	tests/util_test.cpp
 	tests/files_test.cpp
 	tests/logger_test.cpp
+	tests/crypto_test.cpp
 
 	client/src/net/net.cpp	
 	client/src/util/files.cpp
 	client/src/logger/logger.cpp
+	client/src/crypto/crypto.cpp
+
     )
   target_include_directories(seffp_tests PRIVATE
        client/src
@@ -70,7 +73,7 @@ if (BUILD_TESTING)
        client/src/util
        client/src/logger
 )
-    target_link_libraries(seffp_tests PRIVATE GTest::gtest_main Boost::system Boost::asio)
+    target_link_libraries(seffp_tests PRIVATE GTest::gtest_main Boost::system Boost::asio cryptopp::cryptopp)
    if (WIN32)
       target_link_libraries(seffp_tests PRIVATE ws2_32)
    endif()

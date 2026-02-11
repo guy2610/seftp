@@ -332,7 +332,14 @@ void making_RSAkeys(tcp::socket& s, const ClientContext& cc, const std::string& 
 	// If 'key' is non-empty: load RSA private key from the given binary string.
 	client_history.push_back({ "making_RSAkeys",timestamp() });
 	logger.debug("inside making_RSAkeys");
-	seftp::crypto::PublicKeyFormat key_pair = seftp::crypto::generate_rsa2048_keypair_der(key);
+	seftp::crypto::PublicKeyFormat key_pair;
+	try { 
+		key_pair = seftp::crypto::generate_rsa2048_keypair_der(key);
+	}
+	catch (const std::exception& e) {
+		logger.error("Error in making_RSAkeys: " + std::string(e.what()));
+		exit(1);
+	}
 	logger.debug("DER len: " + std::to_string(key_pair.publicKeyDer.size()));
 	logger.debug("publicKeyB64 length: " + std::to_string(key_pair.publicKeyB64.size()));
 	// approx 392 chars

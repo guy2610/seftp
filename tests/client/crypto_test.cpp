@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <vector>
-#include "../client/src/crypto/crypto.hpp"
+#include "../../client/src/crypto/crypto.hpp"
 
 static std::string make_data(size_t n) {
     std::string s;

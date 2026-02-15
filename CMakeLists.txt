@@ -48,16 +48,16 @@ if (BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
 
     add_executable(seffp_tests
-        tests/test_dummy.cpp
-	tests/proto_le_helpers_test.cpp
-	tests/proto_request_base_test.cpp
-	tests/proto_response_parsers_test.cpp
-	tests/proto_request_builders_test.cpp
-	tests/net_test.cpp
-	tests/util_test.cpp
-	tests/files_test.cpp
-	tests/logger_test.cpp
-	tests/crypto_test.cpp
+        tests/client/test_dummy.cpp
+	tests/client/proto_le_helpers_test.cpp
+	tests/client/proto_request_base_test.cpp
+	tests/client/proto_response_parsers_test.cpp
+	tests/client/proto_request_builders_test.cpp
+	tests/client/net_test.cpp
+	tests/client/util_test.cpp
+	tests/client/files_test.cpp
+	tests/client/logger_test.cpp
+	tests/client/crypto_test.cpp
 
 	client/src/net/net.cpp	
 	client/src/util/files.cpp

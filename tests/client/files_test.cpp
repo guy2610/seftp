@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <fstream>
-#include "../client/src/util/files.hpp"
+#include "../../client/src/util/files.hpp"
 
 using namespace seftp::util::files;
 TEST(FileFunc, WriteMeIdentity) {

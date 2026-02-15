@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "../client/src/util/util.hpp"
-#include "../client/src/protocol/protocol.hpp"
+#include "../../client/src/util/util.hpp"
+#include "../../client/src/protocol/protocol.hpp"
 
 using namespace seftp::util;
 //Test

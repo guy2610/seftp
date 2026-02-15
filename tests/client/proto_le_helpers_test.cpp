@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../client/src/protocol/protocol.hpp"
+#include "../../client/src/protocol/protocol.hpp"
 TEST(ProtocolLEHelpers, LE_Helpers) {
 	//Arrenge
 	//append_u8

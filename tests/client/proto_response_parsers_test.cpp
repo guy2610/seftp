@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../client/src/protocol/protocol.hpp"
+#include "../../client/src/protocol/protocol.hpp"
 TEST(ProtocolResParse, ResParse1600) {
     //Arrenge
     //parse_1600

@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <cstring>
-#include "../client/src/net/net.hpp"
+#include "../../client/src/net/net.hpp"
 
 //helpers
 using seftp::net::detail::read_response_frame_from;

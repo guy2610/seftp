@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "..\client\src\protocol\protocol.hpp"
+#include "../../client/src/protocol/protocol.hpp"
 //helpers
 static uint8_t read_u8(const std::vector<uint8_t>& b, size_t off) {
 	return b.at(off);

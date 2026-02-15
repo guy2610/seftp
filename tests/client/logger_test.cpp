@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <sstream>
 #include <iostream>
-#include "../client/src/logger/logger.hpp"
+#include "../../client/src/logger/logger.hpp"
 
 namespace {
 	class StreamCapture {

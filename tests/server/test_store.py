@@ -10,7 +10,7 @@ def b64(b: bytes) -> str:
 def test_save_and_load_roundtrip(tmp_path):
     p = tmp_path / "data" / "clients_info.json"
     s = store.Store()
-    s.clients_info["alice"] = [b"\x01"*16,b"\x02\x03\x04","2026-02-15T10:00:00Z","aes_b64_here"]
+    s.clients_info["alice"] = [b"\x01"*16,b"\x02\x03\x04","2026-02-15","aes_b64_here"]
     s.clients_info["bob"] = [b"\xAA" * 16, None, None, None]
     s.save_clients_info(str(p))
     assert p.exists()
@@ -22,7 +22,7 @@ def test_save_and_load_roundtrip(tmp_path):
     a = s2.clients_info["alice"]
     assert a[0] == b"\x01" * 16
     assert a[1] == b"\x02\x03\x04"
-    assert a[2] == "2026-02-15T10:00:00Z"
+    assert a[2] == "2026-02-15"
     assert a[3] == "aes_b64_here"
 
     b = s2.clients_info["bob"]

@@ -11,9 +11,13 @@ def message_answer(version:bytes,code_num:str,payload_size:str,payload:bytes,ses
     - 4 bytes: payload size (little-endian)
     - N bytes: payload
     """
+    if not isinstance(version, (bytes, bytearray)) or len(version) != 1:
+        raise ValueError("version must be exactly 1 byte")
+    if int(payload_size) != len(payload):
+        raise ValueError("payload_size mismatch")
     session.log.debug("making the message and sending it")
     message = (
-            int(version).to_bytes(1, 'little') +
+            version + # int(version).to_bytes(1, 'little')
             int(code_num).to_bytes(2, 'little') +
             int(payload_size).to_bytes(4, 'little') +
             payload
@@ -80,7 +84,7 @@ async def answer_1606(client_id,version,name,session):
     session.log.debug("inside answer 1606")
     store = session.store
     message = message_answer(version, "1606", "16", client_id,session)
-    session.log.info(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} rejected (client is not register or the public key is invalid. need to re-register)')
+    session.log.info(f"request for sign on for {base64.b64encode(client_id).decode('utf-8')} rejected (client is not register or the public key is invalid. need to re-register)")
     if client_id==b'\x00'*16:
         store.clients_recent_log[name].append(["answer_1606", str(datetime.datetime.now())])
     else:
@@ -99,7 +103,7 @@ async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     session.log.debug("inside answer 1605")
     store = session.store
     message = message_answer(version, "1605", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id,session)
-    session.log.info(f'request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key')
+    session.log.info(f"request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key")
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
     await session.send(message)

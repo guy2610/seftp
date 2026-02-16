@@ -427,7 +427,7 @@ async def request_901(payload_info,version,client_id,session):
     - filename (UTF-8, may include trailing nulls)
 
     Behavior:
-    - Log success and send 1604.
+    - Log failure.
     """
     session.log.debug("inside request 901")
     store = session.store
@@ -445,7 +445,7 @@ async def request_902(payload_info,version,client_id,session):
     - filename (UTF-8)
 
     Behavior:
-    - Logs failure and sends 1604 (transfer finished with error).
+    - Log failure and sends 1604 (transfer finished with error).
     """
     session.log.debug("inside request 902")
     store = session.store

@@ -1,8 +1,9 @@
 import uuid
-from src.framing import Framer
-from src.logging_setup import make_session_logger
+from server.src.framing import Framer
+from server.src.logging_setup import make_session_logger
 import asyncio
 import time
+from typing import Optional
 
 class ClientSession:
     def __init__(self, writer,store ,base_logger,config):
@@ -12,7 +13,7 @@ class ClientSession:
         self.connection_id=uuid.uuid4().hex
         self.request_id =None
         self.log = make_session_logger(base_logger,self.connection_id)
-        self.framer=Framer()
+        self.framer=Framer(max_payload_size=config.max_payload_size)
         self.transfer_iv=None
         self.transfer_cipher=bytearray()
         now = time.monotonic()
@@ -71,7 +72,7 @@ class ClientSession:
     def mark_upload_progress(self):
         self.last_upload_progress_ts=time.monotonic()
         self.mark_activity()
-    def reset_transfer_state(self,reason: str|None =None):
+    def reset_transfer_state(self,reason: Optional[str] = None):
         self.transfer_iv=None
         self.transfer_cipher=bytearray()
         self.upload_active=False

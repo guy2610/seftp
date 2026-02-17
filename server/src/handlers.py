@@ -11,7 +11,7 @@ from Crypto.Util.Padding import unpad
 import base64
 import sys
 import  logging
-from src import answers
+from server.src import answers
 import asyncio
 
 async def request_825(payload_info,version,session):
@@ -131,7 +131,7 @@ async def request_826(client_id, payload_info: bytes, version,session):
     ciphertext = cipher.encrypt(key)
     tmp=[base64.b64encode(store.clients_info[name][0]).decode('utf-8'),base64.b64encode(store.clients_info[name][1]).decode('utf-8'),store.clients_info[name][2],store.clients_info[name][3]]
     if session.log.isEnabledFor(logging.DEBUG):
-        session.log.debug(f'the user: {name} has this list {tmp}.\nand this is the aes key encrypted by the public key: {base64.b64encode(ciphertext).decode('utf-8')}')
+        session.log.debug(f"the user: {name} has this list {tmp}.\nand this is the aes key encrypted by the public key: {base64.b64encode(ciphertext).decode('utf-8')}")
 
     # send 1602 aes key
     await answers.answer_1602(ciphertext, store.clients_info[name][0], version,session)

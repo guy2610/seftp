@@ -1,6 +1,6 @@
 import uuid
-from src import answers
-from src import handlers
+from server.src import answers
+from server.src import handlers
 async def handle_frame(frame:bytes,session):
     """
      Parse a full frame from the client and dispatch to the correct handler.
@@ -28,7 +28,7 @@ async def handle_frame(frame:bytes,session):
         session.log.warning(f"short frame (<17), request_id={session.log.request_id}")
         return
     client_id = frame[:16]
-    version = frame[16]
+    version = frame[16:17]
     session.last_client_id =client_id
     session.last_version=version
     try:

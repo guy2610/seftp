@@ -63,13 +63,14 @@ async def request_826(client_id, payload_info: bytes, version,session):
     session.log.debug("inside request 826")
     store=session.store
     name_in_dict = store.name_of_dict_from_id(client_id)
-    store.clients_info[name_in_dict][2] = str(datetime.datetime.now())
-    store.clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
     if not name_in_dict:
         if session.log.isEnabledFor(logging.DEBUG):
             session.log.debug(store.clients_info)
         session.log.info(f'uuid not in client_info; client_id={client_id!r}')
         return
+
+    store.clients_info[name_in_dict][2] = str(datetime.datetime.now())
+    store.clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
 
     sep = payload_info.find(b'\x00')
     if sep == -1:

@@ -1,0 +1,37 @@
+name: CI - Server (pytest)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  pytest:
+    name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+        python-version: [ "3.11" ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pycryptodome
+
+      - name: Run pytest (server unit tests)
+        env:
+          PYTHONPATH: server/src
+        run: |
+          pytest -q tests/server

@@ -305,7 +305,7 @@ string timestamp() {
 #ifdef _WIN32
 	localtime_s(&buf, &in_time_t);
 #else
-	localtime_r(&buf, &in_time_t);
+	localtime_r(&in_time_t, &buf);
 #endif
 
 	std::ostringstream oss;

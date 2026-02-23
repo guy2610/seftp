@@ -6,5 +6,6 @@
     "boost-asio",
     "boost-system",
     "gtest"
-  ]
+  ],
+  "builtin-baseline": "6d332a018c433fad20822ff4b536e4ccdc3413bd"
 }

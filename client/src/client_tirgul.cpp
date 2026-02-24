@@ -250,16 +250,16 @@ int main(int argc, char* argv[]) {
 				[](unsigned char c) { return std::tolower(c); });
 			if (ans != "yes") break;
 		}
-		cout << "Thanks, Goodbye!!" << endl;
-		// Print client event history for debugging
-		cout << "\n\nclient history: [";
-		for (const ClientEvent event : client_history) {
-			cout << "'" << event.method << "' " << event.time_stamp << "; ";
-		}
-		cout << "]" << endl;
-
-		return 0;
 	}
+	cout << "Thanks, Goodbye!!" << endl;
+	// Print client event history for debugging
+	cout << "\n\nclient history: [";
+	for (const ClientEvent event : client_history) {
+		cout << "'" << event.method << "' " << event.time_stamp << "; ";
+	}
+	cout << "]" << endl;
+
+	return 0;
 }
 CliOptions parse_cli(int argc, char* argv[]) {
 	CliOptions cli;

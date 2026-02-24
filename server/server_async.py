@@ -6,6 +6,8 @@ from src.config import Config
 from src.logging_setup import setup_logging
 import time
 from src import answers
+import signal
+
 async def main():
     config = Config.load()
     logger = setup_logging(config.log_level)
@@ -84,21 +86,29 @@ async def main():
                 session.frames_ok,
                 session.frames_bad,
             )
-
+            
     server = await asyncio.start_server(handle_client, config.host, config.port)
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     logger.info("async server listening on %s", addrs)
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+    def _stop():
+        stop_event.set()
+    # register signals
+    loop.add_signal_handler(signal.SIGINT, _stop)
+    loop.add_signal_handler(signal.SIGTERM, _stop)
     async with server:
         try:
-            await server.serve_forever()
-        except(asyncio.CancelledError, KeyboardInterrupt):
-            pass
+            await stop_event.wait()
         finally:
+            logger.info("shutdown initiated")
+            server.close()
+            await server.wait_closed()
             try:
                 store.save_clients_info(config.data_path)
             except Exception:
                 logger.exception("failed saving clients_info on shutdown")
-            logger.info("shutting down")
+            logger.info("shutting down complete")
             logger.debug("clients_recent_log=%r", dict(store.clients_recent_log))
 
 

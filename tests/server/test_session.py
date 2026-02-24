@@ -86,7 +86,7 @@ def test_mark_upload_progress():
 def test_reset_transfer_state_logs_reason(monkeypatch):
     fake_logger = FakeLogger()
     monkeypatch.setattr(
-        "server.src.session.make_session_logger",
+        "src.session.make_session_logger",
         lambda base_logger, connection_id: fake_logger
     )
     class DummyConfig:
@@ -110,7 +110,7 @@ async def test_send_happy_path(monkeypatch):
     fake_logger = FakeLogger()
     fake_writer = FakeWriter()
     monkeypatch.setattr(
-        "server.src.session.make_session_logger",
+        "src.session.make_session_logger",
         lambda base_logger, connection_id: fake_logger
     )
     class DummyConfig:
@@ -132,7 +132,7 @@ async def test_send_error_path_sets_disconnect_reason_and_raises(monkeypatch):
     fake_logger = FakeLogger()
     fake_writer = FakeWriter(fail_on_write=BrokenPipeError())
     monkeypatch.setattr(
-        "server.src.session.make_session_logger",
+        "src.session.make_session_logger",
         lambda base_logger, connection_id: fake_logger
     )
     class DummyConfig:
@@ -149,7 +149,7 @@ async def test_send_fail_on_drain_sets_disconnect_reason_and_keeps_written_data(
     fake_logger = FakeLogger()
     fake_writer = FakeWriter(fail_on_drain=ConnectionResetError())
     monkeypatch.setattr(
-        "server.src.session.make_session_logger",
+        "src.session.make_session_logger",
         lambda base_logger, connection_id: fake_logger
     )
     class DummyConfig:
@@ -165,7 +165,7 @@ def test_feed(monkeypatch):
     fake_logger = FakeLogger()
     fake_writer = FakeWriter(fail_on_drain=ConnectionResetError())
     monkeypatch.setattr(
-        "server.src.session.make_session_logger",
+        "src.session.make_session_logger",
         lambda base_logger, connection_id: fake_logger
     )
 

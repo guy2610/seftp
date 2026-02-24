@@ -61,7 +61,7 @@ async def test_handle_frame_len_17_to_22_sends_1607_and_resets(monkeypatch, n):
     calls = []
     async def fake_1607(client_id, version, text, session):
         calls.append((client_id, version, text))
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
     await router.handle_frame(frame, s)
     assert s.on_frame_bad_calls == ["short_frame_missing_header"]
     assert s.reset_calls == ["protocol_error_1607"]
@@ -79,7 +79,7 @@ async def test_handle_frame_len_23_plus_payload_different_payload_size(monkeypat
     async def fake_1607(client_id, version, text, session):
         calls.append((client_id, version, text))
 
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
     await router.handle_frame(frame, s)
     assert s.on_frame_bad_calls == ["short_frame_payload_truncated"]
     assert s.reset_calls == ["protocol_error_1607"]
@@ -107,14 +107,14 @@ async def test_handle_frame_correct_code(monkeypatch):
         calls.append((payload_info, version, client_id,session))
     async def fake_902(payload_info, version, client_id,session):
         calls.append((payload_info, version, client_id,session))
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
-    monkeypatch.setattr("server.src.router.handlers.request_825", fake_825)
-    monkeypatch.setattr("server.src.router.handlers.request_827", fake_827)
-    monkeypatch.setattr("server.src.router.handlers.request_826", fake_826)
-    monkeypatch.setattr("server.src.router.handlers.request_828", fake_828)
-    monkeypatch.setattr("server.src.router.handlers.request_900", fake_900)
-    monkeypatch.setattr("server.src.router.handlers.request_901", fake_901)
-    monkeypatch.setattr("server.src.router.handlers.request_902", fake_902)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
+    monkeypatch.setattr("src.router.handlers.request_827", fake_827)
+    monkeypatch.setattr("src.router.handlers.request_826", fake_826)
+    monkeypatch.setattr("src.router.handlers.request_828", fake_828)
+    monkeypatch.setattr("src.router.handlers.request_900", fake_900)
+    monkeypatch.setattr("src.router.handlers.request_901", fake_901)
+    monkeypatch.setattr("src.router.handlers.request_902", fake_902)
 
     codes=[825,826,827,828,900,901,902]
     for i in range(len(codes)):
@@ -140,8 +140,8 @@ async def test_handle_frame_825_passes_correct_parameters(monkeypatch):
     async def fake_1607(client_id, version, text, session):
         raise AssertionError("1607 should not be called")
 
-    monkeypatch.setattr("server.src.router.handlers.request_825", fake_825)
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
 
     client_id = b"\xAA" * 16
     version = b"\x03"
@@ -170,7 +170,7 @@ async def test_handle_frame_unknown_code_while_not_uploading(monkeypatch):
     async def fake_1607(client_id, version, text, session):
         calls.append((client_id, version, text))
 
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
 
     code_num = int(800).to_bytes(2, "little")
     payload_size = int(10).to_bytes(4, "little")
@@ -193,7 +193,7 @@ async def test_handle_frame_unknown_code_while_uploading(monkeypatch):
     async def fake_1607(client_id, version, text, session):
         calls.append((client_id, version, text))
 
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
 
     code_num = int(800).to_bytes(2, "little")
     payload_size = int(10).to_bytes(4, "little")
@@ -220,8 +220,8 @@ async def test_handle_frame_correct_code_exception_not_upload_active(monkeypatch
     async def fake_825(payload_info, version,session):
         raise Exception
 
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
-    monkeypatch.setattr("server.src.router.handlers.request_825", fake_825)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
     code_num = int(825).to_bytes(2, "little")
     payload_size = int(10).to_bytes(4, "little")
     frame = b"\x01" * 17 + code_num + payload_size + b"\x01" * 10
@@ -247,8 +247,8 @@ async def test_handle_frame_correct_code_exception_upload_active(monkeypatch):
     async def fake_825(payload_info, version,session):
         raise Exception
 
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
-    monkeypatch.setattr("server.src.router.handlers.request_825", fake_825)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
     code_num = int(825).to_bytes(2, "little")
     payload_size = int(10).to_bytes(4, "little")
     frame = b"\x01" * 17 + code_num + payload_size + b"\x01" * 10
@@ -276,8 +276,8 @@ async def test_send_error_reraises(monkeypatch):
     async def fake_825(payload_info, version, session):
         raise BrokenPipeError()
 
-    monkeypatch.setattr("server.src.router.answers.answer_1607", fake_1607)
-    monkeypatch.setattr("server.src.router.handlers.request_825", fake_825)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
 
     code_num = int(825).to_bytes(2, "little")
     payload_size = int(10).to_bytes(4, "little")
@@ -300,7 +300,7 @@ async def test_handle_frame_updates_last_client_id_and_version(monkeypatch):
     async def fake_825(payload_info, version, session):
         calls.append((payload_info, version))
 
-    monkeypatch.setattr("server.src.router.handlers.request_825", fake_825)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
 
     client_id = b"\xAA" * 16
     version = b"\x03"

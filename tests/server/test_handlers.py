@@ -78,8 +78,8 @@ async def test_825_registration_succeed(monkeypatch):
     async def fake_1601(version, session):
         fake_session.reset_calls.append("1601")
 
-    monkeypatch.setattr("server.src.router.answers.answer_1600", fake_1600)
-    monkeypatch.setattr("server.src.router.answers.answer_1601", fake_1601)
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
 
     await handlers.request_825(payload,version,fake_session)
     name = payload[:-1].decode('utf-8')
@@ -107,8 +107,8 @@ async def test_825_name_exist_eror(monkeypatch):
     async def fake_1601(version, session):
         fake_session.reset_calls.append("1601")
 
-    monkeypatch.setattr("server.src.router.answers.answer_1600", fake_1600)
-    monkeypatch.setattr("server.src.router.answers.answer_1601", fake_1601)
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
 
     await handlers.request_825(payload,version,fake_session)
     assert len(fake_session.reset_calls) == 1
@@ -126,8 +126,8 @@ async def test_825_registration_name_need_strip(monkeypatch):
     async def fake_1601(version, session):
         fake_session.reset_calls.append("1601")
 
-    monkeypatch.setattr("server.src.router.answers.answer_1600", fake_1600)
-    monkeypatch.setattr("server.src.router.answers.answer_1601", fake_1601)
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
 
     await handlers.request_825(payload, version, fake_session)
     name = payload[:-2].decode('utf-8')

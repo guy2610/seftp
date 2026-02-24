@@ -1,6 +1,6 @@
 import pytest
-import server.src.store as store
-import server.src.answers as answers
+import src.store as store
+import src.answers as answers
 import asyncio
 
 class FakeLogger:

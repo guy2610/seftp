@@ -1,7 +1,7 @@
 import pytest
-import server.src.router as router
-import server.src.config as config
-import server.src.store as store
+import src.router as router
+import src.config as config
+import src.store as store
 import asyncio
 import time
 from typing import Optional

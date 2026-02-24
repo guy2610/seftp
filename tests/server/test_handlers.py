@@ -1,6 +1,6 @@
 import pytest
-import server.src.handlers as handlers
-import server.src.config as config
+import src.handlers as handlers
+import src.config as config
 import asyncio
 from typing import Optional
 from collections import defaultdict

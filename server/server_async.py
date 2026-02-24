@@ -91,7 +91,7 @@ async def main():
     async with server:
         try:
             await server.serve_forever()
-        except asyncio.CancelledError:
+        except(asyncio.CancelledError, KeyboardInterrupt):
             pass
         finally:
             try:

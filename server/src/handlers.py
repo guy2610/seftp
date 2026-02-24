@@ -11,7 +11,7 @@ from Crypto.Util.Padding import unpad
 import base64
 import sys
 import  logging
-from server.src import answers
+from src import answers
 import asyncio
 
 async def request_825(payload_info,version,session):

@@ -1,6 +1,6 @@
 import uuid
-from server.src import answers
-from server.src import handlers
+from src import answers
+from src import handlers
 async def handle_frame(frame:bytes,session):
     """
      Parse a full frame from the client and dispatch to the correct handler.

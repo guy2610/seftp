@@ -854,7 +854,9 @@ async def test_828_validate_header_total_packets_zero(monkeypatch):
     payload0 = make_828_payload(content_size=10,orig_file_size=5,packet_num=0,total_packets=0,filename_bytes=filename,cipher_chunk=iv)
 
     await handlers.request_828(payload0, version, client_id, fake_session)
-    assert calls == []
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert calls[0][3] == "bad 828: total_packets not valid"
     assert fake_session.reset_calls[-1] == "bad_828_range"
 
 @pytest.mark.asyncio
@@ -992,6 +994,9 @@ async def test_828_validate_header_packet_num_out_of_range(monkeypatch):
     payload0 = make_828_payload(content_size=10,orig_file_size=5,packet_num=3,total_packets=2,filename_bytes=filename,cipher_chunk=iv)
 
     await handlers.request_828(payload0, version, client_id, fake_session)
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert calls[0][3] == "bad 828: packet_num out of range"
     assert fake_session.reset_calls[-1] == "bad_828_range"
 
 @pytest.mark.asyncio

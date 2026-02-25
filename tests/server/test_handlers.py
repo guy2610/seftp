@@ -985,7 +985,7 @@ async def test_828_last_packet_received_size_mismatch(monkeypatch):
 @pytest.mark.asyncio
 async def test_828_validate_header_packet_num_out_of_range(monkeypatch):
     fake_session = FakeSession(config.Config.load())
-    patch_828_side_effects(monkeypatch, fake_session)
+    calls = patch_828_side_effects(monkeypatch, fake_session)
     client_id = b"\x01" * 16
     setup_client(fake_session, "alice", client_id)
     version = b"\x03"

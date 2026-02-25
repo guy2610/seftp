@@ -997,7 +997,7 @@ async def test_828_validate_header_packet_num_out_of_range(monkeypatch):
 @pytest.mark.asyncio
 async def test_828_validate_header_limits_total_packets_too_large(monkeypatch):
     fake_session = FakeSession(config.Config.load())
-    patch_828_side_effects(monkeypatch, fake_session)
+    calls = patch_828_side_effects(monkeypatch, fake_session)
     client_id = b"\x01" * 16
     setup_client(fake_session, "alice", client_id)
     version = b"\x03"
@@ -1008,3 +1008,7 @@ async def test_828_validate_header_limits_total_packets_too_large(monkeypatch):
 
     await handlers.request_828(payload0, version, client_id, fake_session)
     assert fake_session.reset_calls[-1] == "bad_828_limits"
+    sent_1607 = [c for c in calls if c[0] == "1607"]
+    assert len(sent_1607) == 1
+    assert sent_1607[0][1] == client_id
+    assert sent_1607[0][2] == version

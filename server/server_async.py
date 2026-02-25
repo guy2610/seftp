@@ -25,7 +25,7 @@ async def main():
         try:
             while True:
                 try:
-                    chunk = await asyncio.wait_for(reader.read(1024), timeout=10)
+                    chunk = await asyncio.wait_for(reader.read(1024), timeout=config.read_timeout_s)
                 except asyncio.TimeoutError:
                     now=time.monotonic()
                     if session.upload_active:
@@ -95,8 +95,12 @@ async def main():
     def _stop():
         stop_event.set()
     # register signals
-    loop.add_signal_handler(signal.SIGINT, _stop)
-    loop.add_signal_handler(signal.SIGTERM, _stop)
+    try:
+        loop.add_signal_handler(signal.SIGINT, _stop)
+        loop.add_signal_handler(signal.SIGTERM, _stop)
+    except NotImplementedError:
+        # Windows
+        pass
     async with server:
         try:
             await stop_event.wait()

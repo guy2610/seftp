@@ -202,39 +202,23 @@ def finalize_upload(file_path, cipher_bytes, iv, expected_size,aes_key):
         f.write(plaintext)
     # Compute CRC32 over the decrypted plaintext
     return  zlib.crc32(plaintext) & 0xFFFFFFFF , len(plaintext)
-def validate_header(session,packet_num,total_packets,content_size,orig_file_size):
-    if total_packets<=0:
-        session.log.info("bad 828: total_packets=%d not valid", total_packets)
-        session.reset_transfer_state("bad_828_range")
-        return False
+
+def validate_header(session, packet_num, total_packets, content_size, orig_file_size):
+    if total_packets <= 0:
+        return ("bad_828_range", "bad 828: total_packets not valid")
     if packet_num < 0 or packet_num > total_packets:
-        session.log.info("bad 828: packet_num out of range packet_num=%d total_packets=%d", packet_num, total_packets)
-        session.reset_transfer_state("bad_828_range")
-        return False
-    if content_size<=0:
-        session.log.info("bad 828: content_size=%d not valid",content_size)
-        session.reset_transfer_state("bad_828_range")
-        return False
-    if orig_file_size<=0:
-        session.log.info("bad 828: orig_file_size=%d not valid", orig_file_size)
-        session.reset_transfer_state("bad_828_range")
-        return False
+        return ("bad_828_range", "bad 828: packet_num out of range")
+    if content_size <= 0:
+        return ("bad_828_range", "bad 828: content_size not valid")
+    if orig_file_size <= 0:
+        return ("bad_828_range", "bad 828: orig_file_size not valid")
     if total_packets > session.config.max_packets:
-        session.log.info("bad 828: total_packets too large total_packets=%d", total_packets)
-        session.reset_transfer_state("bad_828_limits")
-        return False
-
+        return ("bad_828_limits", "bad 828: total_packets too large")
     if orig_file_size > session.config.max_file_size:
-        session.log.info("bad 828: orig_file_size too large orig_file_size=%d", orig_file_size)
-        session.reset_transfer_state("bad_828_limits")
-        return False
-
+        return ("bad_828_limits", "bad 828: orig_file_size too large")
     if content_size > session.config.max_file_size:
-        session.log.info("bad 828: content_size too large content_size=%d", content_size)
-        session.reset_transfer_state("bad_828_limits")
-        return False
-    return True
-
+        return ("bad_828_limits", "bad 828: content_size too large")
+    return None
 
 async def request_828(payload_info,version,client_id,session):
     """
@@ -292,7 +276,15 @@ async def request_828(payload_info,version,client_id,session):
     # Decode AES key (Base64) for this client
     raw_key = base64.b64decode(store.clients_info[name_in_dict][3])
     aes_key = raw_key
-    if not validate_header(session,packet_num,total_packets,content_size,orig_file_size):
+    err = validate_header(session, packet_num, total_packets, content_size, orig_file_size)
+    if err:
+        reason, msg = err
+        session.log.info(msg)
+        try:
+            await answers.answer_1607(client_id, version, msg, session)
+        except Exception:
+            pass
+        session.reset_transfer_state(reason)
         return
     if packet_num==0:
         if session.upload_active or session.transfer_iv:

@@ -98,7 +98,7 @@ async def main():
     try:
         loop.add_signal_handler(signal.SIGINT, _stop)
         loop.add_signal_handler(signal.SIGTERM, _stop)
-    except NotImplementedError:
+    except (NotImplementedError, RuntimeError):
         # Windows
         pass
     async with server:
@@ -119,5 +119,7 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise

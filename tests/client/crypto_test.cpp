@@ -104,7 +104,8 @@ TEST(CryptoTests, RSA_GenerateKeypair_ReturnsValidPublicKeyDerAndB64) {
     CryptoPP::ByteQueue q;
     q.Put(reinterpret_cast<const CryptoPP::byte*>(pk.publicKeyDer.data()), pk.publicKeyDer.size());
     pub.Load(q);
-    EXPECT_TRUE(pub.Validate(CryptoPP::AutoSeededRandomPool{}, 3));
+    CryptoPP::AutoSeededRandomPool rng;
+    EXPECT_TRUE(pub.Validate(rng, 3));
 }
 
 TEST(CryptoTests, RSA_LoadingSamePrivateKey_ReturnsSamePublicDer) {

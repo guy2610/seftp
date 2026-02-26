@@ -1,5 +1,7 @@
+import os
+
 class Config:
-    def __init__(self,host,port,data_path,log_level,idle_timeout_s=60, upload_inactivity_timeout_s=20,max_file_size=100* 1024 * 1024,max_packets=12000,max_chunk_size=64* 1024, max_payload_size=10_000_000):
+    def __init__(self,host,port,data_path,log_level,idle_timeout_s=60, upload_inactivity_timeout_s=20,max_file_size=100* 1024 * 1024,max_packets=12000,max_chunk_size=64* 1024, max_payload_size=10_000_000,read_timeout_s=10):
         self.host=host
         self.port=port
         self.data_path=data_path
@@ -10,6 +12,7 @@ class Config:
         self.max_packets=max_packets
         self.max_chunk_size=max_chunk_size
         self.max_payload_size=max_payload_size
+        self.read_timeout_s = read_timeout_s
 
     @classmethod
     def load(cls):
@@ -22,4 +25,27 @@ class Config:
                 port=int(port_file.readline().strip())
         except:
             pass
-        return cls(host=host, port=port, data_path=data_path, log_level=log_level)
+        def env_int(name: str, default: int) -> int:
+            v = os.getenv(name)
+            if v is None or v == "":
+                return default
+            return int(v)
+        def env_float(name: str, default: float) -> float:
+            v = os.getenv(name)
+            if v is None or v == "":
+                return default
+            return float(v)
+
+        return cls(
+            host=host,
+            port=port,
+            data_path=data_path,
+            log_level=os.getenv("SEFTP_LOG_LEVEL", log_level),
+            idle_timeout_s=env_int("SEFTP_IDLE_TIMEOUT_S", 60),
+            upload_inactivity_timeout_s=env_int("SEFTP_UPLOAD_INACTIVITY_TIMEOUT_S", 20),
+            max_file_size=env_int("SEFTP_MAX_FILE_SIZE", 100 * 1024 * 1024),
+            max_packets=env_int("SEFTP_MAX_PACKETS", 12000),
+            max_chunk_size=env_int("SEFTP_MAX_CHUNK_SIZE", 64 * 1024),
+            max_payload_size=env_int("SEFTP_MAX_PAYLOAD_SIZE", 10_000_000),
+            read_timeout_s=env_float("SEFTP_READ_TIMEOUT_S", 10),
+        )

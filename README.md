@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server (v0.2.0)
+# Secure File Transfer - C++ Client & Python Server (v0.3.0)
 
 This project implements a simple **secure file transfer protocol** over TCP.
 
@@ -10,15 +10,20 @@ This project implements a simple **secure file transfer protocol** over TCP.
   * AES-256-CBC for file encryption
   * CRC32 for integrity verification
 
-Educational project - not production-grade security.
-Stage 2 focuses on client-side refactor and server-side architecture, including async multi-client support.
+This is an independent engineering project focused on protocol design,
+defensive validation, concurrency, and end-to-end reliability.
+The system is not intended for production use.
+
+Stages 1-3 completed: protocol hardening, architectural refactor,
+async multi-client support, automated testing, and CI validation.
+
 The system is functional end-to-end and includes defensive protocol validation, timeouts, and crash-safe persistence.
 
 ---
 
 ## Version
 
-**v0.2.x - Stage 2 complete (architecture, concurrency, and stabilization)**
+**v0.3.0 - Stage 3 complete (Testing & Reliability)**
 
 * Fully functional encrypted file transfer (client <-> server)
 * Clear separation between protocol parsing, networking, crypto, and flow logic
@@ -28,7 +33,7 @@ The system is functional end-to-end and includes defensive protocol validation, 
 * RSA public key validation (DER, public-only, 2048-bit)
 * Stable server-issued `client_id` persisted on client
 * Proper `1607` error responses with textual payload
-* Manually tested; no automated tests yet
+* Fully automated test coverage (unit + integration)
 * Async multi-client server with per-connection session isolation (Stage 2.5)
 * Async server with concurrent uploads and CPU-bound crypto offloaded to worker threads (asyncio.to_thread)
 * Graceful disconnect handling and session cleanup
@@ -46,8 +51,10 @@ A prebuilt Windows x64 client binary is available.
 - Includes example runtime configuration
 - Built in Release mode
 
+A v0.3.0 release will be published after final CI stabilization.
+
 Download:
-https://github.com/guy2610/Portfolio/releases/tag/v0.2.0-client-win-x64
+https://github.com/guy2610/Portfolio/releases/tag/v0.3.0-win-x64
 
 Run:
 1. Start the server (see below)
@@ -103,16 +110,16 @@ protocol/
 
 * Client registration (`825 -> 1600 / 1601`)
 * RSA public key upload & AES-256 key exchange (`826 -> 1602`)
-* Re-login / SSO support (`827 -> 1605 / 1606`)
+* Re-login using persisted client_id and RSA keys(SSO) (`827 -> 1605 / 1606`)
 * Encrypted file upload in fixed-size chunks (`828`)
 * CRC validation with retry logic (`900 / 901 / 902 + 1603`)
 * Persistent client identity and keys on the client side
 * Server-side logging of client activity
-* Minimal server-side persistence (clients_info.json)
-* Crash-safe persistence using atomic file replacement
+* Minimal server-side persistence (`clients_info.json`) with atomic crash-safe writes
 * Server-side idle and upload inactivity timeouts
-* Server-side strict validation of upload sequencing and size limits
+* Strict server-side validation of upload sequencing, size limits, and malformed frames
 * Graceful handling of client disconnects and protocol violations
+* 1607 error enforcement for protocol violations (invalid headers, limit breaches)
 ---
 
 ## High-level Architecture
@@ -137,17 +144,74 @@ Python server
 
 ---
 
+## Testing & CI
+
+The project includes automated testing and CI validation.
+
+CI validates:
+
+- Protocol correctness (frame format, codes, payload validation)
+- Mandatory 1607 enforcement on invalid 828 headers
+- max_file_size limit enforcement
+- Parallel client isolation
+- End-to-end flow integrity (register -> upload -> CRC)
+
+### Continuous Integration
+
+GitHub Actions:
+
+- Ubuntu E2E workflow
+- Windows E2E workflow
+- Parallel client validation
+- Server restart persistence validation
+- Limit enforcement validation (1607 on invalid 828)
+- CI fails on protocol violations or missing enforcement
+
+### Unit Tests
+
+- C++ (GoogleTest):
+  - Protocol build/parse validation
+  - Crypto helpers (AES, RSA key generation, CRC32)
+  - Logger module
+- Python (pytest + pytest-asyncio):
+  - Router dispatch validation
+  - Handlers (825-828, 900-902)
+  - 1607 enforcement on invalid 828 headers
+
+### Integration (E2E) Tests
+
+- Full flow: register -> key exchange -> encrypted upload -> CRC validation
+- Re-login scenarios (1605 / 1606)
+- Oversize file rejection (server max_file_size via environment)
+- Parallel client uploads
+
+---
+
 # Protocol Overview (Short)
 
 ### Frame Format
 
+#### Client -> Server (Request)
+
 ```
-[16 bytes] client_id (UUID raw bytes; 0s during first registration)
+[16 bytes] client_id
 [1 byte ] version
 [2 bytes] code (little-endian)
 [4 bytes] payload_size
-[payload] depends on code
+[payload]
 ```
+#### Server -> Client (Response)
+```
+[1 byte ] version
+[2 bytes] code (little-endian)
+[4 bytes] payload_size
+[payload]
+```
+Notes:
+- `client_id` is included only in client requests.
+- During initial registration (825), `client_id` is 16 zero bytes.
+- Server responses intentionally omit `client_id`.
+
 For the full, authoritative protocol definition, see protocol/spec.md.
 
 ---
@@ -245,6 +309,12 @@ Client stops retrying.
 * **1605** - re-login success
 * **1606** - re-login rejected
 * **1607** - general error
+  Payload format:
+  ```
+  [16 bytes] client_id
+  [UTF-8 string] error_message
+  ```
+
 
 ---
 
@@ -261,6 +331,26 @@ Client stops retrying.
 * Uploads with identical filenames from different clients do not overwrite each other
 * Upload protocol enforces strict packet ordering and size limits
 * Malformed or out-of-order uploads are rejected with 1607
+* Invalid 828 headers (size mismatch, limit violation, sequencing errors) are rejected with 1607
+* Server enforces max_file_size limit (configurable via environment variable)
+
+---
+
+## Server Limits (Environment Variables)
+
+The server enforces defensive runtime limits.  
+Defaults can be overridden via environment variables:
+
+- `SEFTP_MAX_FILE_SIZE` (default: 100MB)
+- `SEFTP_MAX_PACKETS` (default: 12000)
+- `SEFTP_MAX_CHUNK_SIZE` (default: 64KB)
+- `SEFTP_MAX_PAYLOAD_SIZE` (default: 10,000,000 bytes)
+- `SEFTP_IDLE_TIMEOUT_S` (default: 60)
+- `SEFTP_UPLOAD_INACTIVITY_TIMEOUT_S` (default: 20)
+- `SEFTP_READ_TIMEOUT_S` (default: 10)
+- `SEFTP_LOG_LEVEL` (default: INFO)
+
+Violations of size or sequencing constraints result in a `1607` error response.
 
 ---
 
@@ -287,13 +377,37 @@ pip install pycryptodome
 
 ## Running the Project
 
-### 1. Start the server
+### Quickstart
+
+#### Start Server
+```
+cd server
+python server_async.py
+```
+#### Run Client
+
+Place `transfer.info` in the same directory as the executable, then run:
+```
+seffp_client.exe
+```
+
+The client will automatically:
+- Register or re-login
+- Perform RSA/AES key exchange
+- Encrypt and upload the configured file
+- Validate CRC and retry if necessary
+
+### Detailed Setup
+
+#### 1. Start the server
 
 ```
 Prerequisites (persistence)
-- Create: server/data/clients_info.json
-- Initialize it with: {}
-The server loads this file on startup and saves updates on shutdown (Ctrl+C / process exit).
+
+On startup, the server loads `server/data/clients_info.json` if it exists;
+otherwise, it creates the file automatically.
+
+State updates are saved on graceful shutdown (Ctrl+C / process exit).
 
 cd server
 python server_async.py
@@ -301,7 +415,7 @@ python server_async.py
 *(server_tirgul.py is kept for reference only and is not maintained.)*
 ```
 
-### 2. Prepare client configuration
+#### 2. Prepare client configuration
 
 Edit:
 
@@ -316,13 +430,27 @@ Format:
 myuser
 file name (not in use)
 ```
-### Example `transfer.info`
+#### Example `transfer.info`
 
 ```text
 127.0.0.1:1234
 Michael Jackson
 New_product_spec.docx
 ```
+
+---
+
+## Client CLI
+
+Optional runtime flags:
+
+- `--info` - run with info-level logs
+- `--debug` - enable debug logs
+- `--debug=0/1` - explicit debug toggle
+- `--files=file1,file2,...` - upload multiple files (comma-separated)
+
+Positional file arguments are also supported for backward compatibility.
+
 ### 3. Build from Source (Windows, CMake + vcpkg)
 
 ### Prerequisites
@@ -331,24 +459,34 @@ New_product_spec.docx
 - Git
 - Python 3.9+ (for server)
 
-### Build
-
+### Clone Project
 ```
-git clone https://github.com/guy2610/Portfolio/tree/main/Secure-Encrypted-File-Transfer-Protocol
+To clone only this project without downloading the entire portfolio:
+git clone --depth 1 --filter=blob:none --sparse https://github.com/guy2610/Portfolio.git
+cd Portfolio
+git sparse-checkout init --cone
+git sparse-checkout set Secure-Encrypted-File-Transfer-Protocol
 cd Secure-Encrypted-File-Transfer-Protocol
+```
 
+### Setup vcpkg
+```
 git clone https://github.com/microsoft/vcpkg
-
 .\vcpkg\bootstrap-vcpkg.bat
+```
 
+### Build (Windows, VS2022)
+```
 cmake --preset vs2022-x64 --fresh
 cmake --build --preset release
 ```
+
 ### Run
 ```
 cd build\Release
 .\seffp_client.exe
 ```
+
 ### Notes:
 
 - `transfer.info` is automatically copied next to the built executable.
@@ -380,7 +518,7 @@ Client refactor complete, server async refactor, multi-client support, and stabi
 * File IO cleanup (`me.info`, `aes.key`, `priv.key`)
 * Configuration cleanup (replaced ad-hoc parsing with structured config)
 
-**Server (completed up to 2.6.5):**
+**Server (completed):**
 * Modular router/handlers/answers
 * ClientSession + Store (no global state)
 * JSON persistence (startup load / shutdown save)
@@ -398,18 +536,29 @@ Client refactor complete, server async refactor, multi-client support, and stabi
 
 ---
 
-### **Stage 3 - Testing & Reliability**
-Planned
+### **Stage 3 - Testing & Reliability** DONE
 
-* Unit tests:
-  * Protocol build/parse
-  * Crypto helpers (AES, RSA, CRC)
-  * Retry and edge-case logic
-* Integration tests:
-  * End-to-end register -> upload -> success
-  * Re-login flows (1605 / 1606)
-  * CRC retry scenarios
-* CI setup (Linux + Windows)
+Completed
+
+* C++ unit tests (GoogleTest)
+  - Protocol build/parse
+  - AES / RSA helpers
+  - CRC validation
+* Python async unit tests (pytest + pytest-asyncio)
+  - Router dispatch
+  - Handlers (825-828, 900-902)
+  - 1607 enforcement on invalid 828 headers
+* End-to-end integration tests
+  - Register -> key exchange -> upload -> CRC validation
+  - Re-login flows (1605 / 1606)
+  - CRC retry scenarios
+  - Oversize file rejection (max_file_size enforcement)
+  - Parallel client uploads
+* GitHub Actions CI (Ubuntu + Windows)
+  - Automated E2E execution
+  - Parallel validation
+  - Limit enforcement checks
+  - Fails on protocol violations
 
 ---
 

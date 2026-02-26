@@ -1,6 +1,6 @@
 import uuid
-from server.src.framing import Framer
-from server.src.logging_setup import make_session_logger
+from src.framing import Framer
+from src.logging_setup import make_session_logger
 import asyncio
 import time
 from typing import Optional

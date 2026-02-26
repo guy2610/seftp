@@ -1,5 +1,5 @@
 import pytest
-import server.src.store as store
+import src.store as store
 import base64
 import json
 from pathlib import Path

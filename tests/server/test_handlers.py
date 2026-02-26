@@ -1,6 +1,6 @@
 import pytest
-import server.src.handlers as handlers
-import server.src.config as config
+import src.handlers as handlers
+import src.config as config
 import asyncio
 from typing import Optional
 from collections import defaultdict
@@ -78,8 +78,8 @@ async def test_825_registration_succeed(monkeypatch):
     async def fake_1601(version, session):
         fake_session.reset_calls.append("1601")
 
-    monkeypatch.setattr("server.src.router.answers.answer_1600", fake_1600)
-    monkeypatch.setattr("server.src.router.answers.answer_1601", fake_1601)
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
 
     await handlers.request_825(payload,version,fake_session)
     name = payload[:-1].decode('utf-8')
@@ -107,8 +107,8 @@ async def test_825_name_exist_eror(monkeypatch):
     async def fake_1601(version, session):
         fake_session.reset_calls.append("1601")
 
-    monkeypatch.setattr("server.src.router.answers.answer_1600", fake_1600)
-    monkeypatch.setattr("server.src.router.answers.answer_1601", fake_1601)
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
 
     await handlers.request_825(payload,version,fake_session)
     assert len(fake_session.reset_calls) == 1
@@ -126,8 +126,8 @@ async def test_825_registration_name_need_strip(monkeypatch):
     async def fake_1601(version, session):
         fake_session.reset_calls.append("1601")
 
-    monkeypatch.setattr("server.src.router.answers.answer_1600", fake_1600)
-    monkeypatch.setattr("server.src.router.answers.answer_1601", fake_1601)
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
 
     await handlers.request_825(payload, version, fake_session)
     name = payload[:-2].decode('utf-8')
@@ -854,7 +854,9 @@ async def test_828_validate_header_total_packets_zero(monkeypatch):
     payload0 = make_828_payload(content_size=10,orig_file_size=5,packet_num=0,total_packets=0,filename_bytes=filename,cipher_chunk=iv)
 
     await handlers.request_828(payload0, version, client_id, fake_session)
-    assert calls == []
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert calls[0][3] == "bad 828: total_packets not valid"
     assert fake_session.reset_calls[-1] == "bad_828_range"
 
 @pytest.mark.asyncio
@@ -983,7 +985,7 @@ async def test_828_last_packet_received_size_mismatch(monkeypatch):
 @pytest.mark.asyncio
 async def test_828_validate_header_packet_num_out_of_range(monkeypatch):
     fake_session = FakeSession(config.Config.load())
-    patch_828_side_effects(monkeypatch, fake_session)
+    calls = patch_828_side_effects(monkeypatch, fake_session)
     client_id = b"\x01" * 16
     setup_client(fake_session, "alice", client_id)
     version = b"\x03"
@@ -992,12 +994,15 @@ async def test_828_validate_header_packet_num_out_of_range(monkeypatch):
     payload0 = make_828_payload(content_size=10,orig_file_size=5,packet_num=3,total_packets=2,filename_bytes=filename,cipher_chunk=iv)
 
     await handlers.request_828(payload0, version, client_id, fake_session)
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert calls[0][3] == "bad 828: packet_num out of range"
     assert fake_session.reset_calls[-1] == "bad_828_range"
 
 @pytest.mark.asyncio
 async def test_828_validate_header_limits_total_packets_too_large(monkeypatch):
     fake_session = FakeSession(config.Config.load())
-    patch_828_side_effects(monkeypatch, fake_session)
+    calls = patch_828_side_effects(monkeypatch, fake_session)
     client_id = b"\x01" * 16
     setup_client(fake_session, "alice", client_id)
     version = b"\x03"
@@ -1008,3 +1013,7 @@ async def test_828_validate_header_limits_total_packets_too_large(monkeypatch):
 
     await handlers.request_828(payload0, version, client_id, fake_session)
     assert fake_session.reset_calls[-1] == "bad_828_limits"
+    sent_1607 = [c for c in calls if c[0] == "1607"]
+    assert len(sent_1607) == 1
+    assert sent_1607[0][1] == client_id
+    assert sent_1607[0][2] == version

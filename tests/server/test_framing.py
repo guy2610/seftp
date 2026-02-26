@@ -1,5 +1,5 @@
 import pytest
-import server.src.framing as framing
+import src.framing as framing
 
 def build_frame(payload: bytes, *, client_id=None, version: int = 1, code: int = 0x1234) -> bytes:
     if client_id is None:

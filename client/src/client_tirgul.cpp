@@ -70,6 +70,7 @@ std::string to_hex(const std::string& data);
 seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
 void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::string& key = std::string());
 CliOptions parse_cli(int argc, char* argv[]);
+void print_client_exit_summary();
 
 vector<ClientEvent> client_history;
 bool debug_mode = false;

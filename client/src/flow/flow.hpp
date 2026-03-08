@@ -16,5 +16,7 @@ namespace seftp {
 
         void disconnect_socket(boost::asio::ip::tcp::socket& s);
 
+        bool send_single_file(tcp::socket& s, const std::string& aes_key, ClientContext& cc, const std::string& path);
+
     }
 }

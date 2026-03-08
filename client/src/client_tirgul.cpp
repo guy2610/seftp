@@ -59,12 +59,12 @@ void request_825(tcp::socket& s, const string& name);
 void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid);
 void request_827(tcp::socket& s, const string& name, const string & uuid);
 uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components);
-void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc);
+void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc, const std::string& file_name);
 void request_900(tcp::socket& s, const string& name, const string& uuid);
 void request_901(tcp::socket& s, const string& name, const string& uuid);
 void request_902(tcp::socket& s, const string& name, const string& uuid);
 std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkSize);
-std::vector<string> encrypt_file(string key);
+std::vector<string> encrypt_file(const std::string& key, const std::string& file_name);
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 std::string to_hex(const std::string& data);
 seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
@@ -73,7 +73,6 @@ CliOptions parse_cli(int argc, char* argv[]);
 
 vector<ClientEvent> client_history;
 bool debug_mode = false;
-string file_name;
 constexpr const char* kTranserInfo = "transfer.info";
 auto& g_logger = seftp::logger::Logger::getInstance();
 CliOptions options;
@@ -107,6 +106,7 @@ int main(int argc, char* argv[]) {
 	tcp::socket s(io_context);
 	tcp::resolver resolver(io_context);
 	std::string aes_b64;
+	string file_name;
 	g_logger.debug("this is the uuid " + cc.client_id);
 	g_logger.debug("before file send operation");
 	if (!options.files.empty()) {
@@ -117,42 +117,20 @@ int main(int argc, char* argv[]) {
 		}
 		for (options.file_index = 0; options.file_index < options.files.size(); ++options.file_index) {
 			file_name = options.files[options.file_index];
-			request_828_retry(s, aes_b64, cc);
-			auto r = answer_manager(s, cc);
-			g_logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
-			g_logger.info("transferred file " + std::to_string(options.file_index + 1) + "/" + std::to_string(options.files.size()));
+			if (!seftp::flow::send_single_file(s, aes_b64, cc, file_name)) {
+				g_logger.error("Fatal: " + cc.last_error_text);
+			}
+			else {
+				g_logger.info("transferred file " + std::to_string(options.file_index + 1) + "/" + std::to_string(options.files.size()));
+			}
 		}
 		seftp::flow::disconnect_socket(s);
+		print_client_exit_summary();
 		return 0;
 	}
-	/*
-	//legacy_interactive_upload and code
-	else {
-		// Main loop: encrypt and send files to the server, one by one
-		while (true) {
-			// Sends file (828 + retry with 900/901/902 based on CRC)
-			request_828_retry(s, aes_b64, cc);
-			// Read final response (e.g., 1604 – transfer finished)
-			auto r = answer_manager(s, cc);
-			g_logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
-			// Ask user if they want to send another file
-			g_logger.info("\nDo you want to send another file to the server? answer 'yes' or something else for no");
-			getline(cin, ans);
-			transform(ans.begin(), ans.end(), ans.begin(),
-				[](unsigned char c) { return std::tolower(c); });
-			if (ans != "yes") break;
-		}
-	}
-	cout << "Thanks, Goodbye!!" << endl;
-	// Print client event history for debugging
-	cout << "\n\nclient history: [";
-	for (const ClientEvent event : client_history) {
-		cout << "'" << event.method << "' " << event.time_stamp << "; ";
-	}
-	cout << "]" << endl;
-	return 0;
-	*/
-	return seftp::ui::run_console_ui(io_context, s, resolver, client_config, cc);
+	int rc = seftp::ui::run_console_ui(io_context, s, resolver, client_config, cc);
+	print_client_exit_summary();
+	return rc;
 		
 }
 
@@ -268,6 +246,45 @@ namespace seftp::flow{
 			s.close(ec);
 		}
 	}
+	bool send_single_file(tcp::socket&s, const std::string& aes_key, ClientContext& cc, const std::string& path){
+		if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
+			cc.last_error_text = "file does not exist or is not a regular file: " + path;
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+		if (!s.is_open()) {
+			cc.last_error_text = "not connected";
+			return false;
+		}
+		if (aes_key.empty()) {
+			cc.last_error_text = "missing AES key";
+			return false;
+		}
+		try {
+			request_828_retry(s, aes_key, cc, path);
+		}
+		catch(const std::exception& e){
+			cc.last_error_text = e.what();
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+		// Read final response (e.g., 1604 – transfer finished)
+		auto r = answer_manager(s, cc);
+		g_logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
+		if (r.step == NextStep::Fatal) {
+			g_logger.error("Fatal: " + cc.last_error_text);
+			return false;
+		}
+		return true;
+	}
+}
+void print_client_exit_summary() {
+	std::cout << "Thanks, Goodbye!!" << std::endl;
+	std::cout << "\n\nclient history: [";
+	for (const ClientEvent& event : client_history) {
+		std::cout << "'" << event.method << "' " << event.time_stamp << "; ";
+	}
+	std::cout << "]" << std::endl;
 }
 CliOptions parse_cli(int argc, char* argv[]) {
 	CliOptions cli;
@@ -528,7 +545,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		return 0;
 	}
 }
-void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc) {
+void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc, const std::string& file_name) {
 	// Wrapper for request_828 with retry logic based on CRC check (1603).
 	// If CRC mismatch:
 	//   - up to 3 retries: send 901 and resend file.
@@ -542,7 +559,7 @@ void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext&
 	bool* crc_ok = &crc_ok_init;
 	// Encrypt file and compute its CRC32
 	// components = [ file_name, plaintext, ciphertext, crc_string, random iv ]
-	vector<string> components = encrypt_file(encrypt_key);
+	vector<string> components = encrypt_file(encrypt_key, file_name);
 	while (retries < MAX_RETRIES && !*crc_ok) {
 		g_logger.debug("this is the uuid " + cc.client_id);	
 		// 1) Send encrypted file (828) and get original CRC of plaintext
@@ -640,7 +657,7 @@ std::vector<uint8_t> parse_uuid(const std::string& uuid_str) {
 	return uuid_bytes;
 }
 
-std::vector<string> encrypt_file(string key) {
+std::vector<string> encrypt_file(const std::string& key, const std::string& file_name) {
 	// Ask the user for a filename, read the file in binary, compute CRC32,
 	// encrypt content using AES-256-CBC with a random per-file IV and a 32-byte AES key
 	// (provided as a Base64 string).
@@ -654,7 +671,7 @@ std::vector<string> encrypt_file(string key) {
 	client_history.push_back({ "encrypt_file", timestamp() });	
 	g_logger.debug("in encrypt_file");
 	std::ifstream file;
-	if (file_name.empty()) {
+	/*if (file_name.empty()) {
 		//interactive loop
 		while (true) {
 			// Ask user for file name to send
@@ -679,7 +696,13 @@ std::vector<string> encrypt_file(string key) {
 			g_logger.error("Error opening file: " + file_name);
 			exit(1);
 		}
+	}*/
+	g_logger.info("reading file ");
+	file.open(file_name, std::ios::binary);
+	if (!file.is_open()) {
+		throw std::runtime_error("Error opening file: " + file_name);
 	}
+
 	// Read entire file into plaintext string
 	std::string plain_text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 	file.close();

@@ -2,6 +2,8 @@
 #include <string>
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <sstream>
+#include <vector>
 #include "../client_types.hpp"
 
 namespace seftp::ui {

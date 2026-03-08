@@ -33,11 +33,24 @@ namespace seftp::ui {
 			if (!ui.connected) std::cout << "1) Connect\n";
 			else std::cout << "1) Reconnect\n";
 			std::cout << "2) Status\n";
+			if (ui.connected) {
+				std::cout << "3) Send single file\n";
+				std::cout << "4) Send batch\n";
+			}
 			std::cout << "0) Exit\n";
 			std::cout << "> ";
 
 			int c = read_menu_choise();
-			if (c == 0) break;
+			if (c == 0) {
+				std::cout << "Thanks, Goodbye!!" << std::endl;
+				// Print client event history for debugging
+				std::cout << "\n\nclient history: [";
+				for (const ClientEvent event : client_history) {
+					cout << "'" << event.method << "' " << event.time_stamp << "; ";
+				}
+				cout << "]" << endl;
+				break;
+			}
 			if (c == 2) {
 				print_status(ui, cfg, cc);
 				continue;
@@ -64,6 +77,62 @@ namespace seftp::ui {
 					ui.aes_b64 = std::move(aes_b64);
 					ui.last_status = "connected as " + cc.username + " id=" + cc.client_id;
 				}
+				continue;
+			}
+			if (ui.connected && c == 3) {
+				std::string path;
+				std::cout << "What is the file name you want to send?\n";
+				std::getline(std::cin, path);
+				if (path.empty()) {
+					ui.last_error = "no file provided";
+					ui.last_status.clear();
+					continue;
+				}
+				bool ok = seftp::flow::send_single_file(s, ui.aes_b64, cc, path);
+				if (!ok) {
+					ui.last_error = cc.last_error_text.empty() ? ("failed sending file: " + path) : cc.last_error_text;
+					ui.last_status.clear();
+				}
+				else {
+					ui.last_status = "file: " + path + " sent to the server.";
+				}
+				continue;
+			}
+			if (ui.connected && c == 4) {
+				std::string line;
+				std::cout << "What are the file names you want to send? (separated by space)\n";
+				std::getline(std::cin, line);
+				std::stringstream ss(line);
+				std::vector<std::string> tokens;
+				std::string path;
+				while (ss >> path) {
+					tokens.push_back(path);
+				}
+				if (tokens.empty()) {
+					ui.last_error = "no files provided";
+					ui.last_status.clear();
+					continue;
+				}
+				int success_count = 0;
+				int fail_count = 0;
+				for (const std::string& name : tokens) {
+					bool ok = seftp::flow::send_single_file(s, ui.aes_b64, cc, name);
+					if (!ok) {
+						++fail_count;
+						std::cout << "ERROR: "<< (cc.last_error_text.empty() ? ("failed sending file: " + name) : cc.last_error_text)<< "\n";
+					}
+					else {
+						++success_count;
+						std::cout << "INFO: file sent: " << name << "\n";
+					}
+				}
+				if (fail_count > 0) {
+					ui.last_error = std::to_string(fail_count) + " file(s) failed";
+				}
+				else {
+					ui.last_error.clear();
+				}
+				ui.last_status = std::to_string(success_count) + " file(s) sent successfully";
 				continue;
 			}
 			ui.last_error = "invalid choice";

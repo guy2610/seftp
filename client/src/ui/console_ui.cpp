@@ -41,16 +41,7 @@ namespace seftp::ui {
 			std::cout << "> ";
 
 			int c = read_menu_choise();
-			if (c == 0) {
-				std::cout << "Thanks, Goodbye!!" << std::endl;
-				// Print client event history for debugging
-				std::cout << "\n\nclient history: [";
-				for (const ClientEvent event : client_history) {
-					cout << "'" << event.method << "' " << event.time_stamp << "; ";
-				}
-				cout << "]" << endl;
-				break;
-			}
+			if (c == 0) break;
 			if (c == 2) {
 				print_status(ui, cfg, cc);
 				continue;

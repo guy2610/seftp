@@ -248,6 +248,7 @@ namespace seftp::flow{
 		}
 	}
 	bool send_single_file(tcp::socket&s, const std::string& aes_key, ClientContext& cc, const std::string& path){
+		cc.last_error_text.clear();
 		if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
 			cc.last_error_text = "file does not exist or is not a regular file: " + path;
 			g_logger.error(cc.last_error_text);
@@ -255,10 +256,12 @@ namespace seftp::flow{
 		}
 		if (!s.is_open()) {
 			cc.last_error_text = "not connected";
+			g_logger.error(cc.last_error_text);
 			return false;
 		}
 		if (aes_key.empty()) {
 			cc.last_error_text = "missing AES key";
+			g_logger.error(cc.last_error_text);
 			return false;
 		}
 		try {
@@ -273,7 +276,7 @@ namespace seftp::flow{
 		auto r = answer_manager(s, cc);
 		g_logger.debug("uuid after answer_manager: [" + cc.client_id + "]");
 		if (r.step == NextStep::Fatal) {
-			g_logger.error("Fatal: " + cc.last_error_text);
+			g_logger.error("send_single_file failed: " + cc.last_error_text);
 			return false;
 		}
 		return true;

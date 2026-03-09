@@ -48,6 +48,9 @@ namespace seftp::ui {
 			}
 			if (c == 1) {
 				ui.last_error.clear();
+				ui.last_status.clear();
+				cc.last_error_text.clear();
+
 				ui.last_status = ui.connected ? "reconnecting..." : "connecting...";
 				
 				if (ui.connected) {
@@ -71,25 +74,34 @@ namespace seftp::ui {
 				continue;
 			}
 			if (ui.connected && c == 3) {
+				ui.last_error.clear();
+				ui.last_status.clear();
+				cc.last_error_text.clear();
+
 				std::string path;
 				std::cout << "What is the file name you want to send?\n";
 				std::getline(std::cin, path);
 				if (path.empty()) {
 					ui.last_error = "no file provided";
-					ui.last_status.clear();
 					continue;
 				}
+
 				bool ok = seftp::flow::send_single_file(s, ui.aes_b64, cc, path);
 				if (!ok) {
 					ui.last_error = cc.last_error_text.empty() ? ("failed sending file: " + path) : cc.last_error_text;
 					ui.last_status.clear();
 				}
 				else {
-					ui.last_status = "file: " + path + " sent to the server.";
+					ui.last_error.clear();
+					ui.last_status = "file sent: " + path;
 				}
 				continue;
 			}
 			if (ui.connected && c == 4) {
+				ui.last_error.clear();
+				ui.last_status.clear();
+				cc.last_error_text.clear();
+
 				std::string line;
 				std::cout << "What are the file names you want to send? (separated by space)\n";
 				std::getline(std::cin, line);
@@ -101,12 +113,13 @@ namespace seftp::ui {
 				}
 				if (tokens.empty()) {
 					ui.last_error = "no files provided";
-					ui.last_status.clear();
 					continue;
 				}
 				int success_count = 0;
 				int fail_count = 0;
 				for (const std::string& name : tokens) {
+					cc.last_error_text.clear();
+
 					bool ok = seftp::flow::send_single_file(s, ui.aes_b64, cc, name);
 					if (!ok) {
 						++fail_count;

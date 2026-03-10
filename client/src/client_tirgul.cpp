@@ -31,11 +31,11 @@
 #include "net/net.hpp"
 #include "util/util.hpp"
 #include "crypto/crypto.hpp"
-#include "util/files.hpp"
 #include "logger/logger.hpp"
 #include "ui/console_ui.hpp"
 #include "flow/flow.hpp"
 #include "client_types.hpp"
+#include "persistence/client_persistence.hpp"
 
 using namespace std;
 using namespace CryptoPP;
@@ -150,7 +150,9 @@ namespace seftp::flow{
 		}
 		g_logger.info("\nconnection succeeded");
 		std::string me_user, me_cid;
-		if (!seftp::util::files::read_me_info(me_user, me_cid)) {
+		std::string persist_error;
+		seftp::persistence::StoredIdentity stored_identity{};
+		if (!seftp::persistence::load_identity(stored_identity, persist_error)) {
 			// No me.info -> first registration flow (825 + 826 + 1600 + 1602)
 			g_logger.info("Failed to open me.info");
 			g_logger.info("Doing First sign on");
@@ -178,12 +180,12 @@ namespace seftp::flow{
 		else {
 			// me.info exists -> Single Sign-On flow (827 + 1605)
 			g_logger.info("file me.info exist, handle SSO");
-			if (me_user != cc.username) {
-				cc.last_error_text = "me.info username mismatch. transfer.info=" + cc.username + " me.info=" + me_user;
-				g_logger.error("Fatal: " + cc.last_error_text);
+			if (stored_identity.username != cc.username) {
+				cc.last_error_text = "me.info username mismatch. transfer.info=" + cc.username + " me.info=" + stored_identity.username;
+				g_logger.error(cc.last_error_text);
 				return false;
 			}
-			cc.client_id = me_cid;
+			cc.client_id = stored_identity.client_id;
 			g_logger.info("this is name in me.info: " + cc.username);
 			g_logger.info("this is uuid in me.info: " + cc.client_id);
 			// 1) Send SSO / re-login request with existing client_id + username (827)
@@ -213,7 +215,10 @@ namespace seftp::flow{
 			else if (r.step == seftp::NextStep::NeedSendPublicKey) {
 				g_logger.info("has new client id, need to send 826 to get a key");
 				std::string keybin;
-				if (seftp::util::files::read_private_key(keybin)) g_logger.info("private key has been assigned");
+				std::string persist_error;
+				if (seftp::persistence::load_private_key(keybin, persist_error)) {
+					g_logger.info("private key has been assigned");
+				}
 				making_RSAkeys(s, cc, keybin);
 				auto r2 = answer_manager(s, cc);
 				if (r2.step == seftp::NextStep::Fatal) {
@@ -229,9 +234,8 @@ namespace seftp::flow{
 		}
 		std::string key;
 		// Load AES key from aes.key (Base64), which was written by answer_1602/1605
-		if (!seftp::util::files::read_aes_key(key))//key in Base64
-		{
-			cc.last_error_text = "cant open aes.key";
+		if (!seftp::persistence::load_aes_key(key, persist_error)) {
+			cc.last_error_text = persist_error;
 			g_logger.error(cc.last_error_text);
 			return false;
 		}
@@ -372,9 +376,9 @@ void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::s
 	g_logger.debug("DER len: " + std::to_string(key_pair.publicKeyDer.size()));
 	g_logger.debug("publicKeyB64 length: " + std::to_string(key_pair.publicKeyB64.size()));
 	// approx 392 chars
-	if (!seftp::util::files::write_me_public_key(key_pair.publicKeyB64))
-	{
-		g_logger.error("Failed to add to me.info public key");	
+	std::string persist_error;
+	if (!seftp::persistence::save_public_key(key_pair.publicKeyB64, persist_error)) {
+		g_logger.error(persist_error);
 		exit(1);
 	}
 	g_logger.info("Public key (B64) added to me.info: " + key_pair.publicKeyB64);
@@ -675,32 +679,6 @@ std::vector<string> encrypt_file(const std::string& key, const std::string& file
 	client_history.push_back({ "encrypt_file", timestamp() });	
 	g_logger.debug("in encrypt_file");
 	std::ifstream file;
-	/*if (file_name.empty()) {
-		//interactive loop
-		while (true) {
-			// Ask user for file name to send
-			std::cout << "\nWhat is the name of the file you want to send:" << std::endl;
-			std::getline(cin, file_name);
-			// Try to open the file in binary mode
-			g_logger.info("reading file ");
-			file.open(file_name, std::ios::binary);
-			if (file.is_open()) break;
-			// If failed, report and ask again
-			g_logger.error("Error opening file: " + file_name);
-			file.clear();
-			file_name.clear();
-
-		}
-	}
-	else {
-		// headless
-		g_logger.info("reading file " + file_name);
-		file.open(file_name, std::ios::binary);
-		if (!file.is_open()) {
-			g_logger.error("Error opening file: " + file_name);
-			exit(1);
-		}
-	}*/
 	g_logger.info("reading file ");
 	file.open(file_name, std::ios::binary);
 	if (!file.is_open()) {
@@ -758,9 +736,13 @@ string answer_1600(vector<uint8_t>& payload, string name) {
 	}
 	string client_id_hex = oss.str();
 	//write to me.info
-	if (!seftp::util::files::write_me_identity(name,client_id_hex))
-	{		
-		g_logger.error("Failed to open me.info for writing");
+	std::string persist_error;
+	seftp::persistence::StoredIdentity identity{};
+	identity.username = name;
+	identity.client_id = client_id_hex;
+
+	if (!seftp::persistence::save_identity(identity, persist_error)) {
+		g_logger.error(persist_error);
 		return "";
 	}
 
@@ -798,9 +780,9 @@ std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>
 	}
 
 	std::string aes_key_b64 = seftp::crypto::encode_base64(decrypted);
-	if (!seftp::util::files::write_aes_key(aes_key_b64))
-	{		
-		g_logger.error("Failed to open aes.key for writing");
+	std::string persist_error;
+	if (!seftp::persistence::save_aes_key(aes_key_b64, persist_error)) {
+		g_logger.error(persist_error);
 	}
 	else {		
 		g_logger.info("AES key saved to aes.key (Base64, len=" + std::to_string(aes_key_b64.size()) + ") <only for demonstrating>: " + aes_key_b64);

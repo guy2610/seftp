@@ -67,6 +67,7 @@ if (BUILD_TESTING)
 	client/src/util/files.cpp
 	client/src/logger/logger.cpp
 	client/src/crypto/crypto.cpp
+       client/src/persistence/client_persistence.cpp
 
     )
   target_include_directories(seffp_tests PRIVATE
@@ -76,6 +77,7 @@ if (BUILD_TESTING)
        client/src/protocol
        client/src/util
        client/src/logger
+       client/src/persistence
 )
     target_link_libraries(seffp_tests PRIVATE GTest::gtest_main Boost::system Boost::asio cryptopp::cryptopp)
    if (WIN32)

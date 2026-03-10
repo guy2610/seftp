@@ -61,6 +61,7 @@ if (BUILD_TESTING)
 	tests/client/files_test.cpp
 	tests/client/logger_test.cpp
 	tests/client/crypto_test.cpp
+	tests/client/persistence_test.cpp
 
 	client/src/net/net.cpp	
 	client/src/util/files.cpp

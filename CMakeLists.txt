@@ -11,7 +11,7 @@ add_executable(seffp_client
     client/src/util/files.cpp
     client/src/logger/logger.cpp
     client/src/ui/console_ui.cpp
-    client/src/ui/persistence_test.cpp
+    client/src/persistence/client_persistence.cpp
 
 )
 

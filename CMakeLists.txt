@@ -11,6 +11,8 @@ add_executable(seffp_client
     client/src/util/files.cpp
     client/src/logger/logger.cpp
     client/src/ui/console_ui.cpp
+    client/src/ui/client_persistence.cpp
+
 )
 
 target_include_directories(seffp_client PRIVATE

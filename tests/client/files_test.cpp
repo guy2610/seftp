@@ -23,6 +23,7 @@ TEST(FileFunc, WriteMeIdentity) {
 
         EXPECT_EQ(line1, user1);
         EXPECT_EQ(line2, id1);
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
     }
     // overwrite with new values
     ASSERT_TRUE(seftp::util::files::write_me_identity(user2, id2, testFile));
@@ -36,6 +37,7 @@ TEST(FileFunc, WriteMeIdentity) {
 
         EXPECT_EQ(line1, user2);
         EXPECT_EQ(line2, id2);
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
     }
     std::remove(testFile.c_str());
 }
@@ -56,6 +58,7 @@ TEST(FileFunc, WriteAesKey) {
         EXPECT_EQ(line1, key1);
         // should be exactly one line
         EXPECT_FALSE(std::getline(in, extra));
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
     }
     // overwrite
     ASSERT_TRUE(seftp::util::files::write_aes_key(key2, testFile));
@@ -67,6 +70,7 @@ TEST(FileFunc, WriteAesKey) {
         EXPECT_EQ(line1, key2);
         // still exactly one line
         EXPECT_FALSE(std::getline(in, extra));
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
     }
     std::remove(testFile.c_str());
 }
@@ -98,6 +102,7 @@ TEST(FileFunc, ReadAesKey) {
         ASSERT_TRUE(seftp::util::files::read_aes_key(out, testFile));
         EXPECT_EQ(out, key);
         std::remove(testFile.c_str());
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
     }
     // overwrite behavior through read
     {
@@ -111,6 +116,7 @@ TEST(FileFunc, ReadAesKey) {
         ASSERT_TRUE(seftp::util::files::read_aes_key(out, testFile));
         EXPECT_EQ(out, key2);
         std::remove(testFile.c_str());
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
     }
 }
 TEST(FileFunc, ReadPrivateKey) {
@@ -268,6 +274,7 @@ TEST(FileFunc, WriteMePublicKey) {
         EXPECT_FALSE(std::getline(in, extra));
     }
     std::remove(testFile.c_str());
+    EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
 }
 
 

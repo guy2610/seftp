@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server (v0.3.0)
+# Secure File Transfer - C++ Client & Python Server (v0.4.0)
 
 This project implements a simple **secure file transfer protocol** over TCP.
 
@@ -14,14 +14,28 @@ This is an independent engineering project focused on protocol design,
 defensive validation, concurrency, and end-to-end reliability.
 The system is not intended for production use.
 
-Stages 1-3 completed: protocol hardening, architectural refactor,
-async multi-client support, automated testing, and CI validation.
+Stages 1-4 completed: protocol hardening, architectural refactor,
+async multi-client support, automated testing, CI validation,
+client UX improvements, persistence polish, and operational improvements.
 
 The system is functional end-to-end and includes defensive protocol validation, timeouts, and crash-safe persistence.
 
 ---
 
 ## Version
+
+**v0.4.0 - Stage 4 complete (Client UX, Persistence & Operational Polish)**
+
+* Interactive console UI with connect / reconnect / status
+* Single-file and batch upload modes from the client console
+* Headless multi-file upload support via CLI (`--files=...`)
+* Extracted client connection / handshake / send flow helpers
+* Centralized client persistence layer for identity, AES key, and private key
+* Atomic client-side writes for `me.info` and `aes.key`
+* Clearer client-side error reporting across connection, handshake, upload, and persistence
+* Improved server startup / shutdown behavior and configuration reporting
+* Clearer server-side 1607 protocol error messages
+* Added client persistence unit tests and atomic write coverage
 
 **v0.3.0 - Stage 3 complete (Testing & Reliability)**
 
@@ -51,10 +65,8 @@ A prebuilt Windows x64 client binary is available.
 - Includes example runtime configuration
 - Built in Release mode
 
-A v0.3.0 release will be published after final CI stabilization.
-
 Download:
-https://github.com/guy2610/Portfolio/releases/tag/v0.3.0-win-x64
+https://github.com/guy2610/Portfolio/releases/tag/v0.4.0-win-x64
 
 Run:
 1. Start the server (see below)
@@ -70,14 +82,23 @@ Run:
 client/
   src/
     client_tirgul.cpp
+    client_types.hpp
     crypto/
       crypto.hpp
       crypto.cpp
+    flow/
+      flow.hpp
     net/
       net.hpp
       net.cpp
+    persistence/
+      client_persistence.hpp
+      client_persistence.cpp
     protocol/
       protocol.hpp
+    ui/
+      console_ui.hpp
+      console_ui.cpp
     util/
       util.hpp
       files.hpp
@@ -99,7 +120,23 @@ server/
     answers.py
     session.py
     store.py           # JSON persistence; single-process; atomic save on shutdown
+    config.py
     framing.py         # TCP stream framing and reassembly
+
+tests/
+  client/
+    files_test.cpp
+    persistence_test.cpp
+    logger_test.cpp
+    crypto_test.cpp
+  server/
+    test_answers.py
+    test_framing.py
+    test_handlers.py
+    test_router.py
+    test_session.py
+    test_store.py
+
 protocol/
   spec.md              # full protocol specification
 ```
@@ -110,16 +147,22 @@ protocol/
 
 * Client registration (`825 -> 1600 / 1601`)
 * RSA public key upload & AES-256 key exchange (`826 -> 1602`)
-* Re-login using persisted client_id and RSA keys(SSO) (`827 -> 1605 / 1606`)
+* Re-login using persisted client_id and RSA keys (SSO) (`827 -> 1605 / 1606`)
 * Encrypted file upload in fixed-size chunks (`828`)
 * CRC validation with retry logic (`900 / 901 / 902 + 1603`)
 * Persistent client identity and keys on the client side
-* Server-side logging of client activity
 * Minimal server-side persistence (`clients_info.json`) with atomic crash-safe writes
 * Server-side idle and upload inactivity timeouts
 * Strict server-side validation of upload sequencing, size limits, and malformed frames
 * Graceful handling of client disconnects and protocol violations
 * 1607 error enforcement for protocol violations (invalid headers, limit breaches)
+* Interactive console UI with connect / reconnect / status
+* Console upload modes: single file and batch
+* Headless multi-file uploads via `--files=file1 file2 ...`
+* Centralized client persistence abstraction
+* Atomic client-side persistence writes
+* Server-side logging of client activity and startup configuration
+* Clear textual `1607` error enforcement for protocol and server failures
 ---
 
 ## High-level Architecture
@@ -133,13 +176,21 @@ C++ client
   - Encrypts files using AES-256-CBC with a random per-file IV
   - Sends encrypted chunks via protocol code 828
   - Verifies CRC and retries on mismatch
+  - Supports interactive console mode and headless CLI mode
+  - Uses flow helpers for connect / handshake / upload
+  - Uses a dedicated persistence layer for me.info / aes.key / priv.key
+  - Stores client files with atomic writes
 
 Python server
-  - Reads port.info and listens on TCP
+  - Reads port.info and environment-based runtime limits
+  - Listens for TCP client connections
   - Handles registration, SSO, and public key management
   - Generates an AES-256 key per client
   - Receives encrypted file chunks, decrypts, writes file
   - Computes CRC32 and returns result (1603)
+  - Logs effective startup configuration
+  - Returns clearer 1607 protocol / internal error messages
+  - Saves persistent state on graceful shutdown
 ```
 
 ---
@@ -155,6 +206,7 @@ CI validates:
 - max_file_size limit enforcement
 - Parallel client isolation
 - End-to-end flow integrity (register -> upload -> CRC)
+- Client persistence behavior and atomic file writes
 
 ### Continuous Integration
 
@@ -173,6 +225,8 @@ GitHub Actions:
   - Protocol build/parse validation
   - Crypto helpers (AES, RSA key generation, CRC32)
   - Logger module
+  - Client persistence round-trip tests
+  - Atomic write behavior for client persistence files
 - Python (pytest + pytest-asyncio):
   - Router dispatch validation
   - Handlers (825-828, 900-902)
@@ -391,10 +445,12 @@ Place `transfer.info` in the same directory as the executable, then run:
 seffp_client.exe
 ```
 
-The client will automatically:
-- Register or re-login
-- Perform RSA/AES key exchange
-- Encrypt and upload the configured file
+The client will:
+
+- Load configuration from transfer.info
+- Connect and authenticate with the server
+- Start the interactive console UI
+- Allow single-file or batch uploads
 - Validate CRC and retry if necessary
 
 ### Detailed Setup
@@ -404,8 +460,8 @@ The client will automatically:
 ```
 Prerequisites (persistence)
 
-On startup, the server loads `server/data/clients_info.json` if it exists;
-otherwise, it creates the file automatically.
+On startup, the server loads `server/data/clients_info.json` if it exists.
+Otherwise it creates the file automatically.
 
 State updates are saved on graceful shutdown (Ctrl+C / process exit).
 
@@ -447,9 +503,24 @@ Optional runtime flags:
 - `--info` - run with info-level logs
 - `--debug` - enable debug logs
 - `--debug=0/1` - explicit debug toggle
-- `--files=file1,file2,...` - upload multiple files (comma-separated)
+- `--files=file1 file2 ...` - upload multiple files without entering the interactive menu (separated by space)
 
 Positional file arguments are also supported for backward compatibility.
+
+### Interactive Console Mode
+
+When no `--files` argument is provided, the client starts in interactive console mode.
+
+Available actions:
+
+- Connect / reconnect
+- View connection status
+- Send a single file
+- Send a batch of files
+- Exit cleanly
+
+Interactive batch mode accepts space-separated file paths.
+
 
 ### 3. Build from Source (Windows, CMake + vcpkg)
 
@@ -562,39 +633,82 @@ Completed
 
 ---
 
-### **Stage 4 - UX & Productization**
-Planned
+### **Stage 4 - Client UX, Persistence & Operational Polish** DONE
 
-* Client-side console UI:
+Completed
+
+* Client-side console UI
   * Connect / reconnect
-  * Choose file / batch mode
-  * Clear, structured error messages
-* Structured logging (levels, client_id, request/response codes)
-* Improved configuration system (files + CLI overrides)
+  * Status screen
+  * Single-file upload
+  * Batch upload
+* Headless multi-file CLI upload mode
+* Extracted client flow helpers for connection, handshake, and upload
+* Centralized client persistence abstraction
+* Atomic writes for client persistence files
+* Clearer client-side error reporting
+* Clearer server-side protocol error reporting
+* Server startup and shutdown polish
+* Additional unit tests for persistence and atomic writes
 
 ---
 
 ### **Stage 5 - Scalability & Persistence**
-Planned
+Improve server scalability and storage architecture.
 
-* Scalability beyond single process:
-  * Multi-process or sharded server architecture
-  * Horizontal scaling considerations
-  * Rate limiting and back-pressure
-* Server-side persistence layer:
-  * SQLite or JSON (initially minimal persistence)
-  * Client metadata and session storage
-* Advanced server-side concurrency and limits
+* Server concurrency improvements
+  * Async multi-client server (DONE)
+  * Worker model / thread pool for CPU-bound tasks
+  * Connection limits and backpressure
+* Persistence layer evolution
+  * JSON persistence layer (DONE)
+  * SQLite persistence layer
+  * Client metadata storage
+  * Migration from JSON store
 
 ---
 
-### **Stage 6 - Extensions & Portfolio Polish**
-Optional / Future work
+### **Stage 6 - Security Hardening**
+Additional security protections beyond baseline protocol validation.
+
+* Protocol hardening
+  * Payload size and packet limits (DONE)
+  * Strong payload validation (DONE)
+  * Additional input validation (DONE)
+  * Key lifecycle handling
+
+* Abuse protection
+  * Connection rate limiting
+  * Basic DoS protection
+
+---
+
+### **Stage 7 - Observability & Production Behavior**
+Operational visibility and diagnostics.
+
+* Metrics
+  * Connection statistics
+  * Upload statistics
+  * Protocol error counters
+* Logging and diagnostics
+  * Structured logging (DONE)
+  * Request / response tracing
+
+* Runtime behavior
+  * Configuration validation (DONE)
+  * Runtime configuration reporting (DONE)
+
+---
+
+### **Stage 8 - Extensions & Portfolio Polish**
+Future work
 
 * Optional C++ server implementation
 * Cross-client communication (relay / messaging)
 * Optional GUI client (Qt / ImGui / DearPyGui)
-* Documentation:
+* Documentation & release
   * Full protocol specification
   * Threat model
-  * Usage and demo instructions
+  * Demo instructions
+
+---

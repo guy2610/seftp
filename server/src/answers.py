@@ -68,7 +68,7 @@ async def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     store = session.store
     payload = cipher_text_aes_encrypted + client_id
     message = message_answer(version, "1602", str(len(payload)), payload,session)
-    session.log.info(f"got the {store.name_of_dict_from_id(client_id)}'s public key, sending the encrypted AES key")
+    session.log.info("sending encrypted AES key to %s", store.name_of_dict_from_id(client_id))
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
     await session.send(message)
@@ -84,7 +84,8 @@ async def answer_1606(client_id,version,name,session):
     session.log.debug("inside answer 1606")
     store = session.store
     message = message_answer(version, "1606", "16", client_id,session)
-    session.log.info(f"request for sign on for {base64.b64encode(client_id).decode('utf-8')} rejected (client is not register or the public key is invalid. need to re-register)")
+    name_or_id = name if name else base64.b64encode(client_id).decode("utf-8")
+    session.log.info(f"relogin rejected for {name_or_id}")
     if client_id==b'\x00'*16:
         store.clients_recent_log[name].append(["answer_1606", str(datetime.datetime.now())])
     else:
@@ -103,7 +104,7 @@ async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     session.log.debug("inside answer 1605")
     store = session.store
     message = message_answer(version, "1605", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id,session)
-    session.log.info(f"request for sign on for {base64.b64encode(client_id).decode('utf-8')} succeed, sending the encrypted AES key")
+    session.log.info(f"relogin approved for {base64.b64encode(client_id).decode('utf-8')}; sending encrypted AES key")
     store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
     store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
     await session.send(message)

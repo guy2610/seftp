@@ -23,8 +23,12 @@ class Config:
         try:
             with open("port.info", "r") as port_file:
                 port=int(port_file.readline().strip())
-        except:
+            if port>65535 or port<1:
+                raise ValueError
+        except FileNotFoundError:
             pass
+        except ValueError:
+            raise ValueError("invalid port.info: expected integer port")
         def env_int(name: str, default: int) -> int:
             v = os.getenv(name)
             if v is None or v == "":

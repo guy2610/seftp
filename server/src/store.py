@@ -35,14 +35,13 @@ class Store:
                     self.clients_info[username] = [client_id,public_key,last_seen,aes_b64]
                 except Exception as e:
                     print(f"Error decoding data for user {username}: {e}")
-            print(f"Successfully loaded data from {path}")
-
+            return True, f"Successfully loaded data from {path}"
         except FileNotFoundError:
-            print(f"Warning: The file {path} was not found.")
+            return (True, f"data file not found: {path}; starting with empty store")
         except json.JSONDecodeError:
-            print(f"Error: The file {path} is not a valid JSON.")
+            return False, f"invalid data file: {path}"
         except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+            return False, f"failed loading client data: {e}"
 
     def name_of_dict_from_id(self,client_id):
         """
@@ -71,7 +70,7 @@ class Store:
             }
         dir_path = os.path.dirname(os.path.abspath(name_file))
         os.makedirs(dir_path, exist_ok=True)
-        temp_path=None
+        tmp_path=None
         try:
             fd, tmp_path = tempfile.mkstemp(prefix=".clients_info.", suffix=".tmp", dir=dir_path)
             with os.fdopen(fd,"w",encoding="utf-8") as f:
@@ -80,9 +79,9 @@ class Store:
                 os.fsync(f.fileno())
             os.replace(tmp_path,name_file)
             tmp_path= None
-            print(f'Data successfully saved to {name_file}')
+            return True, f"Data successfully saved to {name_file}"
         except OSError as e:
-            print(f"Error saving file: {e}")
+            return False, f"failed saving client data: {e}"
         finally:
             if tmp_path:
                 try:

@@ -13,7 +13,28 @@ async def main():
     logger = setup_logging(config.log_level)
 
     store = Store()
-    store.load_client_info(config.data_path)
+    ok, msg = store.load_client_info(config.data_path)
+    if ok:
+        logger.info(msg)
+    else:
+        logger.error(msg)
+        raise RuntimeError(msg)
+
+    logger.info(
+        "server config host=%s port=%s data_path=%s log_level=%s idle_timeout_s=%s "
+        "upload_inactivity_timeout_s=%s max_file_size=%s max_packets=%s max_chunk_size=%s max_payload_size=%s read_timeout_s=%s",
+        config.host,
+        config.port,
+        config.data_path,
+        config.log_level,
+        config.idle_timeout_s,
+        config.upload_inactivity_timeout_s,
+        config.max_file_size,
+        config.max_packets,
+        config.max_chunk_size,
+        config.max_payload_size,
+        config.read_timeout_s,
+    )
 
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
@@ -109,7 +130,11 @@ async def main():
             server.close()
             await server.wait_closed()
             try:
-                store.save_clients_info(config.data_path)
+                ok, msg = store.save_clients_info(config.data_path)
+                if ok:
+                    logger.info(msg)
+                else:
+                    logger.error(msg)
             except Exception:
                 logger.exception("failed saving clients_info on shutdown")
             logger.info("shutting down complete")

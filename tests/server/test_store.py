@@ -42,18 +42,21 @@ def test_save_creates_parent_dir(tmp_path):
 def test_load_missing_file_prints_warning_and_keeps_empty(tmp_path, capsys):
     p = tmp_path / "nope.json"
     s = store.Store()
-    s.load_client_info(str(p))
-    out = capsys.readouterr().out
-    assert "Warning" in out
+    ok, msg = s.load_client_info(str(p))
+
+    assert ok is True
+    assert "data file not found" in msg
     assert s.clients_info == {}
+
 
 def test_load_invalid_json_prints_error_and_keeps_empty(tmp_path, capsys):
     p = tmp_path / "bad.json"
     p.write_text("{not valid json", encoding="utf-8")
     s = store.Store()
-    s.load_client_info(str(p))
-    out = capsys.readouterr().out
-    assert "not a valid JSON" in out
+    ok, msg = s.load_client_info(str(p))
+
+    assert ok is False
+    assert "invalid data file" in msg
     assert s.clients_info == {}
 
 def test_load_bad_client_id_length_skips_user(tmp_path, capsys):

@@ -58,6 +58,7 @@ def _start_server(
 
     try:
         _wait_for_port("127.0.0.1", port, timeout=10.0)
+        time.sleep(0.5)
     except Exception:
         try:
             proc.kill()

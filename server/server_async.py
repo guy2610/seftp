@@ -7,6 +7,7 @@ from src.logging_setup import setup_logging
 import time
 from src import answers
 import signal
+from src.upload_limiter import UploadLimiter
 
 async def main():
     config = Config.load()
@@ -19,6 +20,8 @@ async def main():
     else:
         logger.error(msg)
         raise RuntimeError(msg)
+
+    upload_limiter = UploadLimiter(config.max_concurrent_uploads)
 
     logger.info(
         "server config host=%s port=%s data_path=%s log_level=%s idle_timeout_s=%s "
@@ -38,7 +41,7 @@ async def main():
 
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
-        session = ClientSession(writer, store, logger,config)
+        session = ClientSession(writer, store, logger,config,upload_limiter)
         session.peer = addr
         session.log.info("Got connection from %s", addr)
         reason = "unknown"
@@ -97,6 +100,11 @@ async def main():
             if session.upload_active:
                 session.reset_transfer_state(f"disconnect_{session.disconnect_reason}")
             duration_ms = int((time.monotonic() - session.connected_at) * 1000)
+
+            if session.has_upload_slot:
+                await session.release_upload_slot()
+                session.log.info("released upload slot during disconnect cleanup")
+
             session.log.info(
                 "disconnect summary peer=%s reason=%s duration_ms=%d bytes_in=%d bytes_out=%d frames_ok=%d frames_bad=%d",
                 addr,

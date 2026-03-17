@@ -1,6 +1,5 @@
 import asyncio
 
-
 class UploadLimiter:
     def __init__(self, max_concurrent_uploads: int):
         if max_concurrent_uploads <= 0:

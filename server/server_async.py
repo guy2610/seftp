@@ -8,6 +8,7 @@ import time
 from src import answers
 import signal
 from src.upload_limiter import UploadLimiter
+from src.connection_limiter import ConnectionLimiter
 
 async def main():
     config = Config.load()
@@ -22,6 +23,7 @@ async def main():
         raise RuntimeError(msg)
 
     upload_limiter = UploadLimiter(config.max_concurrent_uploads)
+    connection_limiter = ConnectionLimiter(config.max_connections, config.max_connections_per_ip)
 
     logger.info(
         "server config host=%s port=%s data_path=%s log_level=%s idle_timeout_s=%s "
@@ -41,12 +43,18 @@ async def main():
 
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
+        peer_ip = addr[0] if isinstance(addr, tuple) and len(addr) >= 1 else str(addr)
         session = ClientSession(writer, store, logger,config,upload_limiter)
         session.peer = addr
-        session.log.info("Got connection from %s", addr)
-        reason = "unknown"
-        idle_timeouts = 0
+        connection_acquired = False
         try:
+            allowed, connection_reason = await connection_limiter.try_acquire(peer_ip)
+            if not allowed:
+                session.disconnect_reason = "connection_rejected"
+                session.log.info("connection rejected peer=%s reason=%s", addr, connection_reason)
+                return
+            connection_acquired = True
+            session.log.info("Got connection from %s", addr)
             while True:
                 try:
                     chunk = await asyncio.wait_for(reader.read(1024), timeout=config.read_timeout_s)
@@ -70,33 +78,23 @@ async def main():
                             break
                     continue
                 if not chunk:
-                    reason = "eof"
-                    session.disconnect_reason = reason
+                    session.disconnect_reason = "eof"
                     session.log.info("Client %s disconnected", addr)
                     break
-                idle_timeouts = 0
                 session.on_frame_received(len(chunk))
                 frames = session.feed(chunk)
                 for frame in frames:
                     await router.handle_frame(frame, session)
         except (ConnectionResetError, BrokenPipeError):
-            reason = "reset"
-            session.disconnect_reason = reason
+            session.disconnect_reason = "reset"
             session.log.warning("Client %s disconnected unexpectedly", addr)
         except asyncio.CancelledError:
-            reason = "cancelled"
-            session.disconnect_reason = reason
+            session.disconnect_reason = "cancelled"
             raise
         except Exception:
-            reason = "server_exception"
-            session.disconnect_reason = reason
+            session.disconnect_reason = "server_exception"
             session.log.exception("unhandled exception in handle_client")
         finally:
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception:
-                pass
             if session.upload_active:
                 session.reset_transfer_state(f"disconnect_{session.disconnect_reason}")
             duration_ms = int((time.monotonic() - session.connected_at) * 1000)
@@ -104,6 +102,15 @@ async def main():
             if session.has_upload_slot:
                 await session.release_upload_slot()
                 session.log.info("released upload slot during disconnect cleanup")
+
+            if connection_acquired:
+                await connection_limiter.release(peer_ip)
+                session.log.info("released connection slot peer=%s", peer_ip)
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
 
             session.log.info(
                 "disconnect summary peer=%s reason=%s duration_ms=%d bytes_in=%d bytes_out=%d frames_ok=%d frames_bad=%d",
@@ -115,7 +122,7 @@ async def main():
                 session.frames_ok,
                 session.frames_bad,
             )
-            
+
     server = await asyncio.start_server(handle_client, config.host, config.port)
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     logger.info("async server listening on %s", addrs)

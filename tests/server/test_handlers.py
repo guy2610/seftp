@@ -8,6 +8,15 @@ from Crypto.PublicKey import RSA
 import base64
 from base64 import b64decode
 
+class DummyUploadLimiter:
+    async def try_acquire(self):
+        return True
+
+    async def release(self):
+        return None
+
+    async def current_active(self):
+        return 0
 class FakeLogger:
     def __init__(self):
         self.request_id = "-"
@@ -57,6 +66,8 @@ class FakeSession:
         self.transfer_cipher = bytearray()
         self.upload_filename = None
         self.reset_calls=[]
+        self.has_upload_slot = False
+        self.upload_limiter = DummyUploadLimiter()
 
 
     def on_frame_ok(self):
@@ -67,6 +78,11 @@ class FakeSession:
 
     def reset_transfer_state(self, reason: str):
         self.reset_calls.append(reason)
+    
+    async def release_upload_slot(self):
+        if self.has_upload_slot:
+            await self.upload_limiter.release()
+            self.has_upload_slot = False
 
 @pytest.mark.asyncio
 async def test_825_registration_succeed(monkeypatch):

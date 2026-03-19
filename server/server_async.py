@@ -9,6 +9,7 @@ from src import answers
 import signal
 from src.upload_limiter import UploadLimiter
 from src.connection_limiter import ConnectionLimiter
+from src.bounded_executor import BoundedExecutor
 
 async def main():
     config = Config.load()
@@ -24,6 +25,7 @@ async def main():
 
     upload_limiter = UploadLimiter(config.max_concurrent_uploads)
     connection_limiter = ConnectionLimiter(config.max_connections, config.max_connections_per_ip)
+    bounded_executor = BoundedExecutor(config.cpu_worker_threads, config.cpu_max_in_flight)
 
     logger.info(
         "server config host=%s port=%s data_path=%s log_level=%s idle_timeout_s=%s "
@@ -44,7 +46,7 @@ async def main():
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
         peer_ip = addr[0] if isinstance(addr, tuple) and len(addr) >= 1 else str(addr)
-        session = ClientSession(writer, store, logger,config,upload_limiter)
+        session = ClientSession(writer, store, logger,config,upload_limiter, bounded_executor)
         session.peer = addr
         connection_acquired = False
         try:
@@ -144,6 +146,7 @@ async def main():
             logger.info("shutdown initiated")
             server.close()
             await server.wait_closed()
+            bounded_executor.shutdown()
             try:
                 ok, msg = store.save_clients_info(config.data_path)
                 if ok:

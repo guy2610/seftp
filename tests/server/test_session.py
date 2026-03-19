@@ -57,8 +57,14 @@ class DummyUploadLimiter:
 
     async def current_active(self):
         return 0
+class FakeBoundedExecutor:
+    async def run(self, func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    def shutdown(self):
+        pass
 def test_session_counters_and_timestamp():
-    client_session = session.ClientSession(None,None,None,config.Config.load(),DummyUploadLimiter())
+    client_session = session.ClientSession(None,None,None,config.Config.load(),DummyUploadLimiter(),FakeBoundedExecutor())
     prev_bytes_in = client_session.bytes_in
     prev_last_activity=client_session.last_activity
 
@@ -84,7 +90,7 @@ def test_session_counters_and_timestamp():
     assert client_session.disconnect_reason == reason
 
 def test_mark_upload_progress():
-    client_session = session.ClientSession(None, None, None, config.Config.load(),DummyUploadLimiter())
+    client_session = session.ClientSession(None, None, None, config.Config.load(),DummyUploadLimiter(),FakeBoundedExecutor())
     prev_last_upload_progress_ts = client_session.last_upload_progress_ts
     prev_last_activity = client_session.last_activity
 
@@ -103,7 +109,7 @@ def test_reset_transfer_state_logs_reason(monkeypatch):
         max_payload_size = 10_000_000
 
     dummy_config = DummyConfig()
-    s = session.ClientSession(None, None, None, dummy_config,DummyUploadLimiter())
+    s = session.ClientSession(None, None, None, dummy_config,DummyUploadLimiter(),FakeBoundedExecutor())
     s.upload_active = True
     s.upload_filename = "file"
     s.received_cipher_bytes = 123
@@ -127,7 +133,7 @@ async def test_send_happy_path(monkeypatch):
         max_payload_size = 10_000_000
 
     dummy_config = DummyConfig()
-    client_session = session.ClientSession(fake_writer, store.Store(), None, dummy_config,DummyUploadLimiter())
+    client_session = session.ClientSession(fake_writer, store.Store(), None, dummy_config,DummyUploadLimiter(),FakeBoundedExecutor())
     prev_last_activity = client_session.last_activity
     prev_bytes_out = client_session.bytes_out
 
@@ -148,7 +154,7 @@ async def test_send_error_path_sets_disconnect_reason_and_raises(monkeypatch):
     class DummyConfig:
         max_payload_size = 10_000_000
 
-    client_session = session.ClientSession(fake_writer, store.Store(), None, DummyConfig(),DummyUploadLimiter())
+    client_session = session.ClientSession(fake_writer, store.Store(), None, DummyConfig(),DummyUploadLimiter(),FakeBoundedExecutor())
     with pytest.raises(BrokenPipeError):
         await client_session.send(b"abc")
     assert client_session.disconnect_reason == "send_error"
@@ -164,7 +170,7 @@ async def test_send_fail_on_drain_sets_disconnect_reason_and_keeps_written_data(
     )
     class DummyConfig:
         max_payload_size = 10_000_000
-    client_session = session.ClientSession(fake_writer, store.Store(), None, DummyConfig(),DummyUploadLimiter())
+    client_session = session.ClientSession(fake_writer, store.Store(), None, DummyConfig(),DummyUploadLimiter(),FakeBoundedExecutor())
     with pytest.raises(ConnectionResetError):
         await client_session.send(b"abc")
     assert fake_writer.writes == [b"abc"]
@@ -181,7 +187,7 @@ def test_feed(monkeypatch):
 
     class DummyConfig:
         max_payload_size = 10_000_000
-    client_session = session.ClientSession(fake_writer,FakeFramer(), None, DummyConfig(),DummyUploadLimiter())
+    client_session = session.ClientSession(fake_writer,FakeFramer(), None, DummyConfig(),DummyUploadLimiter(),FakeBoundedExecutor())
     client_session.framer = FakeFramer()
     out = client_session.feed(b"abc")
     assert out == [b"frame"]

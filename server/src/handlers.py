@@ -406,7 +406,7 @@ async def request_828(payload_info,version,client_id,session):
             os.makedirs(user_dir, exist_ok=True)
             out_path = os.path.join(user_dir, file_name)
             out_path = os.path.normpath(out_path)
-            crc32_val, pt_len= await asyncio.to_thread(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
+            crc32_val, pt_len = await session.bounded_executor.run(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
             session.log.info("writing file to %s", out_path)
             session.log.info(f"length of the plaintext= {pt_len}, original file size={orig_file_size}")
 

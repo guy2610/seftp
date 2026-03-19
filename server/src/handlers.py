@@ -251,6 +251,7 @@ async def request_828(payload_info,version,client_id,session):
     sep = payload_info[12:].find(b'\x00')
     if sep == -1:
         session.log.info("bad 828 payload: cant find the name of the file")
+        await session.release_upload_slot()
         session.reset_transfer_state("bad_828_filename_missing_null")
         return
     try:
@@ -260,6 +261,7 @@ async def request_828(payload_info,version,client_id,session):
     except UnicodeDecodeError:
         session.log.error("bad 828 payload: name is not valid UTF-8")
         await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+        await session.release_upload_slot()
         session.reset_transfer_state("bad_828_filename_utf8")
         return
     session.log.debug(sep)
@@ -271,6 +273,7 @@ async def request_828(payload_info,version,client_id,session):
     if not name_in_dict:
         session.log.info(store.clients_info)
         session.log.info(f'uuid not in client_info; client_id={client_id!r}')
+        await session.release_upload_slot()
         session.reset_transfer_state("bad_828_client_or_name")
         return
     # Decode AES key (Base64) for this client
@@ -284,17 +287,20 @@ async def request_828(payload_info,version,client_id,session):
             await answers.answer_1607(client_id, version, msg, session)
         except Exception:
             pass
+        await session.release_upload_slot()
         session.reset_transfer_state(reason)
         return
     if packet_num==0:
         if session.upload_active or session.transfer_iv:
             session.log.info("bad 828: upload_active or transfer_iv")
             await answers.answer_1607(client_id, version, "bad 828 payload: currently uploading with new upload", session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828_iv")
             return
         if len(cipher_chunk) < 16:
             session.log.info("bad 828: IV too short")
             await answers.answer_1607(client_id, version, "bad 828 payload: name is not valid UTF-8",session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828_iv")
             return
         session.transfer_iv = bytes(cipher_chunk[:16])
@@ -310,30 +316,50 @@ async def request_828(payload_info,version,client_id,session):
         if not session.transfer_iv:
             session.log.info("bad 828: missing IV packet")
             await answers.answer_1607(client_id, version, "bad 828: missing IV packet", session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828_iv")
             return
         if not session.expected_packet_num:
             session.log.info("bad 828: expected_packet_num is None")
             await answers.answer_1607(client_id, version, "bad 828: expected packet num is not initialize", session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828_expected_packet_num")
             return
         if total_packets!=session.expected_total_packets:
             session.log.info("bad 828:total_packets != expected_total_packets")
             await answers.answer_1607(client_id, version, "bad 828:total_packets != expected_total_packets", session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828_expected_total_packet")
             return
         if content_size != session.expected_content_size or orig_file_size != session.expected_orig_file_size:
             session.log.info("bad 828: content_size or orig_file_size not as expected")
             await answers.answer_1607(client_id, version, "bad 828: content_size or orig_file_size not as expected", session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size or orig_file_size")
             return
         if len(cipher_chunk) > session.config.max_chunk_size:
             session.log.info("bad 828: cipher_chunk bigger than the max")
             await answers.answer_1607(client_id, version, "bad 828: cipher_chunk bigger than the max",
                                       session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828 cipher_chunk bigger than the max")
             return
         if packet_num==1:
+            if not session.has_upload_slot:
+                acquired = await session.upload_limiter.try_acquire()
+                if not acquired:
+                    session.log.info("upload rejected: max concurrent uploads reached")
+                    await answers.answer_1607(client_id, version, "server busy: too many concurrent uploads", session)
+                    session.reset_transfer_state("upload_rejected_backpressure")
+                    return
+                session.has_upload_slot = True
+                active_now = await session.upload_limiter.current_active()
+                session.log.info(
+                    "upload slot acquired file=%s active_uploads=%d max=%d",
+                    file_name,
+                    active_now,
+                    session.config.max_concurrent_uploads,
+                )
             session.upload_active = True
             session.upload_filename = file_name
             session.mark_upload_progress()
@@ -348,11 +374,13 @@ async def request_828(payload_info,version,client_id,session):
         if session.received_cipher_bytes + len(cipher_chunk) > session.expected_content_size:
             session.log.info("bad 828: content_size will overflow")
             await answers.answer_1607(client_id, version, "bad 828: content_size will overflow",session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size will overflow")
             return
         if packet_num != session.expected_packet_num:
             session.log.info("bad 828: out of order packet_num=%d expected=%d", packet_num, session.expected_packet_num)
             await answers.answer_1607(client_id, version, "bad 828: out of order", session)
+            await session.release_upload_slot()
             session.reset_transfer_state("bad_828_out_of_order")
             return
         session.mark_upload_progress()
@@ -366,6 +394,7 @@ async def request_828(payload_info,version,client_id,session):
             if session.received_cipher_bytes != session.expected_content_size:
                 session.log.info("bad 828: received_cipher_bytes != expected_content_size")
                 await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size", session)
+                await session.release_upload_slot()
                 session.reset_transfer_state("bad_828 received_cipher_bytes  != expected_content_size")
                 return
             store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
@@ -377,7 +406,7 @@ async def request_828(payload_info,version,client_id,session):
             os.makedirs(user_dir, exist_ok=True)
             out_path = os.path.join(user_dir, file_name)
             out_path = os.path.normpath(out_path)
-            crc32_val, pt_len= await asyncio.to_thread(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
+            crc32_val, pt_len = await session.bounded_executor.run(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
             session.log.info("writing file to %s", out_path)
             session.log.info(f"length of the plaintext= {pt_len}, original file size={orig_file_size}")
 
@@ -391,6 +420,7 @@ async def request_828(payload_info,version,client_id,session):
 
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
+            await session.release_upload_slot()
             session.reset_transfer_state("upload_complete")
 
 async def request_900(payload_info,version,client_id,session):

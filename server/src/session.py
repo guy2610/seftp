@@ -6,7 +6,7 @@ import time
 from typing import Optional
 
 class ClientSession:
-    def __init__(self, writer,store ,base_logger,config):
+    def __init__(self, writer,store ,base_logger,config,upload_limiter,bounded_executor):
         self.config=config
         self.writer=writer
         self.store = store
@@ -34,6 +34,20 @@ class ClientSession:
         self.expected_content_size = None
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
+        self.upload_limiter = upload_limiter
+        self.has_upload_slot = False
+        self.bounded_executor = bounded_executor
+
+    async def release_upload_slot(self):
+        if self.has_upload_slot:
+            await self.upload_limiter.release()
+            self.has_upload_slot = False
+            active_now = await self.upload_limiter.current_active()
+            self.log.info(
+                "released upload slot active_uploads=%d max=%d",
+                active_now,
+                self.config.max_concurrent_uploads,
+            )
 
     async def send(self,data:bytes)->None:
         if not data:

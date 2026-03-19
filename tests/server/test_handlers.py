@@ -8,6 +8,15 @@ from Crypto.PublicKey import RSA
 import base64
 from base64 import b64decode
 
+class DummyUploadLimiter:
+    async def try_acquire(self):
+        return True
+
+    async def release(self):
+        return None
+
+    async def current_active(self):
+        return 0
 class FakeLogger:
     def __init__(self):
         self.request_id = "-"
@@ -41,6 +50,14 @@ class FakeStore:
             if vals[0] == client_id:
                 return k
         return None
+
+class FakeBoundedExecutor:
+    async def run(self, func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    def shutdown(self):
+        pass
+    
 class FakeSession:
     def __init__(self,config):
         self.request_id = None
@@ -57,6 +74,9 @@ class FakeSession:
         self.transfer_cipher = bytearray()
         self.upload_filename = None
         self.reset_calls=[]
+        self.has_upload_slot = False
+        self.upload_limiter = DummyUploadLimiter()
+        self.bounded_executor = FakeBoundedExecutor()
 
 
     def on_frame_ok(self):
@@ -67,6 +87,11 @@ class FakeSession:
 
     def reset_transfer_state(self, reason: str):
         self.reset_calls.append(reason)
+    
+    async def release_upload_slot(self):
+        if self.has_upload_slot:
+            await self.upload_limiter.release()
+            self.has_upload_slot = False
 
 @pytest.mark.asyncio
 async def test_825_registration_succeed(monkeypatch):
@@ -649,13 +674,9 @@ def patch_828_side_effects(monkeypatch, fake_session):
     def fake_finalize_upload(file_path, cipher_bytes, iv, expected_size, aes_key):
         return (0x12345678, expected_size)
 
-    async def fake_to_thread(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
     monkeypatch.setattr(handlers.answers, "answer_1603", fake_1603)
     monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
     monkeypatch.setattr(handlers, "finalize_upload", fake_finalize_upload)
-    monkeypatch.setattr(handlers.asyncio, "to_thread", fake_to_thread)
     return calls
 
 @pytest.mark.asyncio

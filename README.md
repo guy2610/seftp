@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server (v0.4.0)
+# Secure File Transfer - C++ Client & Python Server (v0.5.0)
 
 This project implements a simple **secure file transfer protocol** over TCP.
 
@@ -14,6 +14,8 @@ This is an independent engineering project focused on protocol design,
 defensive validation, concurrency, and end-to-end reliability.
 The system is not intended for production use.
 
+Stage 5 is in progress, with the scalability track completed: upload backpressure, connection limits, and bounded CPU-bound worker execution.
+
 Stages 1-4 completed: protocol hardening, architectural refactor,
 async multi-client support, automated testing, CI validation,
 client UX improvements, persistence polish, and operational improvements.
@@ -23,6 +25,15 @@ The system is functional end-to-end and includes defensive protocol validation, 
 ---
 
 ## Version
+
+**v0.5.0 - Stage 5 scalability completed (server concurrency hardening)**
+
+* Upload backpressure with bounded concurrent uploads
+* Global and per-IP connection limits
+* Rejection and recovery behavior under connection overload
+* Bounded executor for CPU-bound upload finalization
+* Improved server stability under idle and upload-heavy load
+* Added unit and integration tests for connection limiting and concurrency control
 
 **v0.4.0 - Stage 4 complete (Client UX, Persistence & Operational Polish)**
 
@@ -49,7 +60,7 @@ The system is functional end-to-end and includes defensive protocol validation, 
 * Proper `1607` error responses with textual payload
 * Fully automated test coverage (unit + integration)
 * Async multi-client server with per-connection session isolation (Stage 2.5)
-* Async server with concurrent uploads and CPU-bound crypto offloaded to worker threads (asyncio.to_thread)
+* Async server with concurrent uploads and CPU-bound upload finalization offloaded using a bounded executor
 * Graceful disconnect handling and session cleanup
 * Idle and upload inactivity timeouts
 * Defensive protocol validation for uploads (828)
@@ -122,6 +133,9 @@ server/
     store.py           # JSON persistence; single-process; atomic save on shutdown
     config.py
     framing.py         # TCP stream framing and reassembly
+    upload_limiter.py
+    connection_limiter.py
+    bounded_executor.py
 
 tests/
   client/
@@ -136,6 +150,9 @@ tests/
     test_router.py
     test_session.py
     test_store.py
+    test_connection_limiter.py
+    test_connection_limits_integration.py
+    test_bounded_executor.py
 
 protocol/
   spec.md              # full protocol specification
@@ -163,6 +180,10 @@ protocol/
 * Atomic client-side persistence writes
 * Server-side logging of client activity and startup configuration
 * Clear textual `1607` error enforcement for protocol and server failures
+* Upload admission control with bounded concurrent uploads
+* Global and per-IP connection limits
+* Bounded execution for CPU-bound upload finalization
+* Connection overload rejection and recovery behavior
 ---
 
 ## High-level Architecture
@@ -191,6 +212,9 @@ Python server
   - Logs effective startup configuration
   - Returns clearer 1607 protocol / internal error messages
   - Saves persistent state on graceful shutdown
+  - Enforces upload backpressure and connection admission limits
+  - Uses a bounded executor for CPU-bound upload finalization
+  - Protects the event loop from unbounded CPU-bound work
 ```
 
 ---
@@ -207,6 +231,8 @@ CI validates:
 - Parallel client isolation
 - End-to-end flow integrity (register -> upload -> CRC)
 - Client persistence behavior and atomic file writes
+- Connection limit enforcement
+- Idle connection rejection and recovery
 
 ### Continuous Integration
 
@@ -231,6 +257,8 @@ GitHub Actions:
   - Router dispatch validation
   - Handlers (825-828, 900-902)
   - 1607 enforcement on invalid 828 headers
+  - Connection limiter tests
+  - Bounded executor tests
 
 ### Integration (E2E) Tests
 
@@ -238,6 +266,8 @@ GitHub Actions:
 - Re-login scenarios (1605 / 1606)
 - Oversize file rejection (server max_file_size via environment)
 - Parallel client uploads
+- Connection limit enforcement scenarios
+- Recovery after rejected connections
 
 ---
 
@@ -403,6 +433,11 @@ Defaults can be overridden via environment variables:
 - `SEFTP_UPLOAD_INACTIVITY_TIMEOUT_S` (default: 20)
 - `SEFTP_READ_TIMEOUT_S` (default: 10)
 - `SEFTP_LOG_LEVEL` (default: INFO)
+- `SEFTP_MAX_CONCURRENT_UPLOADS` (default: 10)
+- `SEFTP_MAX_CONNECTIONS` (default: 10)
+- `SEFTP_MAX_CONNECTIONS_PER_IP` (default: 10)
+- `SEFTP_CPU_WORKER_THREADS` (default: 4)
+- `SEFTP_CPU_MAX_IN_FLIGHT` (default: 8)
 
 Violations of size or sequencing constraints result in a `1607` error response.
 
@@ -596,7 +631,7 @@ Client refactor complete, server async refactor, multi-client support, and stabi
 * Asyncio-based server with per-connection session isolation
 * Concurrent multi-client support (single-process, event-loop based)
 * Concurrent file uploads with per-client isolation
-* CPU-bound crypto and file writes offloaded using `asyncio.to_thread`
+* CPU-bound upload finalization offloaded using a bounded executor
 * User-scoped upload directories to avoid filename collisions
 * Pure protocol handlers (no direct socket or transport logic)
 * Graceful disconnect handling with disconnect summaries
@@ -658,8 +693,9 @@ Improve server scalability and storage architecture.
 
 * Server concurrency improvements
   * Async multi-client server (DONE)
-  * Worker model / thread pool for CPU-bound tasks
-  * Connection limits and backpressure
+  * Worker model / bounded executor for CPU-bound tasks (DONE)
+  * Connection limits and backpressure (DONE)
+
 * Persistence layer evolution
   * JSON persistence layer (DONE)
   * SQLite persistence layer

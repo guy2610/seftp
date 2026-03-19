@@ -76,7 +76,7 @@ class FakeSession:
         self.reset_calls=[]
         self.has_upload_slot = False
         self.upload_limiter = DummyUploadLimiter()
-        self.bounded_executer = FakeBoundedExecutor()
+        self.bounded_executor = FakeBoundedExecutor()
 
 
     def on_frame_ok(self):
@@ -674,13 +674,9 @@ def patch_828_side_effects(monkeypatch, fake_session):
     def fake_finalize_upload(file_path, cipher_bytes, iv, expected_size, aes_key):
         return (0x12345678, expected_size)
 
-    async def fake_to_thread(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
     monkeypatch.setattr(handlers.answers, "answer_1603", fake_1603)
     monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
     monkeypatch.setattr(handlers, "finalize_upload", fake_finalize_upload)
-    monkeypatch.setattr(handlers.asyncio, "to_thread", fake_to_thread)
     return calls
 
 @pytest.mark.asyncio

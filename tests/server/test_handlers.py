@@ -50,6 +50,14 @@ class FakeStore:
             if vals[0] == client_id:
                 return k
         return None
+
+class FakeBoundedExecutor:
+    async def run(self, func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    def shutdown(self):
+        pass
+    
 class FakeSession:
     def __init__(self,config):
         self.request_id = None
@@ -68,6 +76,7 @@ class FakeSession:
         self.reset_calls=[]
         self.has_upload_slot = False
         self.upload_limiter = DummyUploadLimiter()
+        self.bounded_executer = FakeBoundedExecutor()
 
 
     def on_frame_ok(self):

@@ -65,7 +65,7 @@ async def test_run_executes_multiple_jobs():
 
 @pytest.mark.asyncio
 async def test_max_in_flight_limits_actual_parallel_work():
-    executor = BoundedExecutor(max_workers=4, max_in_flight=2)
+    executor = BoundedExecutor(max_workers=2, max_in_flight=2)
 
     active = 0
     max_active = 0

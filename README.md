@@ -703,6 +703,10 @@ Improve server scalability and storage architecture.
   * Migration from JSON store
   * Separation of runtime session state vs persistent storage
   * Avoid DB access on packet hot path
+  * In-memory client index for low-latency lookups
+  * Write-through cache for persistent client metadata
+  * Keep upload/session transient state in memory
+
 
 ---
 

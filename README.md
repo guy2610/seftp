@@ -701,6 +701,8 @@ Improve server scalability and storage architecture.
   * SQLite persistence layer
   * Client metadata storage
   * Migration from JSON store
+  * Separation of runtime session state vs persistent storage
+  * Avoid DB access on packet hot path
 
 ---
 

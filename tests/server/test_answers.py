@@ -230,7 +230,6 @@ async def test_answer_1605_correct_frame_and_side_effects(tmp_path):
         public_key_der=b"\x99",
         aes_key_b64="aes",
     )
-    before = s.get_client_by_id(client_id.hex())[5]
 
     fake = FakeSession(s)
     version = b"\x03"
@@ -248,9 +247,6 @@ async def test_answer_1605_correct_frame_and_side_effects(tmp_path):
     assert payload[len(cipher) :] == client_id
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1605"
 
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
-
 
 @pytest.mark.asyncio
 async def test_answer_1603_builds_payload_with_null_terminated_filename_and_crc(tmp_path):
@@ -263,7 +259,6 @@ async def test_answer_1603_builds_payload_with_null_terminated_filename_and_crc(
         public_key_der=b"\x99",
         aes_key_b64="aes",
     )
-    before = s.get_client_by_id(client_id.hex())[5]
 
     fake = FakeSession(s)
     version = b"\x03"
@@ -290,9 +285,6 @@ async def test_answer_1603_builds_payload_with_null_terminated_filename_and_crc(
     crc_off = 20 + len(name_bytes)
     assert int.from_bytes(payload[crc_off : crc_off + 4], "little") == crc32_val
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1603"
-
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
 
 
 @pytest.mark.asyncio

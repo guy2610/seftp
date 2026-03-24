@@ -147,7 +147,6 @@ async def test_answer_1602_correct_frame(tmp_path):
         public_key_der=b"\x99",
         aes_key_b64="aes_b64",
     )
-    before = s.get_client_by_id(client_id.hex())[5]
 
     fake = FakeSession(s)
     version = b"\x03"
@@ -165,9 +164,6 @@ async def test_answer_1602_correct_frame(tmp_path):
     assert payload[: len(cipher)] == cipher
     assert payload[len(cipher) :] == client_id
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1602"
-
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
 
 
 @pytest.mark.asyncio

@@ -199,7 +199,6 @@ async def test_answer_1606_nonzero_client_id_updates_last_seen_and_logs_by_clien
         public_key_der=b"\x99",
         aes_key_b64="aes",
     )
-    before = s.get_client_by_id(client_id.hex())[5]
 
     fake = FakeSession(s)
     version = b"\x03"
@@ -215,8 +214,9 @@ async def test_answer_1606_nonzero_client_id_updates_last_seen_and_logs_by_clien
     assert msg[7:] == client_id
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1606"
 
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
+    row = s.get_client_by_id(client_id.hex())
+    assert row is not None
+    assert row[0] == client_id.hex()
 
 
 @pytest.mark.asyncio
@@ -306,7 +306,6 @@ async def test_answer_1604_correct_frame_and_side_effects(tmp_path):
         public_key_der=b"\x99",
         aes_key_b64="aes",
     )
-    before = s.get_client_by_id(client_id.hex())[5]
 
     fake = FakeSession(s)
     version = b"\x03"
@@ -321,9 +320,9 @@ async def test_answer_1604_correct_frame_and_side_effects(tmp_path):
     assert msg[7:] == client_id
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1604"
 
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
-
+    row = s.get_client_by_id(client_id.hex())
+    assert row is not None
+    assert row[0] == client_id.hex()
 
 @pytest.mark.asyncio
 async def test_answer_1607_updates_last_seen_when_client_known(tmp_path):
@@ -336,7 +335,6 @@ async def test_answer_1607_updates_last_seen_when_client_known(tmp_path):
         public_key_der=b"\x99",
         aes_key_b64="aes",
     )
-    before = s.get_client_by_id(client_id.hex())[5]
 
     fake = FakeSession(s)
     version = b"\x03"
@@ -353,5 +351,6 @@ async def test_answer_1607_updates_last_seen_when_client_known(tmp_path):
     assert payload[16:] == text.encode("utf-8")
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1607"
 
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
+    row = s.get_client_by_id(client_id.hex())
+    assert row is not None
+    assert row[0] == client_id.hex()

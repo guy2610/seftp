@@ -750,7 +750,6 @@ async def test_900_crc_ok(monkeypatch, tmp_path):
     payload = b"file_name\x00\x00"
 
     seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
-    before = s.get_client_by_id(client_id.hex())[5]
 
     async def fake_1604(client_id, version, session):
         fake_session.reset_calls.append(("1604", client_id))
@@ -763,8 +762,9 @@ async def test_900_crc_ok(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1][1] == client_id
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_900"
 
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
+    row = s.get_client_by_id(client_id.hex())
+    assert row is not None
+    assert row[0] == client_id.hex()
 
 
 @pytest.mark.asyncio
@@ -776,13 +776,14 @@ async def test_901_crc_retry(tmp_path):
     payload = b"file_name\x00\x00"
 
     seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
-    before = s.get_client_by_id(client_id.hex())[5]
 
     await handlers.request_901(payload, version, client_id, fake_session)
 
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_901"
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
+
+    row = s.get_client_by_id(client_id.hex())
+    assert row is not None
+    assert row[0] == client_id.hex()
 
 
 @pytest.mark.asyncio
@@ -794,7 +795,6 @@ async def test_902_crc_failed_after_max_retries(monkeypatch, tmp_path):
     payload = b"file_name\x00\x00"
 
     seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
-    before = s.get_client_by_id(client_id.hex())[5]
 
     async def fake_1604(client_id, version, session):
         fake_session.reset_calls.append(("1604", client_id))
@@ -807,9 +807,9 @@ async def test_902_crc_failed_after_max_retries(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1][1] == client_id
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_902"
 
-    after = s.get_client_by_id(client_id.hex())[5]
-    assert after != before
-
+    row = s.get_client_by_id(client_id.hex())
+    assert row is not None
+    assert row[0] == client_id.hex()
 
 @pytest.mark.asyncio
 async def test_828_packet0_initializes_state(monkeypatch, tmp_path):

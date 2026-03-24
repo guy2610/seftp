@@ -37,6 +37,9 @@ class ClientSession:
         self.upload_limiter = upload_limiter
         self.has_upload_slot = False
         self.bounded_executor = bounded_executor
+        self.upload_client_id_hex = None
+        self.upload_username = None
+        self.upload_aes_key = None
 
     async def release_upload_slot(self):
         if self.has_upload_slot:
@@ -98,6 +101,9 @@ class ClientSession:
         self.expected_content_size = None
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
+        self.upload_username = None
+        self.upload_aes_key = None
+        self.upload_client_id_hex = None
         if reason:
             self.log.info("reset transfer state reason=%s",reason)
 

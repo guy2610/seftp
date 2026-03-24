@@ -8,95 +8,15 @@ import uuid
 import datetime
 class Store:
     def __init__(self):
-        self.clients_info={}
         self.clients_recent_log=defaultdict(list)
         self.sqliteConnection = None
-        # clients_info structure:
-        # {
-        #   "username": [
-        #       client_id (16-byte UUID as bytes),
-        #       public_key (RSA public key in DER format, as bytes),
-        #       last_seen (string timestamp),
-        #       aes_key_b64 (AES-256 key, Base64-encoded string)
-        #   ]
-        # }
-    def load_client_info(self,path):
-        try:
-            with open(path,"r",encoding="utf-8") as f:
-                data=json.load(f)
-            for username,obj in data.items():
-                try:
-                    cid_b64 = obj.get("client_id_b64")
-                    pub_b64 = obj.get("public_key_b64")
-                    last_seen = obj.get("last_seen")
-                    aes_b64 = obj.get("aes_key_b64")
-
-                    client_id = base64.b64decode(cid_b64) if cid_b64 else None
-                    if client_id is not None and len(client_id) != 16:
-                        raise ValueError(f"bad client_id length for {username}: {len(client_id)}")
-
-                    public_key = base64.b64decode(pub_b64) if pub_b64 else None
-                    self.clients_info[username] = [client_id,public_key,last_seen,aes_b64]
-                except Exception as e:
-                    print(f"Error decoding data for user {username}: {e}")
-            return True, f"Successfully loaded data from {path}"
-        except FileNotFoundError:
-            return (True, f"data file not found: {path}; starting with empty store")
-        except json.JSONDecodeError:
-            return False, f"invalid data file: {path}"
-        except Exception as e:
-            return False, f"failed loading client data: {e}"
-
-    def name_of_dict_from_id(self,client_id):
-        """
-            Given client_id (bytes), return the associated username from clients_info.
-            Returns None if not found.
-            """
-        for k, vals in self.clients_info.items():
-            if vals[0] == client_id:
-                return k
-        return None
-
-    def save_clients_info(self,name_file):
-        out={}
-        for username,values in self.clients_info.items():
-            client_id = values[0]
-            public_key = values[1]
-
-            client_id_b64 = base64.b64encode(client_id).decode("utf-8") if isinstance(client_id,(bytes, bytearray)) else None
-            public_key_b64 = base64.b64encode(public_key).decode("utf-8") if isinstance(public_key,(bytes, bytearray)) else None
-
-            out[username]={
-                    "client_id_b64":client_id_b64,
-                    "public_key_b64":public_key_b64,
-                    "last_seen":values[2],
-                    "aes_key_b64":values[3]
-            }
-        dir_path = os.path.dirname(os.path.abspath(name_file))
-        os.makedirs(dir_path, exist_ok=True)
-        tmp_path=None
-        try:
-            fd, tmp_path = tempfile.mkstemp(prefix=".clients_info.", suffix=".tmp", dir=dir_path)
-            with os.fdopen(fd,"w",encoding="utf-8") as f:
-                json.dump(out,f,indent=4)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path,name_file)
-            tmp_path= None
-            return True, f"Data successfully saved to {name_file}"
-        except OSError as e:
-            return False, f"failed saving client data: {e}"
-        finally:
-            if tmp_path:
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
 
     def initialize(self,db_name = 'seftp_server_sql.db'):
         try:
             self.sqliteConnection = sqlite3.connect(db_name)
             self.sqliteConnection.execute("PRAGMA foreign_keys = ON")
+            self.sqliteConnection.execute("PRAGMA journal_mode = WAL")
+            self.sqliteConnection.execute("PRAGMA synchronous = NORMAL")
             cursor = self.sqliteConnection.cursor()
             print("DB initialize")
 
@@ -105,7 +25,7 @@ class Store:
                 id INTEGER PRIMARY KEY,
                 client_id_hex TEXT UNIQUE NOT NULL,
                 username TEXT UNIQUE NOT NULL,
-                public_key_b64 TEXT,
+                public_key_der BLOB,
                 aes_key_b64 TEXT,
                 created_at TEXT NOT NULL,
                 last_seen TEXT NOT NULL
@@ -169,7 +89,7 @@ class Store:
             print("No active connection.\n Error get_client_by_username")
             return None
         cursor = self.sqliteConnection.cursor()
-        query = """SELECT client_id_hex, username, public_key_b64, aes_key_b64, created_at, last_seen 
+        query = """SELECT client_id_hex, username, public_key_der, aes_key_b64, created_at, last_seen 
         FROM Clients 
         WHERE username = ?"""
         cursor.execute(query,(username,))
@@ -180,7 +100,7 @@ class Store:
             print("No active connection.\n Error get_client_by_id")
             return None
         cursor = self.sqliteConnection.cursor()
-        query =  """SELECT client_id_hex, username, public_key_b64, aes_key_b64, created_at, last_seen 
+        query =  """SELECT client_id_hex, username, public_key_der, aes_key_b64, created_at, last_seen 
         FROM Clients
         WHERE client_id_hex = ?"""
         cursor.execute(query,(client_id_hex,))
@@ -207,16 +127,16 @@ class Store:
         cursor.execute(query,(client_id_hex,))
         return cursor.fetchone() is not None
 
-    def set_client_public_key(self,client_id_hex, public_key_b64):
+    def set_client_public_key(self,client_id_hex, public_key_der):
         if not self.sqliteConnection:
             print("No active connection.\n Error set_client_public_key")
             return False
         cursor = self.sqliteConnection.cursor()
         query = """UPDATE Clients
-            SET public_key_b64 = ?
+            SET public_key_der = ?
             WHERE client_id_hex = ?
             """
-        cursor.execute(query, (public_key_b64, client_id_hex))
+        cursor.execute(query, (public_key_der, client_id_hex))
         self.sqliteConnection.commit()
         return cursor.rowcount > 0
 

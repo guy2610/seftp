@@ -16,12 +16,12 @@ async def main():
     logger = setup_logging(config.log_level)
 
     store = Store()
-    ok, msg = store.load_client_info(config.data_path)
+    ok = store.initialize(config.data_path)
     if ok:
-        logger.info(msg)
+        logger.info("SQLite storage initialized")
     else:
-        logger.error(msg)
-        raise RuntimeError(msg)
+        logger.error("Failed to initialize SQLite storage")
+        raise RuntimeError("Failed to initialize SQLite storage")
 
     upload_limiter = UploadLimiter(config.max_concurrent_uploads)
     connection_limiter = ConnectionLimiter(config.max_connections, config.max_connections_per_ip)
@@ -148,13 +148,11 @@ async def main():
             await server.wait_closed()
             bounded_executor.shutdown()
             try:
-                ok, msg = store.save_clients_info(config.data_path)
-                if ok:
-                    logger.info(msg)
-                else:
-                    logger.error(msg)
+                store.close()
+                logger.info("SQLite storage closed")
             except Exception:
-                logger.exception("failed saving clients_info on shutdown")
+                logger.exception("failed closing SQLite storage on shutdown")
+
             logger.info("shutting down complete")
             logger.debug("clients_recent_log=%r", dict(store.clients_recent_log))
 

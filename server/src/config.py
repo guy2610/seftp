@@ -26,7 +26,7 @@ class Config:
     def load(cls):
         host = '127.0.0.1'
         port=1256
-        data_path="data/clients_info.json"
+        data_path = "data/seftp_server_sql.db"
         log_level="INFO"
         try:
             with open("port.info", "r") as port_file:

@@ -28,15 +28,11 @@ async def request_825(payload_info,version,session):
     session.log.debug("inside request 825")
     store = session.store
     payload_info=payload_info.rstrip(b'\x00').decode()
-    if not payload_info in store.clients_info:
-        client_id=uuid.uuid4().bytes
-        name=payload_info.strip()
-        public_key="public_key_none_for_now"
-        last_seen=str(datetime.datetime.now())
-        aes_key="aes_key_none_for_now"
-        store.clients_info[name] = [client_id, public_key, last_seen, aes_key]
-        tmp = [base64.b64encode(store.clients_info[name][0]).decode('utf-8'),store.clients_info[name][1], store.clients_info[name][2], store.clients_info[name][3]]
-        session.log.info(f'{name} has created. this is his list: {tmp}')
+    name = payload_info.strip()
+    if not store.client_exists_by_username(name):
+        client_id_hex = store.create_client(name)
+        session.log.info(f'{name} has created.')
+        client_id = bytes.fromhex(client_id_hex)
         if name in store.clients_recent_log.keys():
             user_past_log=store.clients_recent_log.get(name)
             store.clients_recent_log[client_id].extend(user_past_log)
@@ -62,36 +58,41 @@ async def request_826(client_id, payload_info: bytes, version,session):
     """
     session.log.debug("inside request 826")
     store=session.store
-    name_in_dict = store.name_of_dict_from_id(client_id)
-    if not name_in_dict:
-        if session.log.isEnabledFor(logging.DEBUG):
-            session.log.debug(store.clients_info)
-        session.log.info(f'uuid not in client_info; client_id={client_id!r}')
+    client_id_hex = client_id.hex()
+
+    client_row = store.get_client_by_id(client_id_hex)
+    if client_row is None:
+        session.log.info(f'uuid not in clients db; client_id={client_id!r}')
+        await answers.answer_1607(client_id, version, "unknown client id", session)
         return
 
-    store.clients_info[name_in_dict][2] = str(datetime.datetime.now())
+    name_in_db = client_row[1]
+    store.touch_client_last_seen(client_id_hex)
     store.clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
 
     sep = payload_info.find(b'\x00')
-    if sep == -1:
+    if sep <= 0:
         session.log.warning("bad 826 payload: missing NUL after name")
         await answers.answer_1607(client_id,version,"bad 826 payload: missing NUL after name",session)
         return
 
+    raw_name = payload_info[:sep]
+    public_key_raw = payload_info[sep + 1:]
+
     try:
-        name = payload_info[:sep].decode('utf-8')
+        name = raw_name.decode('utf-8').strip()
     except UnicodeDecodeError:
         session.log.error("bad 826 payload: name is not valid UTF-8")
         await answers.answer_1607(client_id, version, "bad 826 payload: name is not valid UTF-8",session)
         return
-
-    if name != name_in_dict:
-        session.log.warning(f'name mismatch: got {name!r}, expected {name_in_dict!r}')
-        await answers.answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_dict!r}',session)
+    if name != name_in_db:
+        session.log.warning(f'name mismatch: got {name!r}, expected {name_in_db!r}')
+        await answers.answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_db!r}',session)
         return
+
     session.log.info(f"{name} logged successfully")
 
-    public_blob = payload_info[sep + 1:].rstrip(b'\x00').strip()  #text in Base64
+    public_blob = public_key_raw.rstrip(b'\x00').strip()  #text in Base64
     try:
         public_str = public_blob.decode('ascii')
     except UnicodeDecodeError:
@@ -102,40 +103,48 @@ async def request_826(client_id, payload_info: bytes, version,session):
 
     try:
         der = b64decode(public_str, validate=True)
+    except Exception:
+        session.log.error("bad 826 payload: key is not valid Base64")
+        await answers.answer_1607(client_id, version, "bad 826 payload: key is not valid Base64", session)
+        return
+    try:
         key_rsa = RSA.import_key(der)
         if session.log.isEnabledFor(logging.DEBUG):
             session.log.debug(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}")  # size need to be 2048
         if key_rsa.has_private():
-            await answers.answer_1606(store.clients_info[name][0], version, name,session)
+            await answers.answer_1606(client_id, version, name,session)
             return
         if key_rsa.size_in_bits()!=2048:
-            await answers.answer_1606(store.clients_info[name][0], version, name,session)
+            await answers.answer_1606(client_id, version, name,session)
             return
         e = int(key_rsa.e)
         if e < 3 or e % 2 == 0:
-            await answers.answer_1606(store.clients_info[name][0], version, name,session)
+            await answers.answer_1606(client_id, version, name,session)
             return
     except Exception as e:
         session.log.error(f"RSA validation/import failed for 826: {e}")
         await answers.answer_1607(client_id, version, "Invalid RSA public key",session)
         return
 
-    store.clients_info[name_in_dict][1] = der  #keep DER, not Base64
+    store.set_client_public_key(client_id_hex, der) #keep DER, not Base64
 
     # generate AES key
     key = get_random_bytes(32)
-    store.clients_info[name][3] = base64.b64encode(key).decode('ascii')
-    session.log.debug(f'the name: {name} has this list {store.clients_info[name]}')
+    aes_key_b64 = base64.b64encode(key).decode('ascii')
+    store.set_client_aes_key(client_id_hex, aes_key_b64)
 
     # encrypt AES key with RSA public
     cipher = PKCS1_OAEP.new(key_rsa)
     ciphertext = cipher.encrypt(key)
-    tmp=[base64.b64encode(store.clients_info[name][0]).decode('utf-8'),base64.b64encode(store.clients_info[name][1]).decode('utf-8'),store.clients_info[name][2],store.clients_info[name][3]]
-    if session.log.isEnabledFor(logging.DEBUG):
-        session.log.debug(f"the user: {name} has this list {tmp}.\nand this is the aes key encrypted by the public key: {base64.b64encode(ciphertext).decode('utf-8')}")
 
+    if session.log.isEnabledFor(logging.DEBUG):
+        session.log.debug(
+            f"the user: {name} has client_id={client_id_hex} and this is the aes key encrypted by the public key: "
+            f"{base64.b64encode(ciphertext).decode('utf-8')}"
+        )
     # send 1602 aes key
-    await answers.answer_1602(ciphertext, store.clients_info[name][0], version,session)
+    await answers.answer_1602(ciphertext, client_id, version,session)
+
 async def request_827(client_id,payload_info:bytes,version,session):
     """
         Handle request 827: "single sign-on" / re-login.
@@ -150,32 +159,56 @@ async def request_827(client_id,payload_info:bytes,version,session):
         """
     session.log.debug("inside request 827")
     store=session.store
-    payload_info = payload_info.decode()
-    name=payload_info[:-1]
-    if not name in store.clients_info:
+    try:
+        name = payload_info.rstrip(b'\x00').decode().strip()
+    except UnicodeDecodeError:
+        session.log.info("bad 827 payload: name is not valid UTF-8")
+        await answers.answer_1606(b'\x00' * 16, version, "", session)
+        return
+    client_row = store.get_client_by_username(name)
+    if client_row is None:
         #the user doesnt exist
-        session.log.info(f'the user {name} not in the clients dictionary')
+        session.log.info(f'the user {name} not in the clients db')
         store.clients_recent_log[name].append(["request_827",str(datetime.datetime.now())])
         await answers.answer_1606(b'\x00'*16, version,name,session)
-    else:
-        store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-        store.clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
-        pub = RSA.import_key(store.clients_info[name][1])
-        if pub.size_in_bits()!=2048:
-            session.log.info(f"the public key: [{store.clients_info[name][1]}] in request 827 is not valid the len needs to be 2048 and is {str(len(store.clients_info[name][1]))}")
-            await answers.answer_1606(store.clients_info[name][0],version,name,session)
-        else:
-            # generate aes key
-            key = get_random_bytes(32)
-            store.clients_info[name][3] = base64.b64encode(key).decode('ascii')
-            session.log.debug(f'the person with the name: {name} has this list {store.clients_info[name]}')
-            # encrypt aes key
-            key_rsa = RSA.importKey(store.clients_info[name][1])
-            cipher = PKCS1_OAEP.new(key_rsa)
-            ciphertext = cipher.encrypt(key)
-            session.log.info("request to sign on succeed")
-            session.log.debug(f'the name: {name} has this list {store.clients_info[name]}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
-            await answers.answer_1605(ciphertext, store.clients_info[name][0], version,session)
+        return
+    stored_client_id_hex = client_row[0]
+    store_pub_key = client_row[2]
+
+    if stored_client_id_hex != client_id.hex():
+        session.log.info(f'the user {name} has another id')
+        store.clients_recent_log[name].append(["request_827", str(datetime.datetime.now())])
+        await answers.answer_1606(b'\x00' * 16, version, name, session)
+        return
+    if not store_pub_key:
+        session.log.info(f'the user {name} has no stored public key')
+        await answers.answer_1606(client_id, version, name, session)
+        return
+
+    store.touch_client_last_seen(client_id.hex())
+    store.clients_recent_log[client_id].append(["request_827",str(datetime.datetime.now())])
+    try:
+        pub = RSA.import_key(store_pub_key)
+    except Exception as e:
+        session.log.info(f"stored public key for {name} is invalid: {e}")
+        await answers.answer_1606(client_id, version, name, session)
+        return
+    if pub.size_in_bits()!=2048:
+        session.log.info(f"the public key: [{store_pub_key}] in request 827 is not valid the len needs to be 2048 and is {str(len(store_pub_key))}")
+        await answers.answer_1606(client_id,version,name,session)
+        return
+
+    # generate aes key
+    key = get_random_bytes(32)
+    aes_key_b64 = base64.b64encode(key).decode('ascii')
+    store.set_client_aes_key(client_id.hex(), aes_key_b64)
+
+    cipher = PKCS1_OAEP.new(pub)
+    ciphertext = cipher.encrypt(key)
+    session.log.info("request to sign on succeed")
+    if session.log.isEnabledFor(logging.DEBUG):
+        session.log.debug(f'the name: {name} has this list {client_row}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
+    await answers.answer_1605(ciphertext, client_id, version,session)
 
 def _draw_progress(packet_num, total_packets, chunk_size):
     percent = packet_num / total_packets * 100
@@ -268,17 +301,40 @@ async def request_828(payload_info,version,client_id,session):
     session.log.debug(file_name)
     # The rest of the payload is the ciphertext chunk
     cipher_chunk = payload_info[sep + 1:]
-    # Resolve username from client_id
-    name_in_dict = store.name_of_dict_from_id(client_id)
-    if not name_in_dict:
-        session.log.info(store.clients_info)
-        session.log.info(f'uuid not in client_info; client_id={client_id!r}')
+    client_id_hex = client_id.hex()
+    if session.upload_client_id_hex is None:
+        client_row = store.get_client_by_id(client_id_hex)
+        if client_row is None:
+            session.log.info(f'uuid not in clients db; client_id={client_id!r}')
+            await session.release_upload_slot()
+            session.reset_transfer_state("bad_828_client_or_name")
+            return
+        username = client_row[1]
+        aes_key_b64 = client_row[3]
+        if not aes_key_b64:
+            session.log.info(f'client has no AES key; client_id={client_id!r}')
+            await answers.answer_1607(client_id, version, "bad 828: missing AES key", session)
+            await session.release_upload_slot()
+            session.reset_transfer_state("bad_828_missing_aes")
+            return
+        try:
+            session.upload_aes_key = base64.b64decode(aes_key_b64)
+        except Exception:
+            session.log.info(f'client AES key is invalid base64; client_id={client_id!r}')
+            await answers.answer_1607(client_id, version, "bad 828: invalid AES key", session)
+            await session.release_upload_slot()
+            session.reset_transfer_state("bad_828_invalid_aes")
+            return
+        session.upload_username = username
+        session.upload_client_id_hex = client_id_hex
+    if session.upload_client_id_hex != client_id_hex:
+        session.log.info("bad 828: client id changed during upload")
+        await answers.answer_1607(client_id, version, "bad 828: client mismatch during upload", session)
         await session.release_upload_slot()
-        session.reset_transfer_state("bad_828_client_or_name")
+        session.reset_transfer_state("bad_828_client_mismatch")
         return
-    # Decode AES key (Base64) for this client
-    raw_key = base64.b64decode(store.clients_info[name_in_dict][3])
-    aes_key = raw_key
+    aes_key = session.upload_aes_key
+    username = session.upload_username
     err = validate_header(session, packet_num, total_packets, content_size, orig_file_size)
     if err:
         reason, msg = err
@@ -367,7 +423,7 @@ async def request_828(payload_info,version,client_id,session):
             sys.stderr.flush()
             session.log.info(f"writing the file {file_name} ")
             session.transfer_cipher = bytearray()
-            store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+            store.touch_client_last_seen(client_id_hex)
             store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
         # Append chunk to the accumulated ciphertext
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
@@ -397,12 +453,12 @@ async def request_828(payload_info,version,client_id,session):
                 await session.release_upload_slot()
                 session.reset_transfer_state("bad_828 received_cipher_bytes  != expected_content_size")
                 return
-            store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+            store.touch_client_last_seen(client_id_hex)
             cipher_total=bytes(session.transfer_cipher)
             session.log.info(f"final cipher text total size={len(cipher_total)}, expected content size={content_size}")
             # making directory if not exist for user
             base_dir = "data/uploads"
-            user_dir=os.path.join(base_dir,name_in_dict)
+            user_dir = os.path.join(base_dir, username)
             os.makedirs(user_dir, exist_ok=True)
             out_path = os.path.join(user_dir, file_name)
             out_path = os.path.normpath(out_path)
@@ -438,7 +494,7 @@ async def request_900(payload_info,version,client_id,session):
     file_name=payload_info.decode()
     file_name = file_name.rstrip('\x00')
     session.log.info(f'file name: {file_name} came with valid CRC, sending confirmation ')
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["request_900",str(datetime.datetime.now())])
     await answers.answer_1604(client_id,version,session)
 
@@ -456,7 +512,7 @@ async def request_901(payload_info,version,client_id,session):
     store = session.store
     file_name = payload_info.decode()
     session.log.info(f'file name: {file_name} came with invalid CRC from client id: {client_id},version:{version}')
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["request_901",str(datetime.datetime.now())])
     session.log.debug('waiting for request 828')
 
@@ -474,6 +530,6 @@ async def request_902(payload_info,version,client_id,session):
     store = session.store
     file_name=payload_info.decode()
     session.log.info(f'file name: {file_name} came with invalid CRC on the 4th time')
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
     await answers.answer_1604(client_id,version,session)

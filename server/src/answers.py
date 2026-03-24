@@ -68,9 +68,12 @@ async def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     store = session.store
     payload = cipher_text_aes_encrypted + client_id
     message = message_answer(version, "1602", str(len(payload)), payload,session)
-    session.log.info("sending encrypted AES key to %s", store.name_of_dict_from_id(client_id))
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    store.clients_recent_log[client_id].append(["answer_1602",str(datetime.datetime.now())])
+    client_row = store.get_client_by_id(client_id.hex())
+    client_name = client_row[1] if client_row is not None else "<unknown>"
+    session.log.info("sending encrypted AES key to %s", client_name)
+
+    store.touch_client_last_seen(client_id.hex())
+    store.clients_recent_log[client_id].append(["answer_1602", str(datetime.datetime.now())])
     await session.send(message)
 
 async def answer_1606(client_id,version,name,session):
@@ -90,7 +93,7 @@ async def answer_1606(client_id,version,name,session):
         store.clients_recent_log[name].append(["answer_1606", str(datetime.datetime.now())])
     else:
         store.clients_recent_log[client_id].append(["answer_1606", str(datetime.datetime.now())])
-        store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+        store.touch_client_last_seen(client_id.hex())
     await session.send(message)
 
 async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
@@ -105,7 +108,7 @@ async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     store = session.store
     message = message_answer(version, "1605", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id,session)
     session.log.info(f"relogin approved for {base64.b64encode(client_id).decode('utf-8')}; sending encrypted AES key")
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])
     await session.send(message)
 
@@ -124,7 +127,7 @@ async def answer_1603(client_id,version,file_name,content_size,crc32_val,session
        """
     session.log.debug("inside answer 1603")
     store = session.store
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+    store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["answer_1603",str(datetime.datetime.now())])
     # Compute CRC32 over the decrypted plaintext
     checksum=crc32_val
@@ -154,12 +157,21 @@ async def answer_1604(client_id,version,session):
     store = session.store
     message = message_answer(version, "1604", "16", client_id,session)
     session.log.info("file transferring success if the the CRC is valid. Otherwise failed.")
-    client_name=store.name_of_dict_from_id(client_id)
-    tmp = [base64.b64encode(store.clients_info[client_name][0]).decode('utf-8'), base64.b64encode(store.clients_info[client_name][1]).decode('utf-8'), store.clients_info[client_name][2],store.clients_info[client_name][3]]
-    session.log.info(f'this is the recent client information on {client_name}:  {tmp}')
-    store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
-    store.clients_recent_log[client_id].append(["answer_1604",str(datetime.datetime.now())])
+    client_row = store.get_client_by_id(client_id.hex())
+    if client_row is not None:
+        client_name = client_row[1]
+        public_key_tmp = (
+            base64.b64encode(client_row[2]).decode('utf-8')
+            if client_row[2] is not None
+            else None
+        )
+        tmp = [client_row[0], public_key_tmp, client_row[5], client_row[3]]
+        session.log.info(f'this is the recent client information on {client_name}: {tmp}')
+        store.touch_client_last_seen(client_row[0])
+
+    store.clients_recent_log[client_id].append(["answer_1604", str(datetime.datetime.now())])
     await session.send(message)
+
 async def answer_1607(client_id,version,text,session):
     """
     Send response 1607: protocol-level error.
@@ -172,15 +184,19 @@ async def answer_1607(client_id,version,text,session):
     payload = client_id + text.encode("utf-8")
     message = message_answer(version, "1607", str(len(payload)), payload,session)
     session.log.info(f"error occurred: {text}")
-    client_name=store.name_of_dict_from_id(client_id)
-    if client_name !=None:
-        if isinstance(store.clients_info[client_name][1],str) :
-            public_key_tmp=store.clients_info[client_name][1]
-        else:
-            public_key_tmp=base64.b64encode(store.clients_info[client_name][1]).decode('utf-8')
 
-        tmp = [base64.b64encode(store.clients_info[client_name][0]).decode('utf-8'), public_key_tmp, store.clients_info[client_name][2],store.clients_info[client_name][3]]
+    client_row = store.get_client_by_id(client_id.hex())
+    if client_row !=None:
+        client_name = client_row[1]
+        if client_row[2] is None:
+            public_key_tmp = None
+        elif isinstance(client_row[2], str):
+            public_key_tmp = client_row[2]
+        else:
+            public_key_tmp = base64.b64encode(client_row[2]).decode('utf-8')
+
+        tmp = [client_row[0], public_key_tmp, client_row[5],client_row[3]]
         session.log.info(f'this is the recent client information on {client_name}:  {tmp}')
-        store.clients_info[store.name_of_dict_from_id(client_id)][2] = str(datetime.datetime.now())
+        store.touch_client_last_seen(client_row[0])
     store.clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
     await session.send(message)

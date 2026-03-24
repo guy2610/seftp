@@ -13,6 +13,9 @@ class Store:
 
     def initialize(self,db_name = 'seftp_server_sql.db'):
         try:
+            db_dir = os.path.dirname(os.path.abspath(db_name))
+            os.makedirs(db_dir, exist_ok=True)
+
             self.sqliteConnection = sqlite3.connect(db_name)
             self.sqliteConnection.execute("PRAGMA foreign_keys = ON")
             self.sqliteConnection.execute("PRAGMA journal_mode = WAL")

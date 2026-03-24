@@ -96,8 +96,8 @@ async def request_826(client_id, payload_info: bytes, version,session):
     try:
         public_str = public_blob.decode('ascii')
     except UnicodeDecodeError:
-        session.log.error("Public key is not ASCII base64")
-        await answers.answer_1607(client_id, version, "Public key is not ASCII base64",session)
+        session.log.error("bad 826 payload: public key is not ASCII base64")
+        await answers.answer_1607(client_id, version, "bad 826 payload: public key is not ASCII base64",session)
         return
     session.log.debug("public_blob len:", len(public_str))  #need to be approx 392
 

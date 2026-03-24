@@ -634,7 +634,7 @@ async def test_826_public_key_not_ascii_base64(monkeypatch, tmp_path):
     await handlers.request_826(client_id, payload, version, fake_session)
 
     assert fake_session.reset_calls[-1][0] == "1607"
-    assert fake_session.reset_calls[-1][1] == "bad 826 payload: key is not valid ASCII"
+    assert fake_session.reset_calls[-1][1] == "bad 826 payload: public key is not ASCII base64"
 
 
 @pytest.mark.asyncio

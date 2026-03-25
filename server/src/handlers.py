@@ -236,6 +236,17 @@ def finalize_upload(file_path, cipher_bytes, iv, expected_size,aes_key):
     # Compute CRC32 over the decrypted plaintext
     return  zlib.crc32(plaintext) & 0xFFFFFFFF , len(plaintext)
 
+async def _best_effort_fail_upload(session, failure_reason: str, status: str = "failed"):
+    store = session.store
+    if session.upload_id is not None:
+        if not store.fail_upload_record(
+            session.upload_id,
+            failure_reason,
+            status,
+            str(datetime.datetime.now())
+        ):
+            session.log.info("fail_upload_record problem in db")
+
 def validate_header(session, packet_num, total_packets, content_size, orig_file_size):
     if total_packets <= 0:
         return ("bad_828_range", "bad 828: total_packets not valid")
@@ -371,56 +382,37 @@ async def request_828(payload_info,version,client_id,session):
     else:
         if not session.transfer_iv:
             session.log.info("bad 828: missing IV packet")
-            if session.upload_id and not store.fail_upload_record(session.upload_id,"missing IV packet", "failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
+            await _best_effort_fail_upload(session, "missing IV packet", "failed")
             await answers.answer_1607(client_id, version, "bad 828: missing IV packet", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_iv")
             return
         if not session.expected_packet_num:
             session.log.info("bad 828: expected_packet_num is None")
-            if session.upload_id and not store.fail_upload_record(session.upload_id,"expected_packet_num is None", "failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
+            await _best_effort_fail_upload(session, "expected_packet_num is None", "failed")
             await answers.answer_1607(client_id, version, "bad 828: expected packet num is not initialize", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_expected_packet_num")
             return
-        if total_packets!=session.expected_total_packets:
+        if total_packets != session.expected_total_packets:
             session.log.info("bad 828:total_packets != expected_total_packets")
-            if session.upload_id and not store.fail_upload_record(session.upload_id,"total_packets != expected_total_packets" ,"failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
+            await _best_effort_fail_upload(session, "total_packets != expected_total_packets", "failed")
             await answers.answer_1607(client_id, version, "bad 828:total_packets != expected_total_packets", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_expected_total_packet")
             return
         if content_size != session.expected_content_size or orig_file_size != session.expected_orig_file_size:
             session.log.info("bad 828: content_size or orig_file_size not as expected")
-            if session.upload_id and not store.fail_upload_record(session.upload_id,"content_size or orig_file_size not as expected" , "failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
-            await answers.answer_1607(client_id, version, "bad 828: content_size or orig_file_size not as expected", session)
+            await _best_effort_fail_upload(session, "content_size or orig_file_size not as expected", "failed")
+            await answers.answer_1607(client_id, version, "bad 828: content_size or orig_file_size not as expected",
+                                      session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size or orig_file_size")
             return
         if len(cipher_chunk) > session.config.max_chunk_size:
             session.log.info("bad 828: cipher_chunk bigger than the max")
-            if session.upload_id and not store.fail_upload_record(session.upload_id,"cipher_chunk bigger than the max" ,"failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
-            await answers.answer_1607(client_id, version, "bad 828: cipher_chunk bigger than the max",session)
+            await _best_effort_fail_upload(session, "cipher_chunk bigger than the max", "failed")
+            await answers.answer_1607(client_id, version, "bad 828: cipher_chunk bigger than the max", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 cipher_chunk bigger than the max")
             return
@@ -460,19 +452,14 @@ async def request_828(payload_info,version,client_id,session):
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
         if session.received_cipher_bytes + len(cipher_chunk) > session.expected_content_size:
             session.log.info("bad 828: content_size will overflow")
-            if session.upload_id is not None:
-                if not store.fail_upload_record(session.upload_id,"content_size will overflow","failed", str(datetime.datetime.now())):
-                    session.log.info("bad 828: fail_upload_record problem in db")
-                    return
-            await answers.answer_1607(client_id, version, "bad 828: content_size will overflow",session)
+            await _best_effort_fail_upload(session, "content_size will overflow", "failed")
+            await answers.answer_1607(client_id, version, "bad 828: content_size will overflow", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size will overflow")
             return
         if packet_num != session.expected_packet_num:
             session.log.info("bad 828: out of order packet_num=%d expected=%d", packet_num, session.expected_packet_num)
-            if session.upload_id is not None:
-                if not store.fail_upload_record(session.upload_id, "out of order packet_num", "failed",str(datetime.datetime.now())):
-                    session.log.info("bad 828: fail_upload_record problem in db")
+            await _best_effort_fail_upload(session, "out of order packet_num", "failed")
             await answers.answer_1607(client_id, version, "bad 828: out of order", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_out_of_order")
@@ -487,13 +474,11 @@ async def request_828(payload_info,version,client_id,session):
         if packet_num == total_packets:
             if session.received_cipher_bytes != session.expected_content_size:
                 session.log.info("bad 828: received_cipher_bytes != expected_content_size")
-                if session.upload_id is not None:
-                    if not store.fail_upload_record(session.upload_id,"received_cipher_bytes  != expected_content_size" ,"failed", str(datetime.datetime.now())):
-                        session.log.info("bad 828: fail_upload_record problem in db")
-                    return
-                await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size",session)
+                await _best_effort_fail_upload(session, "received_cipher_bytes != expected_content_size", "failed")
+                await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size",
+                                          session)
                 await session.release_upload_slot()
-                session.reset_transfer_state("bad_828 received_cipher_bytes  != expected_content_size")
+                session.reset_transfer_state("bad_828 received_cipher_bytes != expected_content_size")
                 return
             store.touch_client_last_seen(client_id_hex)
             cipher_total=bytes(session.transfer_cipher)

@@ -1478,7 +1478,7 @@ async def test_828_last_packet_received_size_mismatch(monkeypatch, tmp_path):
 
     assert calls[-1][0] == "1607"
     assert calls[-1][3] == "bad 828: received_cipher_bytes != expected_content_size"
-    assert fake_session.reset_calls[-1] == "bad_828 received_cipher_bytes  != expected_content_size"
+    assert fake_session.reset_calls[-1] == "bad_828 received_cipher_bytes != expected_content_size"
 
 @pytest.mark.asyncio
 async def test_828_full_upload_success_keeps_upload_in_progress(monkeypatch, tmp_path):

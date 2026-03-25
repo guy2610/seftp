@@ -40,6 +40,9 @@ class ClientSession:
         self.upload_client_id_hex = None
         self.upload_username = None
         self.upload_aes_key = None
+        self.upload_id = None
+        self.upload_path = None
+        self.upload_crc = None
 
     async def release_upload_slot(self):
         if self.has_upload_slot:
@@ -104,6 +107,9 @@ class ClientSession:
         self.upload_username = None
         self.upload_aes_key = None
         self.upload_client_id_hex = None
+        self.upload_id = None
+        self.upload_path = None
+        self.upload_crc = None
         if reason:
             self.log.info("reset transfer state reason=%s",reason)
 

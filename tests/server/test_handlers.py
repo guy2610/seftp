@@ -105,7 +105,11 @@ class FakeSession:
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
         self.transfer_cipher = bytearray()
+
         self.upload_filename = None
+        self.upload_id = None
+        self.upload_path = None
+        self.upload_crc = None
 
         self.upload_client_id_hex = None
         self.upload_username = None
@@ -138,7 +142,12 @@ class FakeSession:
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
         self.transfer_cipher = bytearray()
+
         self.upload_filename = None
+        self.upload_id = None
+        self.upload_path = None
+        self.upload_crc = None
+
         self.upload_client_id_hex = None
         self.upload_username = None
         self.upload_aes_key = None
@@ -742,74 +751,351 @@ async def test_827_relogin_user_exists_public_key_not_valid(monkeypatch, tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_900_crc_ok(monkeypatch, tmp_path):
+async def test_900_success_completes_upload_and_cleans_session(monkeypatch, tmp_path):
     s = make_sql_store(tmp_path)
     fake_session = FakeSession(config.Config.load(), s)
+
     version = b"\x03"
     client_id = b"\x01" * 16
-    payload = b"file_name\x00\x00"
+    payload = b"file.bin\x00\x00"
 
     seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
 
-    async def fake_1604(client_id, version, session):
-        fake_session.reset_calls.append(("1604", client_id))
+    upload_id = s.create_upload_record(client_id.hex(), "file.bin", 5, 10)
+    assert upload_id is not None
+
+    fake_session.upload_id = upload_id
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1604(client_id_arg, version_arg, session_arg):
+        calls.append(("1604", client_id_arg, version_arg, session_arg))
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, version_arg, text_arg, session_arg))
 
     monkeypatch.setattr(handlers.answers, "answer_1604", fake_1604)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
 
     await handlers.request_900(payload, version, client_id, fake_session)
 
-    assert fake_session.reset_calls[-1][0] == "1604"
-    assert fake_session.reset_calls[-1][1] == client_id
+    assert len(calls) == 1
+    assert calls[0][0] == "1604"
+    assert calls[0][1] == client_id
+
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "upload_complete"
+    assert fake_session.upload_id is None
+    assert fake_session.upload_filename is None
+    assert fake_session.upload_path is None
+    assert fake_session.upload_crc is None
+
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_900"
 
-    row = s.get_client_by_id(client_id.hex())
-    assert row is not None
-    assert row[0] == client_id.hex()
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+
+    assert upload[7] == "completed"
+    assert upload[3] == "data/uploads/alice/file.bin"
+    assert upload[6] == 0x12345678
+    assert upload[8] is None
+    assert upload[10] is not None
 
 
 @pytest.mark.asyncio
-async def test_901_crc_retry(tmp_path):
+async def test_900_db_failure_returns_1607_and_cleans_session(monkeypatch, tmp_path):
     s = make_sql_store(tmp_path)
     fake_session = FakeSession(config.Config.load(), s)
+
     version = b"\x03"
     client_id = b"\x01" * 16
-    payload = b"file_name\x00\x00"
+    payload = b"file.bin\x00"
 
     seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
+
+    upload_id = s.create_upload_record(client_id.hex(), "file.bin", 5, 10)
+    assert upload_id is not None
+
+    fake_session.upload_id = upload_id
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1604(client_id_arg, version_arg, session_arg):
+        calls.append(("1604", client_id_arg))
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, text_arg))
+
+    monkeypatch.setattr(handlers.answers, "answer_1604", fake_1604)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(fake_session.store, "complete_upload_record", lambda *args, **kwargs: False)
+
+    await handlers.request_900(payload, version, client_id, fake_session)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert "complete upload record problem in db" in calls[0][2]
+
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "bad 900: complete_upload_record problem in db"
+    assert fake_session.upload_id is None
+    assert fake_session.upload_filename is None
+    assert fake_session.upload_path is None
+    assert fake_session.upload_crc is None
+
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload[7] == "in_progress"
+    assert upload[3] is None
+    assert upload[6] is None
+
+@pytest.mark.asyncio
+async def test_900_invalid_session_attributes_returns_1607(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    version = b"\x03"
+    client_id = b"\x01" * 16
+    payload = b"file.bin\x00"
+
+    seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
+
+    fake_session.upload_id = None
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1604(client_id_arg, version_arg, session_arg):
+        calls.append(("1604", client_id_arg))
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, text_arg))
+
+    monkeypatch.setattr(handlers.answers, "answer_1604", fake_1604)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    await handlers.request_900(payload, version, client_id, fake_session)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert "session upload attributes are invalid" in calls[0][2]
+
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "bad 900: session upload attributes are invalid"
+    assert fake_session.upload_id is None
+    assert fake_session.upload_filename is None
+    assert fake_session.upload_path is None
+    assert fake_session.upload_crc is None
+
+@pytest.mark.asyncio
+async def test_901_marks_crc_mismatch_and_resets(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    version = b"\x03"
+    client_id = b"\x01" * 16
+    payload = b"file.bin\x00"
+
+    seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
+
+    upload_id = s.create_upload_record(client_id.hex(), "file.bin", 5, 10)
+    assert upload_id is not None
+
+    fake_session.upload_id = upload_id
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, text_arg))
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
 
     await handlers.request_901(payload, version, client_id, fake_session)
 
+    assert calls == []
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "bad 901: CRC mismatch"
+    assert fake_session.upload_id is None
+    assert fake_session.upload_filename is None
+    assert fake_session.upload_path is None
+    assert fake_session.upload_crc is None
+
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_901"
 
-    row = s.get_client_by_id(client_id.hex())
-    assert row is not None
-    assert row[0] == client_id.hex()
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload[7] == "crc_mismatch"
+    assert upload[8] == "CRC mismatch"
+    assert upload[10] is not None
 
 
 @pytest.mark.asyncio
-async def test_902_crc_failed_after_max_retries(monkeypatch, tmp_path):
+async def test_901_filename_mismatch_returns_1607(monkeypatch, tmp_path):
     s = make_sql_store(tmp_path)
     fake_session = FakeSession(config.Config.load(), s)
+
     version = b"\x03"
     client_id = b"\x01" * 16
-    payload = b"file_name\x00\x00"
+    payload = b"other.bin\x00"
 
     seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
 
-    async def fake_1604(client_id, version, session):
-        fake_session.reset_calls.append(("1604", client_id))
+    upload_id = s.create_upload_record(client_id.hex(), "file.bin", 5, 10)
+    assert upload_id is not None
+
+    fake_session.upload_id = upload_id
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, text_arg))
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    await handlers.request_901(payload, version, client_id, fake_session)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert "session upload name is invalid" in calls[0][2]
+
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "bad 901: session upload name is invalid"
+
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload[7] == "in_progress"
+    assert upload[8] is None
+
+
+@pytest.mark.asyncio
+async def test_902_marks_failed_and_sends_1604(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    version = b"\x03"
+    client_id = b"\x01" * 16
+    payload = b"file.bin\x00"
+
+    seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
+
+    upload_id = s.create_upload_record(client_id.hex(), "file.bin", 5, 10)
+    assert upload_id is not None
+
+    fake_session.upload_id = upload_id
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1604(client_id_arg, version_arg, session_arg):
+        calls.append(("1604", client_id_arg))
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, text_arg))
 
     monkeypatch.setattr(handlers.answers, "answer_1604", fake_1604)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
 
     await handlers.request_902(payload, version, client_id, fake_session)
 
-    assert fake_session.reset_calls[-1][0] == "1604"
-    assert fake_session.reset_calls[-1][1] == client_id
+    assert len(calls) == 1
+    assert calls[0][0] == "1604"
+    assert calls[0][1] == client_id
+
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "bad 902: invalid CRC on the 4th time"
+    assert fake_session.upload_id is None
+    assert fake_session.upload_filename is None
+    assert fake_session.upload_path is None
+    assert fake_session.upload_crc is None
+
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_902"
 
-    row = s.get_client_by_id(client_id.hex())
-    assert row is not None
-    assert row[0] == client_id.hex()
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload[7] == "failed"
+    assert upload[8] == "invalid CRC on the 4th time"
+    assert upload[10] is not None
+
+
+@pytest.mark.asyncio
+async def test_902_filename_mismatch_returns_1607(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    version = b"\x03"
+    client_id = b"\x01" * 16
+    payload = b"other.bin\x00"
+
+    seed_client(s, username="alice", client_id_hex=client_id.hex(), public_key_der=None, aes_key_b64=None)
+
+    upload_id = s.create_upload_record(client_id.hex(), "file.bin", 5, 10)
+    assert upload_id is not None
+
+    fake_session.upload_id = upload_id
+    fake_session.upload_filename = "file.bin"
+    fake_session.upload_path = "data/uploads/alice/file.bin"
+    fake_session.upload_crc = 0x12345678
+    fake_session.has_upload_slot = True
+    fake_session.upload_active = True
+
+    calls = []
+
+    async def fake_1604(client_id_arg, version_arg, session_arg):
+        calls.append(("1604", client_id_arg))
+
+    async def fake_1607(client_id_arg, version_arg, text_arg, session_arg):
+        calls.append(("1607", client_id_arg, text_arg))
+
+    monkeypatch.setattr(handlers.answers, "answer_1604", fake_1604)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    await handlers.request_902(payload, version, client_id, fake_session)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "1607"
+    assert "session upload name is invalid" in calls[0][2]
+
+    assert fake_session.has_upload_slot is False
+    assert fake_session.reset_calls[-1] == "bad 902: session upload name is invalid"
+
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload[7] == "in_progress"
+    assert upload[8] is None
 
 @pytest.mark.asyncio
 async def test_828_packet0_initializes_state(monkeypatch, tmp_path):
@@ -1195,7 +1481,7 @@ async def test_828_last_packet_received_size_mismatch(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1] == "bad_828 received_cipher_bytes  != expected_content_size"
 
 @pytest.mark.asyncio
-async def test_828_full_upload_success(monkeypatch, tmp_path):
+async def test_828_full_upload_success_keeps_upload_in_progress(monkeypatch, tmp_path):
     s = make_sql_store(tmp_path)
     fake_session = FakeSession(config.Config.load(), s)
     calls = patch_828_side_effects(monkeypatch)
@@ -1222,7 +1508,25 @@ async def test_828_full_upload_success(monkeypatch, tmp_path):
     assert calls[0][3] == "file.bin"
     assert calls[0][4] == 10
     assert calls[0][5] == 0x12345678
-    assert fake_session.reset_calls[-1] == "upload_complete"
+
+    assert fake_session.reset_calls == []
+    assert fake_session.upload_id is not None
+    assert fake_session.upload_filename == "file.bin"
+    assert fake_session.upload_path is not None
+    assert fake_session.upload_crc == 0x12345678
+    assert fake_session.has_upload_slot is True
+
+    uploads = s.get_client_uploads(client_id.hex())
+    assert len(uploads) == 1
+    upload = uploads[0]
+
+    assert upload[1] == client_id.hex()
+    assert upload[2] == "file.bin"
+    assert upload[5] == 10
+    assert upload[7] == "in_progress"
+    assert upload[3] is None
+    assert upload[6] is None
+    assert upload[8] is None
 
 
 @pytest.mark.asyncio

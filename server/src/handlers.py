@@ -371,32 +371,56 @@ async def request_828(payload_info,version,client_id,session):
     else:
         if not session.transfer_iv:
             session.log.info("bad 828: missing IV packet")
+            if session.upload_id and not store.fail_upload_record(session.upload_id,"missing IV packet", "failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
             await answers.answer_1607(client_id, version, "bad 828: missing IV packet", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_iv")
             return
         if not session.expected_packet_num:
             session.log.info("bad 828: expected_packet_num is None")
+            if session.upload_id and not store.fail_upload_record(session.upload_id,"expected_packet_num is None", "failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
             await answers.answer_1607(client_id, version, "bad 828: expected packet num is not initialize", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_expected_packet_num")
             return
         if total_packets!=session.expected_total_packets:
             session.log.info("bad 828:total_packets != expected_total_packets")
+            if session.upload_id and not store.fail_upload_record(session.upload_id,"total_packets != expected_total_packets" ,"failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
             await answers.answer_1607(client_id, version, "bad 828:total_packets != expected_total_packets", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_expected_total_packet")
             return
         if content_size != session.expected_content_size or orig_file_size != session.expected_orig_file_size:
             session.log.info("bad 828: content_size or orig_file_size not as expected")
+            if session.upload_id and not store.fail_upload_record(session.upload_id,"content_size or orig_file_size not as expected" , "failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
             await answers.answer_1607(client_id, version, "bad 828: content_size or orig_file_size not as expected", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size or orig_file_size")
             return
         if len(cipher_chunk) > session.config.max_chunk_size:
             session.log.info("bad 828: cipher_chunk bigger than the max")
-            await answers.answer_1607(client_id, version, "bad 828: cipher_chunk bigger than the max",
-                                      session)
+            if session.upload_id and not store.fail_upload_record(session.upload_id,"cipher_chunk bigger than the max" ,"failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
+            await answers.answer_1607(client_id, version, "bad 828: cipher_chunk bigger than the max",session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 cipher_chunk bigger than the max")
             return
@@ -424,17 +448,34 @@ async def request_828(payload_info,version,client_id,session):
             session.log.info(f"writing the file {file_name} ")
             session.transfer_cipher = bytearray()
             store.touch_client_last_seen(client_id_hex)
+            session.upload_id = store.create_upload_record(client_id_hex, file_name, orig_file_size, session.expected_content_size)
+            if session.upload_id == None:
+                session.log.info("bad 828: upload id is None in db")
+                await answers.answer_1607(client_id, version, "bad 828: upload id is None in db", session)
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828 upload id is None in db")
+                return
             store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
         # Append chunk to the accumulated ciphertext
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
         if session.received_cipher_bytes + len(cipher_chunk) > session.expected_content_size:
             session.log.info("bad 828: content_size will overflow")
+            if not store.fail_upload_record(session.upload_id,"content_size will overflow","failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
             await answers.answer_1607(client_id, version, "bad 828: content_size will overflow",session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size will overflow")
             return
         if packet_num != session.expected_packet_num:
             session.log.info("bad 828: out of order packet_num=%d expected=%d", packet_num, session.expected_packet_num)
+            if not store.fail_upload_record(session.upload_id,"out of order packet_num" ,"failed", str(datetime.datetime.now())):
+                session.log.info("bad 828: fail_upload_record problem in db")
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                return
             await answers.answer_1607(client_id, version, "bad 828: out of order", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_out_of_order")
@@ -449,7 +490,12 @@ async def request_828(payload_info,version,client_id,session):
         if packet_num == total_packets:
             if session.received_cipher_bytes != session.expected_content_size:
                 session.log.info("bad 828: received_cipher_bytes != expected_content_size")
-                await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size", session)
+                if not store.fail_upload_record(session.upload_id,"received_cipher_bytes  != expected_content_size" ,"failed", str(datetime.datetime.now())):
+                    session.log.info("bad 828: fail_upload_record problem in db")
+                    await session.release_upload_slot()
+                    session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                    return
+                await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size",session)
                 await session.release_upload_slot()
                 session.reset_transfer_state("bad_828 received_cipher_bytes  != expected_content_size")
                 return
@@ -466,6 +512,9 @@ async def request_828(payload_info,version,client_id,session):
             session.log.info("writing file to %s", out_path)
             session.log.info(f"length of the plaintext= {pt_len}, original file size={orig_file_size}")
 
+            session.upload_path = out_path
+            session.upload_crc = crc32_val
+
             if session.log.isEnabledFor(logging.DEBUG):
                 session.log.debug("==== SERVER DEBUG ====")
                 session.log.debug(f"File name: {file_name}")
@@ -476,8 +525,6 @@ async def request_828(payload_info,version,client_id,session):
 
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
-            await session.release_upload_slot()
-            session.reset_transfer_state("upload_complete")
 
 async def request_900(payload_info,version,client_id,session):
     """
@@ -496,11 +543,27 @@ async def request_900(payload_info,version,client_id,session):
     session.log.info(f'file name: {file_name} came with valid CRC, sending confirmation ')
     store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["request_900",str(datetime.datetime.now())])
+    if session.upload_id == None or session.upload_path == None or session.upload_crc == None or session.upload_filename == None or file_name != session.upload_filename:
+        session.log.info("bad 900: session upload attributes are invalid")
+        await answers.answer_1607(client_id, version, "bad 900: session upload attributes are invalid",
+                                  session)
+        await session.release_upload_slot()
+        session.reset_transfer_state("bad 900: session upload attributes are invalid")
+        return
+    if not store.complete_upload_record(session.upload_id, session.upload_path, session.upload_crc, str(datetime.datetime.now())):
+        session.log.info("bad 900: complete_upload_record problem in db")
+        await answers.answer_1607(client_id, version, "bad 900: complete upload record problem in db",
+                                  session)
+        await session.release_upload_slot()
+        session.reset_transfer_state("bad 900: complete_upload_record problem in db")
+        return
     await answers.answer_1604(client_id,version,session)
+    await session.release_upload_slot()
+    session.reset_transfer_state("upload_complete")
 
 async def request_901(payload_info,version,client_id,session):
     """
-    Handle request 900: client confirms valid CRC.
+    Handle request 901: client reports invalid CRC.
 
     Payload:
     - filename (UTF-8, may include trailing nulls)
@@ -513,7 +576,24 @@ async def request_901(payload_info,version,client_id,session):
     file_name = payload_info.decode()
     session.log.info(f'file name: {file_name} came with invalid CRC from client id: {client_id},version:{version}')
     store.touch_client_last_seen(client_id.hex())
-    store.clients_recent_log[client_id].append(["request_901",str(datetime.datetime.now())])
+    now = str(datetime.datetime.now())
+    if session.upload_filename == None or file_name != session.upload_filename:
+        session.log.info("bad 901: session upload name is invalid")
+        await answers.answer_1607(client_id, version, "bad 901: session upload name is invalid",
+                                  session)
+        await session.release_upload_slot()
+        session.reset_transfer_state("bad 901: session upload name is invalid")
+        return
+    if not store.fail_upload_record(session.upload_id,"CRC mismatch", "crc_mismatch",now):
+        session.log.info("bad 901: fail_upload_record problem in db")
+        await answers.answer_1607(client_id, version, "bad 901: fail_upload_record problem in db",
+                                  session)
+        await session.release_upload_slot()
+        session.reset_transfer_state("bad 901: fail_upload_record problem in db")
+        return
+    await session.release_upload_slot()
+    session.reset_transfer_state("bad 901: CRC mismatch")
+    store.clients_recent_log[client_id].append(["request_901",now])
     session.log.debug('waiting for request 828')
 
 async def request_902(payload_info,version,client_id,session):
@@ -531,5 +611,21 @@ async def request_902(payload_info,version,client_id,session):
     file_name=payload_info.decode()
     session.log.info(f'file name: {file_name} came with invalid CRC on the 4th time')
     store.touch_client_last_seen(client_id.hex())
-    store.clients_recent_log[client_id].append(["request_902",str(datetime.datetime.now())])
+    now = str(datetime.datetime.now())
+    if session.upload_filename == None or file_name != session.upload_filename:
+        session.log.info("bad 902: session upload name is invalid")
+        await answers.answer_1607(client_id, version, "bad 901: session upload name is invalid",
+                                  session)
+        await session.release_upload_slot()
+        session.reset_transfer_state("bad 902: session upload name is invalid")
+        return
+    if not store.fail_upload_record(session.upload_id,"invalid CRC on the 4th time", "failed", now):
+        session.log.info("bad 902: fail_upload_record problem in db")
+        await answers.answer_1607(client_id, version, "bad 902: fail_upload_record problem in db",session)
+        await session.release_upload_slot()
+        session.reset_transfer_state("bad 902: complete_upload_record problem in db")
+        return
+    store.clients_recent_log[client_id].append(["request_902",now])
     await answers.answer_1604(client_id,version,session)
+    await session.release_upload_slot()
+    session.reset_transfer_state("bad 902: invalid CRC on the 4th time")

@@ -136,15 +136,14 @@ def test_fail_upload_record(tmp_path):
     assert s.fail_upload_record(
         upload_id,
         "crc mismatch",
-        "failed_crc",
+        "crc_mismatch",
         "2026-03-24T12:00:00",
     )
 
     uploads = s.get_client_uploads(client_id_hex)
     assert len(uploads) == 1
-    assert uploads[0][7] == "failed_crc"
+    assert uploads[0][7] == "crc_mismatch"
     assert uploads[0][8] == "crc mismatch"
-
 
 def test_aes_key_roundtrip_is_valid_base64(tmp_path):
     s = make_sql_store(tmp_path)

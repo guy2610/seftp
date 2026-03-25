@@ -14,26 +14,28 @@ This is an independent engineering project focused on protocol design,
 defensive validation, concurrency, and end-to-end reliability.
 The system is not intended for production use.
 
-Stage 5 is in progress, with the scalability track completed: upload backpressure, connection limits, and bounded CPU-bound worker execution.
+Stage 5 is in progress. The scalability track is complete, and the persistence layer has been migrated from JSON to SQLite with persisted client and upload metadata.
 
 Stages 1-4 completed: protocol hardening, architectural refactor,
 async multi-client support, automated testing, CI validation,
 client UX improvements, persistence polish, and operational improvements.
 
-The system is functional end-to-end and includes defensive protocol validation, timeouts, and crash-safe persistence.
+The system is functional end-to-end and includes defensive protocol validation, timeouts, bounded concurrency controls, and persistent server-side storage via SQLite.
 
 ---
 
 ## Version
 
-**v0.5.0 - Stage 5 scalability completed (server concurrency hardening)**
+**v0.5.0 - Stage 5 scalability and persistence foundations**
 
-* Upload backpressure with bounded concurrent uploads
-* Global and per-IP connection limits
-* Rejection and recovery behavior under connection overload
-* Bounded executor for CPU-bound upload finalization
-* Improved server stability under idle and upload-heavy load
-* Added unit and integration tests for connection limiting and concurrency control
+ * Upload backpressure with bounded concurrent uploads
+ * Global and per-IP connection limits
+ * Rejection and recovery behavior under connection overload
+ * Bounded executor for CPU-bound upload finalization
+ * SQLite-backed server persistence for Clients and Uploads
+ * Persisted upload lifecycle tracking (in_progress, completed, crc_mismatch, failed)
+ * Separation of transient in-memory session state from persistent server metadata
+ * Added unit and integration tests for connection limiting, concurrency control, and SQLite-backed persistence
 
 **v0.4.0 - Stage 4 complete (Client UX, Persistence & Operational Polish)**
 
@@ -77,6 +79,8 @@ A prebuilt Windows x64 client binary is available.
 - Built in Release mode
 
 Download:
+A prebuilt Windows x64 client binary is currently available for v0.4.0.
+
 https://github.com/guy2610/Portfolio/releases/tag/v0.4.0-win-x64
 
 Run:
@@ -121,7 +125,7 @@ server/
   server_tirgul.py     # legacy not in use
   port.info            # server port configuration
   data/
-    clients_info.json
+    seftp_server_sql.db
     uploads/
       <username>/
         <filename>
@@ -130,7 +134,7 @@ server/
     handlers.py
     answers.py
     session.py
-    store.py           # JSON persistence; single-process; atomic save on shutdown
+    store.py           # SQLite persistence and client metadata access helpers
     config.py
     framing.py         # TCP stream framing and reassembly
     upload_limiter.py
@@ -168,7 +172,7 @@ protocol/
 * Encrypted file upload in fixed-size chunks (`828`)
 * CRC validation with retry logic (`900 / 901 / 902 + 1603`)
 * Persistent client identity and keys on the client side
-* Minimal server-side persistence (`clients_info.json`) with atomic crash-safe writes
+* Server-side SQLite persistence for Clients and Uploads, including upload lifecycle tracking
 * Server-side idle and upload inactivity timeouts
 * Strict server-side validation of upload sequencing, size limits, and malformed frames
 * Graceful handling of client disconnects and protocol violations
@@ -211,7 +215,7 @@ Python server
   - Computes CRC32 and returns result (1603)
   - Logs effective startup configuration
   - Returns clearer 1607 protocol / internal error messages
-  - Saves persistent state on graceful shutdown
+  - Persists client metadata and upload lifecycle state in SQLite
   - Enforces upload backpressure and connection admission limits
   - Uses a bounded executor for CPU-bound upload finalization
   - Protects the event loop from unbounded CPU-bound work
@@ -230,7 +234,7 @@ CI validates:
 - max_file_size limit enforcement
 - Parallel client isolation
 - End-to-end flow integrity (register -> upload -> CRC)
-- Client persistence behavior and atomic file writes
+- SQLite persistence and upload lifecycle behavior
 - Connection limit enforcement
 - Idle connection rejection and recovery
 
@@ -259,6 +263,8 @@ GitHub Actions:
   - 1607 enforcement on invalid 828 headers
   - Connection limiter tests
   - Bounded executor tests
+  - SQLite store behavior
+  - Upload lifecycle persistence across 828 / 900 / 901 / 902
 
 ### Integration (E2E) Tests
 
@@ -409,7 +415,7 @@ Client stops retrying.
 * RSA private key stored in `priv.key`
 * No replay protection or authentication
 * Server supports multiple concurrent clients (asyncio, single-process, event-loop based concurrency).
-  *(Server state is persisted to server/data/clients_info.json using atomic writes on shutdown.)*
+  *(Server-side client metadata and upload records are persisted in SQLite.)*
 * Concurrent uploads are isolated per client
 * Server stores uploaded files under data/uploads/<username>/<filename>
 * Uploads with identical filenames from different clients do not overwrite each other
@@ -495,10 +501,9 @@ The client will:
 ```
 Prerequisites (persistence)
 
-On startup, the server loads `server/data/clients_info.json` if it exists.
-Otherwise it creates the file automatically.
+On startup, the server initializes the SQLite database under server/data/ if it does not already exist.
 
-State updates are saved on graceful shutdown (Ctrl+C / process exit).
+Client metadata and upload records are persisted in SQLite during runtime.
 
 cd server
 python server_async.py
@@ -698,16 +703,16 @@ Improve server scalability and storage architecture.
 
 * Persistence layer evolution
   * JSON persistence layer (DONE)
-  * SQLite persistence layer
-  * Client metadata storage
-  * Migration from JSON store
-  * Separation of runtime session state vs persistent storage
+  * SQLite persistence layer (DONE)
+  * Client metadata storage (DONE)
+  * Upload lifecycle persistence (DONE)
+  * Migration from JSON store (DONE)
+  * Separation of runtime session state vs persistent storage (DONE)
+  * Keep upload/session transient state in memory (DONE)
   * Avoid DB access on packet hot path
   * In-memory client index for low-latency lookups
   * Write-through cache for persistent client metadata
-  * Keep upload/session transient state in memory
-
-
+ 
 ---
 
 ### **Stage 6 - Security Hardening**

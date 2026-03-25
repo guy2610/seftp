@@ -460,22 +460,19 @@ async def request_828(payload_info,version,client_id,session):
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
         if session.received_cipher_bytes + len(cipher_chunk) > session.expected_content_size:
             session.log.info("bad 828: content_size will overflow")
-            if not store.fail_upload_record(session.upload_id,"content_size will overflow","failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
+            if session.upload_id is not None:
+                if not store.fail_upload_record(session.upload_id,"content_size will overflow","failed", str(datetime.datetime.now())):
+                    session.log.info("bad 828: fail_upload_record problem in db")
+                    return
             await answers.answer_1607(client_id, version, "bad 828: content_size will overflow",session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828 content_size will overflow")
             return
         if packet_num != session.expected_packet_num:
             session.log.info("bad 828: out of order packet_num=%d expected=%d", packet_num, session.expected_packet_num)
-            if not store.fail_upload_record(session.upload_id,"out of order packet_num" ,"failed", str(datetime.datetime.now())):
-                session.log.info("bad 828: fail_upload_record problem in db")
-                await session.release_upload_slot()
-                session.reset_transfer_state("bad 828: fail_upload_record problem in db")
-                return
+            if session.upload_id is not None:
+                if not store.fail_upload_record(session.upload_id, "out of order packet_num", "failed",str(datetime.datetime.now())):
+                    session.log.info("bad 828: fail_upload_record problem in db")
             await answers.answer_1607(client_id, version, "bad 828: out of order", session)
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_out_of_order")
@@ -490,10 +487,9 @@ async def request_828(payload_info,version,client_id,session):
         if packet_num == total_packets:
             if session.received_cipher_bytes != session.expected_content_size:
                 session.log.info("bad 828: received_cipher_bytes != expected_content_size")
-                if not store.fail_upload_record(session.upload_id,"received_cipher_bytes  != expected_content_size" ,"failed", str(datetime.datetime.now())):
-                    session.log.info("bad 828: fail_upload_record problem in db")
-                    await session.release_upload_slot()
-                    session.reset_transfer_state("bad 828: fail_upload_record problem in db")
+                if session.upload_id is not None:
+                    if not store.fail_upload_record(session.upload_id,"received_cipher_bytes  != expected_content_size" ,"failed", str(datetime.datetime.now())):
+                        session.log.info("bad 828: fail_upload_record problem in db")
                     return
                 await answers.answer_1607(client_id, version, "bad 828: received_cipher_bytes != expected_content_size",session)
                 await session.release_upload_slot()
@@ -574,6 +570,7 @@ async def request_901(payload_info,version,client_id,session):
     session.log.debug("inside request 901")
     store = session.store
     file_name = payload_info.decode()
+    file_name = file_name.rstrip('\x00')
     session.log.info(f'file name: {file_name} came with invalid CRC from client id: {client_id},version:{version}')
     store.touch_client_last_seen(client_id.hex())
     now = str(datetime.datetime.now())
@@ -609,13 +606,13 @@ async def request_902(payload_info,version,client_id,session):
     session.log.debug("inside request 902")
     store = session.store
     file_name=payload_info.decode()
+    file_name = file_name.rstrip('\x00')
     session.log.info(f'file name: {file_name} came with invalid CRC on the 4th time')
     store.touch_client_last_seen(client_id.hex())
     now = str(datetime.datetime.now())
     if session.upload_filename == None or file_name != session.upload_filename:
         session.log.info("bad 902: session upload name is invalid")
-        await answers.answer_1607(client_id, version, "bad 901: session upload name is invalid",
-                                  session)
+        await answers.answer_1607(client_id, version, "bad 902: session upload name is invalid",session)
         await session.release_upload_slot()
         session.reset_transfer_state("bad 902: session upload name is invalid")
         return

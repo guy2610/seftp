@@ -30,7 +30,8 @@ async def request_825(payload_info,version,session):
     payload_info=payload_info.rstrip(b'\x00').decode()
     name = payload_info.strip()
     if not store.client_exists_by_username(name):
-        client_id_hex = store.create_client(name)
+        record = store.create_client(name)
+        client_id_hex = record.client_id_hex
         session.log.info(f'{name} has created.')
         client_id = bytes.fromhex(client_id_hex)
         if name in store.clients_recent_log.keys():
@@ -60,13 +61,13 @@ async def request_826(client_id, payload_info: bytes, version,session):
     store=session.store
     client_id_hex = client_id.hex()
 
-    client_row = store.get_client_by_id(client_id_hex)
-    if client_row is None:
+    client_record = store.get_client_by_id(client_id_hex)
+    if client_record is None:
         session.log.info(f'uuid not in clients db; client_id={client_id!r}')
         await answers.answer_1607(client_id, version, "unknown client id", session)
         return
 
-    name_in_db = client_row[1]
+    name_in_db = client_record.username
     store.touch_client_last_seen(client_id_hex)
     store.clients_recent_log[client_id].append(["request_826",str(datetime.datetime.now())])
 
@@ -165,15 +166,15 @@ async def request_827(client_id,payload_info:bytes,version,session):
         session.log.info("bad 827 payload: name is not valid UTF-8")
         await answers.answer_1606(b'\x00' * 16, version, "", session)
         return
-    client_row = store.get_client_by_username(name)
-    if client_row is None:
+    client_record = store.get_client_by_username(name)
+    if client_record is None:
         #the user doesnt exist
         session.log.info(f'the user {name} not in the clients db')
         store.clients_recent_log[name].append(["request_827",str(datetime.datetime.now())])
         await answers.answer_1606(b'\x00'*16, version,name,session)
         return
-    stored_client_id_hex = client_row[0]
-    store_pub_key = client_row[2]
+    stored_client_id_hex = client_record.client_id_hex
+    store_pub_key = client_record.public_key_der
 
     if stored_client_id_hex != client_id.hex():
         session.log.info(f'the user {name} has another id')
@@ -207,7 +208,15 @@ async def request_827(client_id,payload_info:bytes,version,session):
     ciphertext = cipher.encrypt(key)
     session.log.info("request to sign on succeed")
     if session.log.isEnabledFor(logging.DEBUG):
-        session.log.debug(f'the name: {name} has this list {client_row}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
+        info_client = [
+            client_record.client_id_hex,
+            client_record.username,
+            client_record.public_key_der,
+            client_record.aes_key_b64,
+            client_record.created_at,
+            client_record.last_seen
+        ]
+        session.log.debug(f'the name: {name} has this list {info_client}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
     await answers.answer_1605(ciphertext, client_id, version,session)
 
 def _draw_progress(packet_num, total_packets, chunk_size):
@@ -314,14 +323,14 @@ async def request_828(payload_info,version,client_id,session):
     cipher_chunk = payload_info[sep + 1:]
     client_id_hex = client_id.hex()
     if session.upload_client_id_hex is None:
-        client_row = store.get_client_by_id(client_id_hex)
-        if client_row is None:
+        client_record = store.get_client_by_id(client_id_hex)
+        if client_record is None:
             session.log.info(f'uuid not in clients db; client_id={client_id!r}')
             await session.release_upload_slot()
             session.reset_transfer_state("bad_828_client_or_name")
             return
-        username = client_row[1]
-        aes_key_b64 = client_row[3]
+        username = client_record.username
+        aes_key_b64 = client_record.aes_key_b64
         if not aes_key_b64:
             session.log.info(f'client has no AES key; client_id={client_id!r}')
             await answers.answer_1607(client_id, version, "bad 828: missing AES key", session)

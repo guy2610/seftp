@@ -14,7 +14,7 @@ This is an independent engineering project focused on protocol design,
 defensive validation, concurrency, and end-to-end reliability.
 The system is not intended for production use.
 
-Stage 5 is in progress. The scalability track is complete, and the persistence layer has been migrated from JSON to SQLite with persisted client and upload metadata.
+Stage 5 is complete. The server now includes bounded concurrency controls, SQLite-backed persistence, persisted upload lifecycle tracking, and an in-memory client metadata index with write-through synchronization for low-latency hot-path lookups.
 
 Stages 1-4 completed: protocol hardening, architectural refactor,
 async multi-client support, automated testing, CI validation,
@@ -36,6 +36,9 @@ The system is functional end-to-end and includes defensive protocol validation, 
  * Persisted upload lifecycle tracking (in_progress, completed, crc_mismatch, failed)
  * Separation of transient in-memory session state from persistent server metadata
  * Added unit and integration tests for connection limiting, concurrency control, and SQLite-backed persistence
+ * In-memory client metadata index for low-latency lookups
+ * Write-through synchronization between SQLite persistence and runtime client metadata state
+ * Hot-path client metadata reads served from an in-memory index instead of direct SQLite lookups
 
 **v0.4.0 - Stage 4 complete (Client UX, Persistence & Operational Polish)**
 
@@ -173,6 +176,9 @@ protocol/
 * CRC validation with retry logic (`900 / 901 / 902 + 1603`)
 * Persistent client identity and keys on the client side
 * Server-side SQLite persistence for Clients and Uploads, including upload lifecycle tracking
+* In-memory client metadata index for fast username/client_id lookups
+* Write-through updates for persistent client metadata (public key, AES key, last_seen)
+* Hot-path client metadata access avoids repeated direct SQLite reads
 * Server-side idle and upload inactivity timeouts
 * Strict server-side validation of upload sequencing, size limits, and malformed frames
 * Graceful handling of client disconnects and protocol violations
@@ -216,6 +222,8 @@ Python server
   - Logs effective startup configuration
   - Returns clearer 1607 protocol / internal error messages
   - Persists client metadata and upload lifecycle state in SQLite
+  - Loads client metadata into an in-memory index at startup
+  - Serves hot-path client lookups from memory and synchronizes metadata updates with SQLite using write-through semantics
   - Enforces upload backpressure and connection admission limits
   - Uses a bounded executor for CPU-bound upload finalization
   - Protects the event loop from unbounded CPU-bound work
@@ -693,7 +701,7 @@ Completed
 
 ---
 
-### **Stage 5 - Scalability & Persistence**
+### **Stage 5 - Scalability & Persistence** DONE
 Improve server scalability and storage architecture.
 
 * Server concurrency improvements
@@ -709,13 +717,48 @@ Improve server scalability and storage architecture.
   * Migration from JSON store (DONE)
   * Separation of runtime session state vs persistent storage (DONE)
   * Keep upload/session transient state in memory (DONE)
-  * Avoid DB access on packet hot path
-  * In-memory client index for low-latency lookups
-  * Write-through cache for persistent client metadata
+  * Avoid DB access on packet hot path (DONE)
+  * In-memory client index for low-latency lookups (DONE)
+  * Write-through synchronization for persistent client metadata (DONE)
  
 ---
 
-### **Stage 6 - Security Hardening**
+### **Stage 6 - Observability & Performance Analysis**
+
+Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
+* Extend load and stress testing scenarios
+  * Parallel clients (idle + active uploads)
+  * High connection churn
+  * Mixed workloads (registration, re-login, uploads)
+
+* Collect performance metrics
+  * Request/response latency (p50 / p95 / p99)
+  * Upload duration and throughput
+  * Success / failure / rejection rates
+  * Connection and upload concurrency levels
+
+* Resource usage analysis
+  * CPU utilization under load
+  * Memory usage (RSS / growth over time)
+  * Active connections and active uploads
+  * Backpressure behavior and queue saturation
+
+* Output and visualization
+  * Structured results (JSON / CSV)
+  * Summary tables per scenario
+  * Basic charts for latency, throughput, and resource usage
+
+* Bottleneck identification
+  * Detect hot paths (CPU vs I/O vs DB)
+  * Evaluate effectiveness of in-memory client index
+  * Identify whether additional caching or indexing is justified
+
+* Evidence-based optimization targets
+  * Define concrete candidates for future improvements
+  * Feed results into Stage 8 (future work / optimizations)
+
+---
+### **Stage 7 - Security Hardening**
 Additional security protections beyond baseline protocol validation.
 
 * Protocol hardening
@@ -730,7 +773,7 @@ Additional security protections beyond baseline protocol validation.
 
 ---
 
-### **Stage 7 - Observability & Production Behavior**
+### **Stage 8 - Observability & Production Behavior**
 Operational visibility and diagnostics.
 
 * Metrics
@@ -747,7 +790,7 @@ Operational visibility and diagnostics.
 
 ---
 
-### **Stage 8 - Extensions & Portfolio Polish**
+### **Stage 9 - Extensions & Portfolio Polish**
 Future work
 
 * Optional C++ server implementation

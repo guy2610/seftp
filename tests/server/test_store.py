@@ -17,40 +17,42 @@ def seed_client(
     username="alice",
     client_id_hex=None,
     public_key_der=None,
-    aes_key_b64="aes_b64",
+    aes_key_b64=None,
 ):
-    created_client_id_hex = s.create_client(username)
+    created_record = s.create_client(username)
+    actual_client_id_hex = created_record.client_id_hex
 
-    if client_id_hex is not None and created_client_id_hex != client_id_hex:
+    if client_id_hex is not None and actual_client_id_hex != client_id_hex:
         cur = s.sqliteConnection.cursor()
         cur.execute(
             "UPDATE Clients SET client_id_hex = ? WHERE username = ?",
             (client_id_hex, username),
         )
         s.sqliteConnection.commit()
-        created_client_id_hex = client_id_hex
+        cur.close()
+        s._load_clients_index()
+        actual_client_id_hex = client_id_hex
 
     if public_key_der is not None:
-        assert s.set_client_public_key(created_client_id_hex, public_key_der)
+        assert s.set_client_public_key(actual_client_id_hex, public_key_der)
 
     if aes_key_b64 is not None:
-        assert s.set_client_aes_key(created_client_id_hex, aes_key_b64)
+        assert s.set_client_aes_key(actual_client_id_hex, aes_key_b64)
 
-    return created_client_id_hex
-
+    return actual_client_id_hex
 
 def test_initialize_and_create_client(tmp_path):
     s = make_sql_store(tmp_path)
 
-    client_id_hex = s.create_client("alice")
+    record = s.create_client("alice")
 
-    assert client_id_hex is not None
-    row = s.get_client_by_username("alice")
-    assert row is not None
-    assert row[0] == client_id_hex
-    assert row[1] == "alice"
-    assert row[2] is None
-    assert row[3] is None
+    assert record is not None
+    client_record = s.get_client_by_username("alice")
+    assert client_record is not None
+    assert client_record.client_id_hex == record.client_id_hex
+    assert client_record.username == "alice"
+    assert client_record.public_key_der is None
+    assert client_record.aes_key_b64 is None
 
 
 def test_get_client_by_id(tmp_path):
@@ -58,10 +60,9 @@ def test_get_client_by_id(tmp_path):
 
     client_id_hex = seed_client(s, username="alice")
 
-    row = s.get_client_by_id(client_id_hex)
-    assert row is not None
-    assert row[0] == client_id_hex
-    assert row[1] == "alice"
+    client_record = s.get_client_by_id(client_id_hex)
+    assert client_record.client_id_hex == client_id_hex
+    assert client_record.username == "alice"
 
 
 def test_client_exists_helpers(tmp_path):
@@ -88,20 +89,20 @@ def test_set_public_key_and_aes_key(tmp_path):
     assert s.set_client_public_key(client_id_hex, b"\x01\x02\x03")
     assert s.set_client_aes_key(client_id_hex, "YWJj")
 
-    row = s.get_client_by_id(client_id_hex)
-    assert row[2] == b"\x01\x02\x03"
-    assert row[3] == "YWJj"
+    client_record = s.get_client_by_id(client_id_hex)
+    assert client_record.public_key_der == b"\x01\x02\x03"
+    assert client_record.aes_key_b64 == "YWJj"
 
 
 def test_touch_client_last_seen(tmp_path):
     s = make_sql_store(tmp_path)
 
     client_id_hex = seed_client(s, username="alice")
-    before = s.get_client_by_id(client_id_hex)[5]
+    before = s.get_client_by_id(client_id_hex).last_seen
 
     assert s.touch_client_last_seen(client_id_hex) is True
 
-    after = s.get_client_by_id(client_id_hex)[5]
+    after = s.get_client_by_id(client_id_hex).last_seen
     assert after >= before
 
 
@@ -156,6 +157,6 @@ def test_aes_key_roundtrip_is_valid_base64(tmp_path):
         aes_key_b64=aes_key_b64,
     )
 
-    row = s.get_client_by_id(client_id_hex)
-    assert row[3] == aes_key_b64
-    assert base64.b64decode(row[3]) == b"\x11" * 32
+    client_record = s.get_client_by_id(client_id_hex)
+    assert client_record.aes_key_b64 == aes_key_b64
+    assert base64.b64decode(client_record.aes_key_b64) == b"\x11" * 32

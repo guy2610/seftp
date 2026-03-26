@@ -14,29 +14,32 @@ def make_sql_store(tmp_path):
 
 def seed_client(
     s,
-    username="Alice",
+    username="alice",
     client_id_hex=None,
     public_key_der=None,
-    aes_key_b64="aes_b64",
+    aes_key_b64=None,
 ):
-    created_client_id_hex = s.create_client(username)
+    created_record = s.create_client(username)
+    actual_client_id_hex = created_record.client_id_hex
 
-    if client_id_hex is not None and created_client_id_hex != client_id_hex:
+    if client_id_hex is not None and actual_client_id_hex != client_id_hex:
         cur = s.sqliteConnection.cursor()
         cur.execute(
             "UPDATE Clients SET client_id_hex = ? WHERE username = ?",
             (client_id_hex, username),
         )
         s.sqliteConnection.commit()
-        created_client_id_hex = client_id_hex
+        cur.close()
+        s._load_clients_index()
+        actual_client_id_hex = client_id_hex
 
     if public_key_der is not None:
-        assert s.set_client_public_key(created_client_id_hex, public_key_der)
+        assert s.set_client_public_key(actual_client_id_hex, public_key_der)
 
     if aes_key_b64 is not None:
-        assert s.set_client_aes_key(created_client_id_hex, aes_key_b64)
+        assert s.set_client_aes_key(actual_client_id_hex, aes_key_b64)
 
-    return created_client_id_hex
+    return actual_client_id_hex
 
 
 class FakeLogger:
@@ -210,9 +213,9 @@ async def test_answer_1606_nonzero_client_id_updates_last_seen_and_logs_by_clien
     assert msg[7:] == client_id
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1606"
 
-    row = s.get_client_by_id(client_id.hex())
-    assert row is not None
-    assert row[0] == client_id.hex()
+    client_record = s.get_client_by_id(client_id.hex())
+    assert client_record is not None
+    assert client_record.client_id_hex == client_id.hex()
 
 
 @pytest.mark.asyncio
@@ -308,9 +311,9 @@ async def test_answer_1604_correct_frame_and_side_effects(tmp_path):
     assert msg[7:] == client_id
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1604"
 
-    row = s.get_client_by_id(client_id.hex())
-    assert row is not None
-    assert row[0] == client_id.hex()
+    client_record = s.get_client_by_id(client_id.hex())
+    assert client_record is not None
+    assert client_record.client_id_hex == client_id.hex()
 
 @pytest.mark.asyncio
 async def test_answer_1607_updates_last_seen_when_client_known(tmp_path):
@@ -339,6 +342,6 @@ async def test_answer_1607_updates_last_seen_when_client_known(tmp_path):
     assert payload[16:] == text.encode("utf-8")
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1607"
 
-    row = s.get_client_by_id(client_id.hex())
-    assert row is not None
-    assert row[0] == client_id.hex()
+    client_record = s.get_client_by_id(client_id.hex())
+    assert client_record is not None
+    assert client_record.client_id_hex == client_id.hex()

@@ -22,26 +22,29 @@ def seed_client(
     username="alice",
     client_id_hex=None,
     public_key_der=None,
-    aes_key_b64="aes_b64",
+    aes_key_b64=None,
 ):
-    created_client_id_hex = s.create_client(username)
+    created_record = s.create_client(username)
+    actual_client_id_hex = created_record.client_id_hex
 
-    if client_id_hex is not None and created_client_id_hex != client_id_hex:
+    if client_id_hex is not None and actual_client_id_hex != client_id_hex:
         cur = s.sqliteConnection.cursor()
         cur.execute(
             "UPDATE Clients SET client_id_hex = ? WHERE username = ?",
             (client_id_hex, username),
         )
         s.sqliteConnection.commit()
-        created_client_id_hex = client_id_hex
+        cur.close()
+        s._load_clients_index()
+        actual_client_id_hex = client_id_hex
 
     if public_key_der is not None:
-        assert s.set_client_public_key(created_client_id_hex, public_key_der)
+        assert s.set_client_public_key(actual_client_id_hex, public_key_der)
 
     if aes_key_b64 is not None:
-        assert s.set_client_aes_key(created_client_id_hex, aes_key_b64)
+        assert s.set_client_aes_key(actual_client_id_hex, aes_key_b64)
 
-    return created_client_id_hex
+    return actual_client_id_hex
 
 
 class DummyUploadLimiter:
@@ -238,12 +241,12 @@ async def test_825_registration_succeed(monkeypatch, tmp_path):
 
     await handlers.request_825(payload, version, fake_session)
 
-    row = s.get_client_by_username("alice")
-    assert row is not None
-    client_id = bytes.fromhex(row[0])
-    assert row[1] == "alice"
-    assert row[2] is None
-    assert row[3] is None
+    client_record = s.get_client_by_username("alice")
+    assert client_record  is not None
+    client_id = bytes.fromhex(client_record.client_id_hex)
+    assert client_record.username == "alice"
+    assert client_record.public_key_der is None
+    assert client_record.aes_key_b64 is None
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_825"
     assert fake_session.reset_calls[-1] == "1600"
 
@@ -265,9 +268,9 @@ async def test_825_registration_name_need_strip(monkeypatch, tmp_path):
 
     await handlers.request_825(payload, version, fake_session)
 
-    row = s.get_client_by_username("alice")
-    assert row is not None
-    assert row[1] == "alice"
+    client_record = s.get_client_by_username("alice")
+    assert client_record  is not None
+    assert client_record.username == "alice"
     assert fake_session.reset_calls[-1][0] == "1600"
 
 @pytest.mark.asyncio
@@ -325,11 +328,11 @@ async def test_826_public_key_correct(monkeypatch, tmp_path):
 
     assert fake_session.reset_calls[-1] == "1602"
 
-    row = s.get_client_by_username(name)
-    assert row[0] == client_id.hex()
-    assert row[2] == public_der
-    assert row[3] is not None
-    assert len(base64.b64decode(row[3])) == 32
+    client_record = s.get_client_by_username(name)
+    assert client_record.client_id_hex == client_id.hex()
+    assert client_record.public_key_der == public_der
+    assert client_record.aes_key_b64 is not None
+    assert len(base64.b64decode(client_record.aes_key_b64)) == 32
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_826"
 
 
@@ -367,9 +370,9 @@ async def test_826_public_key_no_null_after_name(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1][0] == "1607"
     assert fake_session.reset_calls[-1][1] == "bad 826 payload: missing NUL after name"
 
-    row = s.get_client_by_username(name)
-    assert row[2] is None
-    assert row[3] is None
+    client_record = s.get_client_by_username(name)
+    assert client_record.public_key_der is None
+    assert client_record.aes_key_b64 is None
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_826"
 
 @pytest.mark.asyncio
@@ -431,9 +434,9 @@ async def test_826_public_key_invalid_base64(monkeypatch, tmp_path):
 
     assert fake_session.reset_calls[-1] == ("1607", "bad 826 payload: key is not valid Base64")
 
-    row = s.get_client_by_username(name)
-    assert row[2] is None
-    assert row[3] is None
+    client_record = s.get_client_by_username(name)
+    assert client_record.public_key_der is None
+    assert client_record.aes_key_b64 is None
 
 @pytest.mark.asyncio
 async def test_826_private_key_rejected(monkeypatch, tmp_path):
@@ -468,9 +471,9 @@ async def test_826_private_key_rejected(monkeypatch, tmp_path):
 
     assert fake_session.reset_calls[-1] == ("1606", client_id, name)
 
-    row = s.get_client_by_username(name)
-    assert row[2] is None
-    assert row[3] is None
+    client_record = s.get_client_by_username(name)
+    assert client_record.public_key_der is None
+    assert client_record.aes_key_b64 is None
 
 @pytest.mark.asyncio
 async def test_826_public_key_wrong_size(monkeypatch, tmp_path):
@@ -705,8 +708,8 @@ async def test_827_relogin_user_exists_public_key_valid(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1][0] == "1605"
     assert fake_session.reset_calls[-1][2] == client_id
 
-    row = s.get_client_by_username(name)
-    assert row[3] is not None
+    client_record = s.get_client_by_username(name)
+    assert client_record.aes_key_b64 is not None
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_827"
 
 
@@ -745,8 +748,8 @@ async def test_827_relogin_user_exists_public_key_not_valid(monkeypatch, tmp_pat
     assert fake_session.reset_calls[-1][1] == client_id
     assert fake_session.reset_calls[-1][2] == name
 
-    row = s.get_client_by_username(name)
-    assert row[3] is None
+    client_record = s.get_client_by_username(name)
+    assert client_record.aes_key_b64 is None
     assert fake_session.store.clients_recent_log[client_id][-1][0] == "request_827"
 
 

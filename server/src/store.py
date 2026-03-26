@@ -1,15 +1,55 @@
 from collections import defaultdict
-import base64
-import json
-import tempfile
 import os
 import sqlite3
 import uuid
 import datetime
+
+class ClientRecord:
+    def __init__(self,client_id_hex: str,username: str, public_key_der, aes_key_b64,created_at: str,last_seen: str):
+        self.client_id_hex = client_id_hex
+        self.username = username
+        self.public_key_der = public_key_der
+        self.aes_key_b64 = aes_key_b64
+        self.created_at = created_at
+        self.last_seen = last_seen
+
 class Store:
     def __init__(self):
         self.clients_recent_log=defaultdict(list)
         self.sqliteConnection = None
+        self.clients_by_id = {}
+        self.clients_by_username = {}
+
+    def _now(self):
+        return  str(datetime.datetime.now())
+
+    def _row_to_client_record(self,row):
+        return ClientRecord(row[0],row[1],row[2],row[3],row[4],row[5])
+
+    def _index_put(self,record):
+        self.clients_by_id[record.client_id_hex] = record
+        self.clients_by_username[record.username] = record
+
+    def _load_clients_index(self):
+        self.clients_by_id.clear()
+        self.clients_by_username.clear()
+
+        cursor = self.sqliteConnection.cursor()
+        query = """SELECT client_id_hex, username, public_key_der, aes_key_b64, created_at, last_seen 
+                    FROM Clients"""
+        cursor.execute(query)
+        for row in cursor.fetchall():
+            record = self._row_to_client_record(row)
+            self._index_put(record)
+        cursor.close()
+
+    def _get_index_record_or_raise(self,client_id_hex):
+        record = self.clients_by_id.get(client_id_hex,None)
+        if record is None:
+            raise RuntimeError(
+                f"Store index inconsistency: client_id {client_id_hex} exists in DB flow but missing from in-memory index"
+            )
+        return record
 
     def initialize(self,db_name = 'seftp_server_sql.db'):
         try:
@@ -54,6 +94,8 @@ class Store:
             cursor.execute(create_uploads_table_query)
             self.sqliteConnection.commit()
             cursor.close()
+
+            self._load_clients_index()
             print(f"Backend initialized: Connected to {db_name}")
             return True
 
@@ -70,6 +112,8 @@ class Store:
             self.sqliteConnection.commit()
             self.sqliteConnection.close()
             self.sqliteConnection = None
+            self.clients_by_id.clear()
+            self.clients_by_username.clear()
             print("Backend closed successfully.")
         except sqlite3.Error as e:
             print(f"Error during closing: {e}")
@@ -81,54 +125,43 @@ class Store:
 
         cursor = self.sqliteConnection.cursor()
         client_id_hex = uuid.uuid4().hex
-        created_at = str(datetime.datetime.now())
+        created_at = self._now()
         last_seen = created_at
         data = (client_id_hex,username,created_at,last_seen)
         cursor.execute("INSERT INTO Clients (client_id_hex,username,created_at,last_seen) VALUES (?,?,?,?)",data)
         self.sqliteConnection.commit()
-        return client_id_hex
+        cursor.close()
+
+        record = ClientRecord(client_id_hex,username,None,None, created_at,last_seen)
+        self._index_put(record)
+        return record
     def get_client_by_username(self,username):
         if not self.sqliteConnection:
             print("No active connection.\n Error get_client_by_username")
             return None
-        cursor = self.sqliteConnection.cursor()
-        query = """SELECT client_id_hex, username, public_key_der, aes_key_b64, created_at, last_seen 
-        FROM Clients 
-        WHERE username = ?"""
-        cursor.execute(query,(username,))
-        return cursor.fetchone()
+        return self.clients_by_username.get(username,None)
 
     def get_client_by_id(self,client_id_hex):
         if not self.sqliteConnection:
             print("No active connection.\n Error get_client_by_id")
             return None
-        cursor = self.sqliteConnection.cursor()
-        query =  """SELECT client_id_hex, username, public_key_der, aes_key_b64, created_at, last_seen 
-        FROM Clients
-        WHERE client_id_hex = ?"""
-        cursor.execute(query,(client_id_hex,))
-        return cursor.fetchone()
+        return self.clients_by_id.get(client_id_hex,None)
 
 
     def client_exists_by_username(self,username):
-        if self.sqliteConnection:
-            cursor = self.sqliteConnection.cursor()
-            query = "SELECT 1 FROM Clients WHERE username = ? LIMIT 1"
-            cursor.execute(query,(username,))
-            result = cursor.fetchone()
-            return result is not None
-        else:
+        if not self.sqliteConnection:
             print("No active connection.\n Error client_exists_by_username")
             return False
+
+        return username in self.clients_by_username
+
+
     def client_exists_by_id(self,client_id_hex):
         if not self.sqliteConnection:
             print("No active connection.\n Error client_exists_by_id")
             return False
 
-        cursor = self.sqliteConnection.cursor()
-        query = """SELECT 1 FROM Clients WHERE client_id_hex = ? LIMIT 1"""
-        cursor.execute(query,(client_id_hex,))
-        return cursor.fetchone() is not None
+        return client_id_hex in self.clients_by_id
 
     def set_client_public_key(self,client_id_hex, public_key_der):
         if not self.sqliteConnection:
@@ -141,7 +174,14 @@ class Store:
             """
         cursor.execute(query, (public_key_der, client_id_hex))
         self.sqliteConnection.commit()
-        return cursor.rowcount > 0
+        if cursor.rowcount == 0:
+            cursor.close()
+            return False
+
+        record = self._get_index_record_or_raise(client_id_hex)
+        record.public_key_der = public_key_der
+        cursor.close()
+        return True
 
     def set_client_aes_key(self,client_id_hex, aes_key_b64):
         if not self.sqliteConnection:
@@ -154,32 +194,47 @@ class Store:
             """
         cursor.execute(query, (aes_key_b64, client_id_hex))
         self.sqliteConnection.commit()
-        return cursor.rowcount > 0
+        if cursor.rowcount == 0:
+            cursor.close()
+            return False
+
+        record = self._get_index_record_or_raise(client_id_hex)
+        record.aes_key_b64 = aes_key_b64
+        cursor.close()
+        return True
 
     def touch_client_last_seen(self,client_id_hex):
         if not self.sqliteConnection:
             print("No active connection.\n Error touch_client_last_seen")
             return False
         cursor = self.sqliteConnection.cursor()
-        last_seen = str(datetime.datetime.now())
+        last_seen = self._now()
         query = """UPDATE Clients
             SET last_seen = ?
             WHERE client_id_hex = ?
             """
         cursor.execute(query, (last_seen, client_id_hex))
         self.sqliteConnection.commit()
-        return cursor.rowcount > 0
+        if cursor.rowcount == 0:
+            cursor.close()
+            return False
 
+        record = self._get_index_record_or_raise(client_id_hex)
+        record.last_seen = last_seen
+        cursor.close()
+        return True
     def create_upload_record(self,client_id_hex, file_name, orig_file_size, cipher_size, status='in_progress'):
         if not self.sqliteConnection:
             print("No active connection.\n Error create_upload_record")
             return None
         cursor = self.sqliteConnection.cursor()
-        created_at = str(datetime.datetime.now())
+        created_at = self._now()
         data = (client_id_hex,file_name,orig_file_size,cipher_size,status,created_at)
         cursor.execute("INSERT INTO Uploads (client_id_hex,file_name,orig_file_size,cipher_size,status,created_at) VALUES (?,?,?,?,?,?)",data)
         self.sqliteConnection.commit()
-        return cursor.lastrowid
+        upload_record = cursor.lastrowid
+        cursor.close()
+        return upload_record
 
     def complete_upload_record(self, upload_id, stored_path, server_crc32, completed_at):
         if not self.sqliteConnection:
@@ -196,7 +251,9 @@ class Store:
             """
         cursor.execute(query, (status, completed_at, stored_path, server_crc32, upload_id))
         self.sqliteConnection.commit()
-        return cursor.rowcount > 0
+        record_exist = cursor.rowcount > 0
+        cursor.close()
+        return record_exist
 
     def fail_upload_record(self, upload_id, failure_reason, status, completed_at):
         if not self.sqliteConnection:
@@ -211,7 +268,9 @@ class Store:
             """
         cursor.execute(query, (status, completed_at, failure_reason, upload_id))
         self.sqliteConnection.commit()
-        return cursor.rowcount > 0
+        record_exist = cursor.rowcount > 0
+        cursor.close()
+        return record_exist
 
     def get_client_uploads(self,client_id_hex):
         if not self.sqliteConnection:
@@ -220,7 +279,9 @@ class Store:
         cursor = self.sqliteConnection.cursor()
         query = """SELECT * FROM Uploads WHERE client_id_hex = ? ORDER BY id DESC"""
         cursor.execute(query,(client_id_hex,))
-        return cursor.fetchall()
+        uploads = cursor.fetchall()
+        cursor.close()
+        return uploads
 
 
 

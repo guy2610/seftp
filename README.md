@@ -82,9 +82,9 @@ A prebuilt Windows x64 client binary is available.
 - Built in Release mode
 
 Download:
-A prebuilt Windows x64 client binary is currently available for v0.4.0.
+A prebuilt Windows x64 client binary is currently available for v0.5.0.
 
-https://github.com/guy2610/Portfolio/releases/tag/v0.4.0-win-x64
+https://github.com/guy2610/Portfolio/releases/tag/v0.5.0-win-x64
 
 Run:
 1. Start the server (see below)

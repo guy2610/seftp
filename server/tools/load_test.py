@@ -264,7 +264,7 @@ def stage_report_to_dict(report: StageReport, concurrency) -> dict:
     return result
 
 class ServerMonitor:
-    def __init__(self, pid: Optional[int], sample_interval: float = 0.5):
+    def __init__(self, pid: Optional[int], sample_interval: float = 0.1):
         self.pid = pid
         self.sample_interval = sample_interval
         self.process: Optional[psutil.Process] = None
@@ -276,7 +276,21 @@ class ServerMonitor:
 
         if pid is not None:
             self.process = psutil.Process(pid)
+
+    def _prime_cpu_counter(self) -> None:
+        if self.process is None:
+            return
+        try:
             self.process.cpu_percent(interval=None)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    def _update_peak_from_snapshot(self, snap: Optional["MetricsSnapshot"]) -> None:
+        if snap is None:
+            return
+        self.peak_rss_mb = max(self.peak_rss_mb, snap.rss_mb)
+        self.peak_cpu_percent = max(self.peak_cpu_percent, snap.cpu_percent)
+        self.peak_threads = max(self.peak_threads, snap.num_threads)
 
     def snapshot(self) -> Optional[MetricsSnapshot]:
         if self.process is None:
@@ -285,17 +299,30 @@ class ServerMonitor:
             rss_mb = self.process.memory_info().rss / (1024 * 1024)
             cpu_percent = self.process.cpu_percent(interval=None)
             num_threads = self.process.num_threads()
-            return MetricsSnapshot(rss_mb=rss_mb, cpu_percent=cpu_percent, num_threads=num_threads)
+            snap = MetricsSnapshot(
+                rss_mb=rss_mb,
+                cpu_percent=cpu_percent,
+                num_threads=num_threads,
+            )
+            self._update_peak_from_snapshot(snap)
+            return snap
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return None
 
     async def start(self):
         if self.process is None or self.running:
             return
+        self._prime_cpu_counter()
         self.running = True
         self._task = asyncio.create_task(self._run())
 
     async def stop(self):
+        if self.process is None:
+            return
+
+        final_snap = self.snapshot()
+        self._update_peak_from_snapshot(final_snap)
+
         self.running = False
         if self._task:
             try:
@@ -304,14 +331,14 @@ class ServerMonitor:
                 pass
             self._task = None
 
+        final_snap = self.snapshot()
+        self._update_peak_from_snapshot(final_snap)
+
     async def _run(self):
         while self.running:
-            snap = self.snapshot()
-            if snap is not None:
-                self.peak_rss_mb = max(self.peak_rss_mb, snap.rss_mb)
-                self.peak_cpu_percent = max(self.peak_cpu_percent, snap.cpu_percent)
-                self.peak_threads = max(self.peak_threads, snap.num_threads)
             await asyncio.sleep(self.sample_interval)
+            snap = self.snapshot()
+            self._update_peak_from_snapshot(snap)
 
     def peak_snapshot(self) -> Optional[MetricsSnapshot]:
         if self.process is None:
@@ -321,7 +348,6 @@ class ServerMonitor:
             cpu_percent=self.peak_cpu_percent,
             num_threads=self.peak_threads,
         )
-
 
 async def idle_connection_client(host: str, port: int, hold_seconds: float, connect_timeout: float) -> Result:
     started = time.perf_counter()
@@ -806,7 +832,7 @@ def build_common_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--pause-between-stages", type=float, default=1.0)
 
     parser.add_argument("--server-pid", type=int, default=None)
-    parser.add_argument("--sample-interval", type=float, default=0.5)
+    parser.add_argument("--sample-interval", type=float, default=0.1)
 
     parser.add_argument("--stop-failure-rate", type=float, default=0.10)
     parser.add_argument("--stop-p95-ms", type=float, default=30000.0)

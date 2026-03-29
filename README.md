@@ -723,7 +723,7 @@ Improve server scalability and storage architecture.
  
 ---
 
-### **Stage 6 - Observability & Performance Analysis**
+### **Stage 6 - Performance Analysis, Observability & Design Documentation**
 
 Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
 * Extend load and stress testing scenarios
@@ -756,6 +756,11 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
 * Evidence-based optimization targets
   * Define concrete candidates for future improvements
   * Feed results into Stage 8 (future work / optimizations)
+
+* Architecture / design documentation 
+  * Document component boundaries, data flow, and persistence model
+  * Capture key design decisions and tradeoffs
+  * Summarize measured bottlenecks and likely optimization directions
 
 ---
 ### **Stage 7 - Security Hardening**
@@ -796,9 +801,9 @@ Future work
 * Optional C++ server implementation
 * Cross-client communication (relay / messaging)
 * Optional GUI client (Qt / ImGui / DearPyGui)
-* Documentation & release
+* Portfolio polish
   * Full protocol specification
-  * Threat model
   * Demo instructions
+  * Release polish
 
 ---

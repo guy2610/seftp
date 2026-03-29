@@ -732,9 +732,9 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
   * Mixed workloads (registration, re-login, uploads)
 
 * Collect performance metrics
-  * Request/response latency (p50 / p95 / p99)
-  * Upload duration and throughput
-  * Success / failure / rejection rates
+  * Request/response latency (p50 / p95 / p99) (DONE)
+  * Upload duration and throughput (DONE)
+  * Success / failure / rejection rates (DONE)
   * Connection and upload concurrency levels
 
 * Resource usage analysis
@@ -745,7 +745,7 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
 
 * Output and visualization
   * Structured results (JSON / CSV)
-  * Summary tables per scenario
+  * Summary tables per scenario (DONE)
   * Basic charts for latency, throughput, and resource usage
 
 * Bottleneck identification

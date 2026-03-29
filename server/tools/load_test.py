@@ -9,11 +9,13 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Optional
-
 import psutil
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.PublicKey import RSA
 from Crypto.Util.Padding import pad
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 RESPONSE_HEADER_LEN = 7
@@ -157,6 +159,12 @@ class Summary:
         return self.failed / self.total
 
     @property
+    def rejected_rate(self) -> float:
+        if self.total == 0:
+            return 0.0
+        return self.rejected / self.total
+
+    @property
     def avg_ms(self) -> float:
         return statistics.mean(self.durations_ms) if self.durations_ms else 0.0
 
@@ -167,6 +175,10 @@ class Summary:
     @property
     def p99_ms(self) -> float:
         return percentile(self.durations_ms, 99)
+
+    @property
+    def p50_ms(self) -> float:
+        return percentile(self.durations_ms, 50)
 
     @property
     def max_ms(self) -> float:
@@ -190,6 +202,22 @@ class Summary:
             for k, v in sorted(self.errors.items(), key=lambda x: (-x[1], x[0])):
                 print(f"  {k}: {v}")
 
+def summary_to_dict(summary: Summary) -> dict:
+    result = {}
+    result["total"] = summary.total
+    result["ok"] = summary.ok
+    result["failed"] = summary.failed
+    result["rejected"] = summary.rejected
+    result["success_rate"] = summary.success_rate
+    result["failure_rate"] = summary.failure_rate
+    result["rejected_rate"] = summary.rejected_rate
+    result["latency_ms"] = { "avg": summary.avg_ms,
+      "p50": summary.p50_ms,
+      "p95": summary.p95_ms,
+      "p99": summary.p99_ms,
+      "max": summary.max_ms}
+    result["errors"] = dict(summary.errors)
+    return result
 
 @dataclass
 class MetricsSnapshot:
@@ -199,6 +227,14 @@ class MetricsSnapshot:
 
     def short_str(self) -> str:
         return f"rss_mb={self.rss_mb:.1f} cpu={self.cpu_percent:.1f}% threads={self.num_threads}"
+
+def metrics_snapshot_to_dict(snapshot: MetricsSnapshot) -> dict:
+    if not snapshot:
+        return None
+    result = {"rss_mb" : snapshot.rss_mb,
+              "cpu_percent" : snapshot.cpu_percent,
+              "num_threads" : snapshot.num_threads}
+    return result
 
 
 @dataclass
@@ -211,6 +247,21 @@ class StageReport:
     elapsed_s: float
     stop_reason: Optional[str] = None
 
+
+def stage_report_to_dict(report: StageReport, concurrency) -> dict:
+    result = {}
+    result["load"] = report.load
+    result["concurrency"] = concurrency
+    result["elapsed_s"] = report.elapsed_s
+    result["stop_reason"] = report.stop_reason
+    result["throughput_ops_per_s"] = report.summary.ok / report.elapsed_s
+    result["summary"] = summary_to_dict(report.summary)
+    result["server_metrics"] = {
+        "before": metrics_snapshot_to_dict(report.metrics_before),
+        "after": metrics_snapshot_to_dict(report.metrics_after),
+        "peak": metrics_snapshot_to_dict(report.metrics_peak)
+    }
+    return result
 
 class ServerMonitor:
     def __init__(self, pid: Optional[int], sample_interval: float = 0.5):
@@ -626,6 +677,92 @@ def parse_ramp(ramp_str: str) -> list[int]:
         raise ValueError("ramp must contain at least one integer")
     return values
 
+def build_run_id(mode: str) -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return f"{ts}_{mode}_ramp"
+
+
+def build_scenario_params(args, mode: str) -> dict:
+    params = {
+        "io_timeout_s": args.io_timeout,
+    }
+
+    if mode == "idle":
+        params["hold_s"] = args.hold
+        params["connect_timeout_s"] = args.connect_timeout
+        params["file_size_bytes"] = None
+        params["chunk_size_bytes"] = None
+    elif mode == "upload":
+        params["hold_s"] = None
+        params["connect_timeout_s"] = None
+        params["file_size_bytes"] = args.file_size
+        params["chunk_size_bytes"] = args.chunk_size
+    else:
+        params["hold_s"] = None
+        params["connect_timeout_s"] = None
+        params["file_size_bytes"] = None
+        params["chunk_size_bytes"] = None
+
+    return params
+
+
+def build_final_status(reports: list[StageReport], exit_code: int) -> dict:
+    stopped_early = bool(reports and reports[-1].stop_reason)
+    completed_all_stages = not stopped_early
+
+    return {
+        "completed_all_stages": completed_all_stages,
+        "stopped_early": stopped_early,
+        "final_exit_code": exit_code,
+    }
+
+
+def run_report_to_dict(args, mode: str, reports: list[StageReport], exit_code: int) -> dict:
+    return {
+        "run_id": build_run_id(mode),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "tool_version": "stage6-v1",
+        "server": {
+            "host": args.host,
+            "port": args.port,
+            "server_pid": args.server_pid,
+        },
+        "scenario": {
+            "mode": mode,
+            "ramp": parse_ramp(args.ramp),
+            "concurrency_limit": args.concurrency,
+            "pause_between_stages_s": args.pause_between_stages,
+        },
+        "thresholds": {
+            "stop_failure_rate": args.stop_failure_rate,
+            "stop_p95_ms": args.stop_p95_ms,
+            "stop_rss_mb": args.stop_rss_mb,
+            "stop_cpu_percent": args.stop_cpu_percent,
+        },
+        "scenario_params": build_scenario_params(args, mode),
+        "stages": [
+            stage_report_to_dict(
+                report,
+                concurrency=min(args.concurrency, report.load),
+            )
+            for report in reports
+        ],
+        "final_status": build_final_status(reports, exit_code),
+    }
+
+
+def save_run_report(run_report: dict, output_dir: str = "tools/results") -> Path:
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    file_name = f"{run_report['run_id']}.json"
+    out_path = out_dir / file_name
+
+    with out_path.open("w", encoding="utf-8") as f:
+        json.dump(run_report, f, indent=2)
+
+    return out_path
+
 
 async def run_ramp(args, mode: str) -> int:
     loads = parse_ramp(args.ramp)
@@ -647,8 +784,16 @@ async def run_ramp(args, mode: str) -> int:
 
     if reports and reports[-1].stop_reason:
         return 2
+    elif all(r.summary.failed == 0 for r in reports):
+        exit_code = 0
+    else:
+        exit_code = 1
 
-    return 0 if all(r.summary.failed == 0 for r in reports) else 1
+    run_report = run_report_to_dict(args, mode, reports, exit_code)
+    output_path = save_run_report(run_report)
+    print(f"\nSaved run report to: {output_path}")
+
+    return exit_code
 
 
 def build_common_parser(parser: argparse.ArgumentParser):

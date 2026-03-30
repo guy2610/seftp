@@ -727,7 +727,7 @@ Improve server scalability and storage architecture.
 
 Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
 * Extend load and stress testing scenarios
-  * Parallel clients (idle + active uploads)
+  * Parallel clients (idle + active uploads) (PARTIAL)
   * High connection churn
   * Mixed workloads (registration, re-login, uploads)
 
@@ -738,29 +738,29 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
   * Connection and upload concurrency levels
 
 * Resource usage analysis
-  * CPU utilization under load
-  * Memory usage (RSS / growth over time)
-  * Active connections and active uploads
-  * Backpressure behavior and queue saturation
+  * CPU utilization under load (DONE)
+  * Memory usage (RSS / growth over time) (DONE)
+  * Active connections and active uploads (PARTIAL)
+  * Backpressure behavior and queue saturation (PARTIAL)
 
 * Output and visualization
-  * Structured results (JSON / CSV)
+  * Structured results (JSON / CSV) (DONE)
   * Summary tables per scenario (DONE)
-  * Basic charts for latency, throughput, and resource usage
+  * Basic charts for latency, throughput, and resource usage (DONE)
 
 * Bottleneck identification
-  * Detect hot paths (CPU vs I/O vs DB)
+  * Detect hot paths (CPU vs I/O vs DB) (DONE - first level)
   * Evaluate effectiveness of in-memory client index
   * Identify whether additional caching or indexing is justified
 
 * Evidence-based optimization targets
-  * Define concrete candidates for future improvements
+  * Define concrete candidates for future improvements (DONE - basic level)
   * Feed results into Stage 8 (future work / optimizations)
 
 * Architecture / design documentation 
   * Document component boundaries, data flow, and persistence model
   * Capture key design decisions and tradeoffs
-  * Summarize measured bottlenecks and likely optimization directions
+  * Summarize measured bottlenecks and likely optimization directions (DONE)
 
 ---
 ### **Stage 7 - Security Hardening**

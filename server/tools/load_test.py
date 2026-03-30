@@ -401,6 +401,81 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
                 pass
         return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
 
+async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
+    writer = None
+    try:
+        # setup phase: create a valid existing user with stored public key
+        reader, writer = await asyncio.open_connection(host, port)
+
+        username = random_username("relogin")
+        zero_id = b"\x00" * 16
+
+        # 825 register
+        writer.write(build_request_frame(zero_id, 825, build_825_payload(username)))
+        await writer.drain()
+
+        _, code, payload = await read_response_frame(reader, io_timeout)
+        if code != 1600 or len(payload) != 16:
+            raise RuntimeError(f"relogin_setup_register_failed_{code}")
+
+        client_id = payload
+
+        # 826 store public key + get AES
+        rsa_key = RSA.generate(2048)
+        public_der = rsa_key.publickey().export_key(format="DER")
+        public_b64 = base64.b64encode(public_der)
+
+        writer.write(build_request_frame(client_id, 826, build_826_payload(username, public_b64)))
+        await writer.drain()
+
+        _, code, payload = await read_response_frame(reader, io_timeout)
+        if code != 1602:
+            raise RuntimeError(f"relogin_setup_key_exchange_failed_{code}")
+        if len(payload) < 16:
+            raise RuntimeError("relogin_setup_bad_1602_payload_len")
+
+        returned_client_id = payload[-16:]
+        if returned_client_id != client_id:
+            raise RuntimeError("relogin_setup_client_id_mismatch_after_1602")
+
+        writer.close()
+        await writer.wait_closed()
+        writer = None
+
+        # measured phase: 827 relogin
+        started = time.perf_counter()
+
+        reader, writer = await asyncio.open_connection(host, port)
+        writer.write(build_request_frame(client_id, 827, build_825_payload(username)))
+        await writer.drain()
+
+        _, code, payload = await read_response_frame(reader, io_timeout)
+        if code != 1605:
+            raise RuntimeError(f"relogin_failed_{code}")
+        if len(payload) < 16:
+            raise RuntimeError("bad_1605_payload_len")
+
+        returned_client_id = payload[-16:]
+        if returned_client_id != client_id:
+            raise RuntimeError("client_id_mismatch_after_1605")
+
+        writer.close()
+        await writer.wait_closed()
+
+        return Result(ok=True, duration_ms=(time.perf_counter() - started) * 1000)
+
+    except Exception as e:
+        if writer:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+        return Result(
+            ok=False,
+            duration_ms=0.0 if 'started' not in locals() else (time.perf_counter() - started) * 1000,
+            error=f"{type(e).__name__}: {e}",
+        )
 
 async def upload_client(
     host: str,
@@ -609,6 +684,17 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     args.chunk_size,
                 ),
             )
+        elif mode == "relogin":
+            summary = await run_batched(
+                total_clients=load,
+                concurrency=min(args.concurrency, load),
+                summary_name=f"relogin load={load} concurrency={min(args.concurrency, load)}",
+                worker_coro_factory=lambda _: relogin_client(
+                    args.host,
+                    args.port,
+                    args.io_timeout,
+                ),
+            )
         else:
             raise RuntimeError(f"unknown mode: {mode}")
     finally:
@@ -809,7 +895,7 @@ async def run_ramp(args, mode: str) -> int:
     print_final_table(reports)
 
     if reports and reports[-1].stop_reason:
-        return 2
+        exit_code = 2
     elif all(r.summary.failed == 0 for r in reports):
         exit_code = 0
     else:
@@ -851,6 +937,9 @@ def parse_args():
 
     register_parser = sub.add_parser("register")
     build_common_parser(register_parser)
+
+    relogin_parser = sub.add_parser("relogin")
+    build_common_parser(relogin_parser)
 
     upload_parser = sub.add_parser("upload")
     build_common_parser(upload_parser)

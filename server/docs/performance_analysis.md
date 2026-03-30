@@ -78,6 +78,38 @@ Interpretation:
 - beyond that point, overload is no longer expressed only as clean rejection, but also as timeout failures
 - this makes upload the heaviest and least forgiving path measured so far
 
+### Upload sensitivity to file size
+An additional upload scaling experiment was executed with three file sizes:
+- 100KB
+- 1MB
+- 5MB
+
+Each size was tested with the same load ramp:
+- 10
+- 25
+- 50 concurrent uploads
+
+Observed behavior:
+- all file sizes remained stable through load 25
+- at load 50, all file sizes dropped to 50% success, but failure mode distribution changed with file size
+- smaller files showed more rejection-dominated overload behavior
+- larger files showed fewer rejections but more timeout failures
+- larger files also produced significantly higher RSS peaks and higher CPU utilization
+
+Interpretation:
+- file size does not materially change the stable region up to the configured upload capacity
+- however, once overload begins, larger files increase resource pressure more sharply
+- in particular, memory usage grows significantly with larger uploads, and overload shifts from mostly controlled rejection toward a more failure-heavy pattern
+
+Key insight:
+- upload capacity is not only limited by concurrency, but also by per-upload resource cost
+- larger files significantly increase memory pressure (RSS) and CPU utilization
+- under overload, smaller files are mostly rejected, while larger files tend to result in more timeout failures
+
+Implication:
+- the system currently lacks size-aware backpressure
+- treating all uploads equally leads to less efficient overload behavior for larger files
+
 ## Relogin findings
 The relogin path was significantly lighter than upload and remained stable through moderate concurrency levels.
 
@@ -111,9 +143,10 @@ Interpretation:
 - conclusion: CPU-bound but still operationally stable in tested range
 
 ### Upload
-- primary observed bottleneck: concurrent upload limit and backpressure
-- secondary overload symptom: timeout failures under heavier load
-- conclusion: upload capacity is currently constrained by configured concurrency and becomes unstable when pushed beyond that limit
+- primary observed bottleneck: concurrent upload limit and memory pressure under larger file sizes
+- secondary overload symptoms: timeout failures and throughput collapse under heavier load
+- overload behavior shifts with file size: smaller uploads are rejected more often, while larger uploads produce more timeout failures
+- conclusion: upload capacity is constrained both by configured concurrency and by the per-upload resource cost of larger files
 
 ### Relogin
 - primary observed bottleneck: timeout-based degradation under higher concurrency
@@ -125,12 +158,7 @@ At this stage, the server already shows meaningful differentiated behavior acros
 - register is stable but CPU-heavy
 - upload is the most expensive path and is constrained first by concurrent upload limits, then degrades further under overload
 - relogin is lighter, but under higher concurrency currently degrades through timeout failures rather than controlled rejection
-
-This means the Stage 6 benchmark work is already valuable for guiding future changes:
-- connection limits must be distinguished from real throughput bottlenecks
-- upload capacity should be evaluated separately from register/relogin paths
-- backpressure behavior should be treated as an intentional control mechanism, not automatically as failure
-- optimization decisions should be based on measured path-specific bottlenecks rather than intuition
+- upload overload behavior is also sensitive to file size: larger files increase memory pressure and shift overload behavior toward more timeout-driven failures
 
 ## Charts
 
@@ -148,6 +176,18 @@ This means the Stage 6 benchmark work is already valuable for guiding future cha
 
 ### Cross-scenario latency comparison
 ![Latency Comparison](../tools/plots/comparison_latency_p95.png)
+
+### Upload p95 latency by file size
+![Upload Size Latency](../tools/plots/upload_size_latency_p95.png)
+
+### Upload throughput by file size
+![Upload Size Throughput](../tools/plots/upload_size_throughput.png)
+
+### Upload overload behavior by file size
+![Upload Size Overload](../tools/plots/upload_size_overload.png)
+
+### Upload RSS peak by file size
+![Upload Size RSS](../tools/plots/upload_size_rss.png)
 
 ## Next steps
 - add a mixed workload scenario

@@ -186,7 +186,7 @@ def plot_latency_comparison(
     plt.plot(up_loads, up_vals, marker="o", label=f"upload {latency_key}")
 
     plt.yscale("log")
-    
+
     plt.xlabel("Load")
     plt.ylabel("Latency (ms)")
     plt.title(f"Latency Comparison Across Scenarios ({latency_key})")
@@ -196,10 +196,145 @@ def plot_latency_comparison(
     plt.savefig(out_path)
     plt.close()
 
+def extract_upload_size_series(run: dict[str, Any]) -> tuple[int, dict[str, list[float]]]:
+    size_bytes = run["scenario_params"]["file_size_bytes"]
+    s = extract_series(run)
+    return size_bytes, s
+def human_file_size(size_bytes: int) -> str:
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.0f}MB"
+    if size_bytes >= 1_000:
+        return f"{size_bytes / 1_000:.0f}KB"
+    return f"{size_bytes}B"
+
+def plot_upload_size_latency_comparison(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    max_y = 0.0
+    for run in runs:
+        size_bytes, s = extract_upload_size_series(run)
+        label = human_file_size(size_bytes)
+        plt.plot(s["loads"], s["latency_p95"], marker="o", markersize=8, label=label)
+        max_y = max(max_y, max(s["latency_p95"]))
+
+    plt.axvline(x=25, linestyle="--", alpha=0.6)
+    plt.text(25.5, max_y * 0.8, "capacity boundary", rotation=90)
+
+    plt.yscale("log")
+    plt.xlabel("Load")
+    plt.ylabel("p95 Latency (ms) [log scale]")
+    plt.title("Upload p95 Latency by File Size")
+    plt.legend(title="File size")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+def plot_upload_size_throughput_comparison(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for run in runs:
+        size_bytes, s = extract_upload_size_series(run)
+        label = human_file_size(size_bytes)
+        plt.plot(s["loads"], s["throughput"], marker="o", markersize=8, label=label)
+
+        peak_idx = max(range(len(s["throughput"])), key=lambda i: s["throughput"][i])
+        peak_load = s["loads"][peak_idx]
+        peak_val = s["throughput"][peak_idx]
+        plt.annotate("peak", (peak_load, peak_val), textcoords="offset points", xytext=(5, 5))
+
+    plt.xlabel("Load")
+    plt.ylabel("Throughput (ops/s)")
+    plt.title("Upload Throughput by File Size")
+    plt.legend(title="File size")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+def plot_upload_size_rejected_comparison(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for run in runs:
+        size_bytes, s = extract_upload_size_series(run)
+        label = human_file_size(size_bytes)
+        plt.plot(s["loads"], s["rejected_rate"], marker="o", label=label)
+
+    plt.xlabel("Load")
+    plt.ylabel("Rejected Rate (%)")
+    plt.title("Upload Rejected Rate by File Size")
+    plt.ylim(0, 100)
+    plt.legend(title="File size")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+
+def plot_upload_size_overload_comparison(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+
+    for run in runs:
+        size_bytes, s = extract_upload_size_series(run)
+        label = human_file_size(size_bytes)
+
+        axes[0].plot(s["loads"], s["rejected_rate"], marker="o", markersize=8, label=label)
+        axes[1].plot(s["loads"], s["failure_rate"], marker="o", markersize=8, label=label)
+
+    axes[0].set_xlabel("Load")
+    axes[0].set_ylabel("Rate (%)")
+    axes[0].set_title("Rejected Rate by File Size")
+    axes[0].set_ylim(0, 100)
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].set_xlabel("Load")
+    axes[1].set_title("Failure Rate by File Size")
+    axes[1].set_ylim(0, 100)
+    axes[1].grid(True, alpha=0.3)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, title="File size", loc="upper right")
+    fig.suptitle("Upload Overload Behavior by File Size")
+    fig.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+def plot_upload_size_rss_comparison(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    max_rss = 0.0
+    for run in runs:
+        size_bytes, s = extract_upload_size_series(run)
+        label = human_file_size(size_bytes)
+        plt.plot(s["loads"], s["rss_peak"], marker="o", markersize=8, label=label)
+        max_rss = max(max_rss, max(s["rss_peak"]))
+
+    plt.ylim(0, max_rss * 1.2)
+    plt.xlabel("Load")
+    plt.ylabel("RSS Peak (MB)")
+    plt.title("Upload RSS Peak by File Size")
+    plt.legend(title="File size")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
 if __name__ == "__main__":
     register_run = load_run(RESULTS_DIR / "2026-03-29T14-53-45Z_register_ramp.json")
     relogin_run = load_run(RESULTS_DIR / "2026-03-30T09-45-42Z_relogin_ramp.json")
     upload_run = load_run(RESULTS_DIR / "2026-03-30T09-47-58Z_upload_ramp.json")
+
+    upload_100kb = load_run(RESULTS_DIR / "2026-03-30T10-59-28Z_upload_ramp.json")
+    upload_1mb = load_run(RESULTS_DIR / "2026-03-30T11-01-19Z_upload_ramp.json")
+    upload_5mb = load_run(RESULTS_DIR / "2026-03-30T11-03-05Z_upload_ramp.json")
 
     generate_all(RESULTS_DIR / "2026-03-29T14-53-45Z_register_ramp.json")
     generate_all(RESULTS_DIR / "2026-03-30T09-45-42Z_relogin_ramp.json")
@@ -211,4 +346,27 @@ if __name__ == "__main__":
         upload_run,
         OUTPUT_DIR / "comparison_latency_p95.png",
         latency_key="p95",
+    )
+
+    upload_size_runs = [upload_100kb, upload_1mb, upload_5mb]
+
+    plot_upload_size_latency_comparison(
+        upload_size_runs,
+        OUTPUT_DIR / "upload_size_latency_p95.png",
+    )
+    plot_upload_size_throughput_comparison(
+        upload_size_runs,
+        OUTPUT_DIR / "upload_size_throughput.png",
+    )
+    plot_upload_size_rejected_comparison(
+        upload_size_runs,
+        OUTPUT_DIR / "upload_size_rejected.png",
+    )
+    plot_upload_size_overload_comparison(
+        upload_size_runs,
+        OUTPUT_DIR / "upload_size_overload.png",
+    )
+    plot_upload_size_rss_comparison(
+        upload_size_runs,
+        OUTPUT_DIR / "upload_size_rss.png",
     )

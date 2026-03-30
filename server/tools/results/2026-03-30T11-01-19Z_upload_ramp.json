@@ -1,0 +1,166 @@
+{
+  "run_id": "2026-03-30T11-01-19Z_upload_ramp",
+  "created_at": "2026-03-30T11:01:19.856567+00:00",
+  "tool_version": "stage6-v1",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 1234,
+    "server_pid": 23224
+  },
+  "scenario": {
+    "mode": "upload",
+    "ramp": [
+      10,
+      25,
+      50
+    ],
+    "concurrency_limit": 50,
+    "pause_between_stages_s": 1.0
+  },
+  "thresholds": {
+    "stop_failure_rate": 0.1,
+    "stop_p95_ms": 30000.0,
+    "stop_rss_mb": 2048.0,
+    "stop_cpu_percent": 300.0
+  },
+  "scenario_params": {
+    "io_timeout_s": 30.0,
+    "hold_s": null,
+    "connect_timeout_s": null,
+    "file_size_bytes": 1000000,
+    "chunk_size_bytes": 60000
+  },
+  "stages": [
+    {
+      "load": 10,
+      "concurrency": 10,
+      "elapsed_s": 8.598423599964008,
+      "stop_reason": null,
+      "throughput_ops_per_s": 1.163003878994966,
+      "summary": {
+        "total": 10,
+        "ok": 10,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 8525.722650019452,
+          "p50": 8526.75149985589,
+          "p95": 8537.772600073367,
+          "p99": 8537.772600073367,
+          "max": 8537.772600073367
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 29.1015625,
+          "cpu_percent": 0.0,
+          "num_threads": 6
+        },
+        "after": {
+          "rss_mb": 29.70703125,
+          "cpu_percent": 0.0,
+          "num_threads": 6
+        },
+        "peak": {
+          "rss_mb": 44.828125,
+          "cpu_percent": 83.1,
+          "num_threads": 6
+        }
+      }
+    },
+    {
+      "load": 25,
+      "concurrency": 25,
+      "elapsed_s": 21.03914670017548,
+      "stop_reason": null,
+      "throughput_ops_per_s": 1.1882611189640826,
+      "summary": {
+        "total": 25,
+        "ok": 25,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 20876.084515992552,
+          "p50": 20887.616500025615,
+          "p95": 20903.247699839994,
+          "p99": 20905.29889985919,
+          "max": 20905.29889985919
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 29.70703125,
+          "cpu_percent": 0.0,
+          "num_threads": 6
+        },
+        "after": {
+          "rss_mb": 30.27734375,
+          "cpu_percent": 0.0,
+          "num_threads": 6
+        },
+        "peak": {
+          "rss_mb": 60.9921875,
+          "cpu_percent": 195.3,
+          "num_threads": 6
+        }
+      }
+    },
+    {
+      "load": 50,
+      "concurrency": 50,
+      "elapsed_s": 35.12544999993406,
+      "stop_reason": "p95 35023.30ms > threshold 30000.00ms",
+      "throughput_ops_per_s": 0.7117346539345953,
+      "summary": {
+        "total": 50,
+        "ok": 25,
+        "failed": 2,
+        "rejected": 23,
+        "success_rate": 0.5,
+        "failure_rate": 0.04,
+        "rejected_rate": 0.46,
+        "latency_ms": {
+          "avg": 35004.703780040145,
+          "p50": 35008.4464000538,
+          "p95": 35023.296900093555,
+          "p99": 35025.91160009615,
+          "max": 35025.91160009615
+        },
+        "errors": {
+          "TimeoutError: ": 2,
+          "rejected_by_backpressure: server busy: too many concurrent uploads": 23
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 30.27734375,
+          "cpu_percent": 0.0,
+          "num_threads": 6
+        },
+        "after": {
+          "rss_mb": 36.9375,
+          "cpu_percent": 0.0,
+          "num_threads": 6
+        },
+        "peak": {
+          "rss_mb": 98.7109375,
+          "cpu_percent": 160.3,
+          "num_threads": 6
+        }
+      }
+    }
+  ],
+  "final_status": {
+    "completed_all_stages": false,
+    "stopped_early": true,
+    "final_exit_code": 2
+  }
+}

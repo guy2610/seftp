@@ -200,6 +200,35 @@ def extract_upload_size_series(run: dict[str, Any]) -> tuple[int, dict[str, list
     size_bytes = run["scenario_params"]["file_size_bytes"]
     s = extract_series(run)
     return size_bytes, s
+def extract_mixed_operation_series(run: dict[str, Any], operation: str) -> dict[str, list[float]]:
+    loads: list[float] = []
+    latency_avg: list[float] = []
+    latency_p95: list[float] = []
+    success_rate: list[float] = []
+    rejected_rate: list[float] = []
+    failure_rate: list[float] = []
+
+    for stage in run["stages"]:
+        ops = stage.get("per_operation_summaries")
+        if not ops or operation not in ops:
+            continue
+
+        op = ops[operation]
+        loads.append(stage["load"])
+        latency_avg.append(op["latency_ms"]["avg"])
+        latency_p95.append(op["latency_ms"]["p95"])
+        success_rate.append(op["success_rate"] * 100.0)
+        rejected_rate.append(op["rejected_rate"] * 100.0)
+        failure_rate.append(op["failure_rate"] * 100.0)
+
+    return {
+        "loads": loads,
+        "latency_avg": latency_avg,
+        "latency_p95": latency_p95,
+        "success_rate": success_rate,
+        "rejected_rate": rejected_rate,
+        "failure_rate": failure_rate,
+    }
 def human_file_size(size_bytes: int) -> str:
     if size_bytes >= 1_000_000:
         return f"{size_bytes / 1_000_000:.0f}MB"
@@ -327,6 +356,124 @@ def plot_upload_size_rss_comparison(runs: list[dict[str, Any]], out_path: Path) 
     plt.tight_layout()
     plt.savefig(out_path)
     plt.close()
+
+def plot_mixed_operation_latency(run: dict[str, Any], out_path: Path, latency_key: str = "p95") -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for operation in ("register", "relogin", "upload"):
+        s = extract_mixed_operation_series(run, operation)
+        if not s["loads"]:
+            continue
+
+        values = s["latency_p95"] if latency_key == "p95" else s["latency_avg"]
+        plt.plot(s["loads"], values, marker="o", label=operation)
+
+    plt.xlabel("Load")
+    plt.ylabel("Latency (ms)")
+    plt.title(f"{scenario_title(run)} | Mixed Per-Operation Latency ({latency_key})")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+
+def plot_mixed_operation_outcomes(run: dict[str, Any], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for operation in ("register", "relogin", "upload"):
+        s = extract_mixed_operation_series(run, operation)
+        if not s["loads"]:
+            continue
+
+        plt.plot(s["loads"], s["rejected_rate"], marker="o", label=f"{operation} rejected %")
+
+    plt.xlabel("Load")
+    plt.ylabel("Rejected Rate (%)")
+    plt.title(f"{scenario_title(run)} | Mixed Per-Operation Rejected Rate")
+    plt.ylim(0, 100)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+def plot_mixed_operation_success(run: dict[str, Any], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for operation in ("register", "relogin", "upload"):
+        s = extract_mixed_operation_series(run, operation)
+        if not s["loads"]:
+            continue
+
+        plt.plot(s["loads"], s["success_rate"], marker="o", label=f"{operation} success %")
+
+    plt.xlabel("Load")
+    plt.ylabel("Success Rate (%)")
+    plt.title(f"{scenario_title(run)} | Mixed Per-Operation Success Rate")
+    plt.ylim(0, 100)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+def plot_mixed_upload_latency_by_size(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for run in runs:
+        size_bytes = run["scenario_params"]["file_size_bytes"]
+        label = human_file_size(size_bytes)
+
+        s = extract_mixed_operation_series(run, "upload")
+        if not s["loads"]:
+            continue
+
+        plt.plot(s["loads"], s["latency_p95"], marker="o", markersize=8, label=label)
+
+    plt.xlabel("Load")
+    plt.ylabel("Upload p95 Latency (ms)")
+    plt.title("Mixed Upload p95 Latency by File Size")
+    plt.legend(title="File size")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+
+def plot_mixed_upload_rejected_by_size(runs: list[dict[str, Any]], out_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(9, 6))
+
+    for run in runs:
+        size_bytes = run["scenario_params"]["file_size_bytes"]
+        label = human_file_size(size_bytes)
+
+        s = extract_mixed_operation_series(run, "upload")
+        if not s["loads"]:
+            continue
+
+        plt.plot(s["loads"], s["rejected_rate"], marker="o", markersize=8, label=label)
+
+    plt.xlabel("Load")
+    plt.ylabel("Upload Rejected Rate (%)")
+    plt.title("Mixed Upload Rejected Rate by File Size")
+    plt.ylim(0, 100)
+    plt.legend(title="File size")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
 if __name__ == "__main__":
     register_run = load_run(RESULTS_DIR / "2026-03-29T14-53-45Z_register_ramp.json")
     relogin_run = load_run(RESULTS_DIR / "2026-03-30T09-45-42Z_relogin_ramp.json")
@@ -335,6 +482,10 @@ if __name__ == "__main__":
     upload_100kb = load_run(RESULTS_DIR / "2026-03-30T10-59-28Z_upload_ramp.json")
     upload_1mb = load_run(RESULTS_DIR / "2026-03-30T11-01-19Z_upload_ramp.json")
     upload_5mb = load_run(RESULTS_DIR / "2026-03-30T11-03-05Z_upload_ramp.json")
+
+    mixed_100kb = load_run(RESULTS_DIR / "2026-04-16T13-43-51Z_mixed_ramp.json")
+    mixed_1mb = load_run(RESULTS_DIR / "2026-04-16T13-46-20Z_mixed_ramp.json")
+    mixed_5mb = load_run(RESULTS_DIR / "2026-04-16T13-48-36Z_mixed_ramp.json")
 
     generate_all(RESULTS_DIR / "2026-03-29T14-53-45Z_register_ramp.json")
     generate_all(RESULTS_DIR / "2026-03-30T09-45-42Z_relogin_ramp.json")
@@ -370,3 +521,35 @@ if __name__ == "__main__":
         upload_size_runs,
         OUTPUT_DIR / "upload_size_rss.png",
     )
+
+    plot_mixed_operation_latency(
+        mixed_100kb,
+        OUTPUT_DIR / "mixed_100kb_operation_latency_p95.png",
+        latency_key="p95",
+    )
+    print("Generated mixed_100kb_operation_latency_p95.png")
+
+    plot_mixed_operation_outcomes(
+        mixed_100kb,
+        OUTPUT_DIR / "mixed_100kb_operation_rejected.png",
+    )
+    print("Generated mixed_100kb_operation_rejected.png")
+
+    plot_mixed_operation_success(
+        mixed_100kb,
+        OUTPUT_DIR / "mixed_100kb_operation_success.png",
+    )
+    print("Generated mixed_100kb_operation_success.png")
+
+    mixed_size_runs = [mixed_100kb, mixed_1mb, mixed_5mb]
+
+    plot_mixed_upload_latency_by_size(
+        mixed_size_runs,
+        OUTPUT_DIR / "mixed_upload_latency_p95_by_size.png",
+    )
+    print("Generated mixed_upload_latency_p95_by_size.png")
+    plot_mixed_upload_rejected_by_size(
+        mixed_size_runs,
+        OUTPUT_DIR / "mixed_upload_rejected_by_size.png",
+    )
+    print("Generated mixed_upload_rejected_by_size.png")

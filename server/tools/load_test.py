@@ -3,6 +3,7 @@ import asyncio
 import base64
 import math
 import os
+import random
 import secrets
 import statistics
 import sys
@@ -245,6 +246,7 @@ class StageReport:
     metrics_after: Optional[MetricsSnapshot]
     metrics_peak: Optional[MetricsSnapshot]
     elapsed_s: float
+    per_operation_summaries: Optional[dict[str, Summary]] = None
     stop_reason: Optional[str] = None
 
 
@@ -261,6 +263,13 @@ def stage_report_to_dict(report: StageReport, concurrency) -> dict:
         "after": metrics_snapshot_to_dict(report.metrics_after),
         "peak": metrics_snapshot_to_dict(report.metrics_peak)
     }
+    if report.per_operation_summaries is None:
+        result["per_operation_summaries"] = None
+    else:
+        result["per_operation_summaries"] = {
+            operation: summary_to_dict(operation_summary)
+            for operation, operation_summary in report.per_operation_summaries.items()
+        }
     return result
 
 class ServerMonitor:
@@ -643,6 +652,22 @@ async def run_batched(total_clients: int, concurrency: int, worker_coro_factory,
     await asyncio.gather(*(runner(i) for i in range(total_clients)))
     return summary
 
+async def run_mixed_batched(total_clients: int, concurrency: int, worker_coro_factory, summary_name: str):
+    sem = asyncio.Semaphore(concurrency)
+    summary_overall = Summary(summary_name)
+    summaries = {
+        "relogin": Summary("relogin"),
+        "register": Summary("register"),
+        "upload": Summary("upload")
+    }
+    async def runner_mixed(i: int):
+        async with sem:
+            result, operation = await worker_coro_factory(i)
+            summary_overall.add(result)
+            summaries[operation].add(result)
+
+    await asyncio.gather(*(runner_mixed(i) for i in range(total_clients)))
+    return summary_overall,summaries
 
 async def run_single_stage(args, mode: str, load: int) -> StageReport:
     started = time.perf_counter()
@@ -652,6 +677,7 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
     await monitor.start()
 
     try:
+        per_operation_summaries = None
         if mode == "idle":
             summary = await run_batched(
                 total_clients=load,
@@ -695,6 +721,25 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     args.io_timeout,
                 ),
             )
+        elif mode == "mixed":
+            async def mixed_worker(i: int):
+                r = random.random()
+                if r < 0.25:
+                    return await relogin_client(args.host,args.port,args.io_timeout), "relogin"
+                elif r < 0.5:
+                    return await register_client(args.host,args.port,args.io_timeout), "register"
+                else:
+                    return await upload_client(args.host,args.port,args.io_timeout,args.file_size,args.chunk_size) , "upload"
+
+            summary, per_operation_summaries = await run_mixed_batched(
+                total_clients=load,
+                concurrency=min(args.concurrency, load),
+                summary_name=(
+                    f"mixed load={load} concurrency={min(args.concurrency, load)} "
+                    f"file_size={args.file_size} chunk_size={args.chunk_size}"
+                ),
+                worker_coro_factory=mixed_worker,
+            )
         else:
             raise RuntimeError(f"unknown mode: {mode}")
     finally:
@@ -711,6 +756,7 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
         metrics_after=after,
         metrics_peak=peak,
         elapsed_s=elapsed,
+        per_operation_summaries=per_operation_summaries
     )
 
 
@@ -734,6 +780,29 @@ def should_stop(args, report: StageReport) -> Optional[str]:
 
 def print_stage_report(report: StageReport):
     report.summary.print_verbose()
+    if report.per_operation_summaries:
+        print("per_operation:")
+        for operation, operation_summary in report.per_operation_summaries.items():
+            print(
+                f"  {operation}: "
+                f"total={operation_summary.total} "
+                f"ok={operation_summary.ok} "
+                f"rejected={operation_summary.rejected} "
+                f"failed={operation_summary.failed} "
+                f"success_rate={operation_summary.success_rate * 100:.1f}%"
+            )
+            if operation_summary.durations_ms:
+                print(
+                    f"    avg_ms={operation_summary.avg_ms:.2f} "
+                    f"p95_ms={operation_summary.p95_ms:.2f} "
+                    f"p99_ms={operation_summary.p99_ms:.2f} "
+                    f"max_ms={operation_summary.max_ms:.2f}"
+                )
+            if operation_summary.errors:
+                print("    errors:")
+                for k, v in sorted(operation_summary.errors.items(), key=lambda x: (-x[1], x[0])):
+                    print(f"      {k}: {v}")
+
     print(f"elapsed_s={report.elapsed_s:.2f}")
     if report.metrics_before:
         print(f"server_before: {report.metrics_before.short_str()}")
@@ -804,7 +873,7 @@ def build_scenario_params(args, mode: str) -> dict:
         params["connect_timeout_s"] = args.connect_timeout
         params["file_size_bytes"] = None
         params["chunk_size_bytes"] = None
-    elif mode == "upload":
+    elif mode in ("upload", "mixed"):
         params["hold_s"] = None
         params["connect_timeout_s"] = None
         params["file_size_bytes"] = args.file_size
@@ -945,6 +1014,12 @@ def parse_args():
     build_common_parser(upload_parser)
     upload_parser.add_argument("--file-size", type=int, default=100_000)
     upload_parser.add_argument("--chunk-size", type=int, default=60_000)
+
+    mixed_parser = sub.add_parser("mixed")
+    build_common_parser(mixed_parser)
+    mixed_parser.add_argument("--file-size", type=int, default=100_000)
+    mixed_parser.add_argument("--chunk-size", type=int, default=60_000)
+
 
     return parser.parse_args()
 

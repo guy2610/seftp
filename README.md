@@ -748,13 +748,11 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
   * Request/response latency (p50 / p95 / p99) (DONE)
   * Upload duration and throughput (DONE)
   * Success / failure / rejection rates (DONE)
-  * Connection and upload concurrency levels (PARTIAL)
 
 * Resource usage analysis
   * CPU utilization under load (DONE)
   * Memory usage (RSS / growth over time) (DONE)
-  * Active connections and active uploads (PARTIAL)
-  * Backpressure behavior and queue saturation (PARTIAL)
+  * Backpressure behavior under overload (DONE - first level)
 
 * Output and visualization
   * Structured results (JSON / CSV) (DONE)
@@ -798,6 +796,9 @@ Operational visibility and diagnostics.
   * Connection statistics
   * Upload statistics
   * Protocol error counters
+  * Active connection and active upload visibility
+  * Queue / executor saturation visibility
+
 * Logging and diagnostics
   * Structured logging (DONE)
   * Request / response tracing

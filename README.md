@@ -14,6 +14,8 @@ This is an independent engineering project focused on protocol design,
 defensive validation, concurrency, and end-to-end reliability.
 The system is not intended for production use.
 
+Stage 6 is in progress and now includes structured performance benchmarking, ramp-based load testing, resource sampling, mixed workload analysis, and visualization of latency, throughput, overload behavior, and file-size sensitivity.
+
 Stage 5 is complete. The server now includes bounded concurrency controls, SQLite-backed persistence, persisted upload lifecycle tracking, and an in-memory client metadata index with write-through synchronization for low-latency hot-path lookups.
 
 Stages 1-4 completed: protocol hardening, architectural refactor,
@@ -25,6 +27,16 @@ The system is functional end-to-end and includes defensive protocol validation, 
 ---
 
 ## Version
+
+**Stage 6 progress - Performance Analysis, Observability & Design Documentation**
+
+* Ramp-based benchmark runner for register, relogin, upload, and mixed workloads
+* Structured JSON benchmark output per run
+* Latency percentiles, throughput, success / failure / rejection metrics
+* Sampled server CPU, RSS, and thread metrics
+* Visualization for latency, throughput, overload behavior, and file-size sensitivity
+* Mixed workload analysis with per-operation breakdown (register / relogin / upload)
+* Initial bottleneck identification: upload dominates capacity under realistic mixed load
 
 **v0.5.0 - Stage 5 scalability and persistence foundations**
 
@@ -194,6 +206,7 @@ protocol/
 * Global and per-IP connection limits
 * Bounded execution for CPU-bound upload finalization
 * Connection overload rejection and recovery behavior
+* Stage 6 benchmarking toolkit with ramp-based load testing, structured JSON output, and performance plots for single-scenario and mixed workloads
 ---
 
 ## High-level Architecture
@@ -729,13 +742,13 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
 * Extend load and stress testing scenarios
   * Parallel clients (idle + active uploads) (PARTIAL)
   * High connection churn
-  * Mixed workloads (registration, re-login, uploads)
+  * Mixed workloads (registration, re-login, uploads) (DONE)
 
 * Collect performance metrics
   * Request/response latency (p50 / p95 / p99) (DONE)
   * Upload duration and throughput (DONE)
   * Success / failure / rejection rates (DONE)
-  * Connection and upload concurrency levels
+  * Connection and upload concurrency levels (PARTIAL)
 
 * Resource usage analysis
   * CPU utilization under load (DONE)

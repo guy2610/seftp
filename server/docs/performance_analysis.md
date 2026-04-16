@@ -7,8 +7,10 @@ The scenarios measured so far are:
 - register
 - relogin
 - upload
+- mixed (combined workload: register + relogin + upload)
 
 The benchmark runner now produces structured JSON output per run, including stage-level summaries, latency percentiles, throughput, success and failure counts, and sampled server resource metrics.
+Note: The mixed workload currently uses randomized operation selection, which may introduce variability between runs. Future iterations may use deterministic ratios for more stable comparisons.
 
 ## Test setup
 The measurements were executed using the Stage 6 load runner with ramp-based scenarios and per-stage summaries.
@@ -135,6 +137,68 @@ Interpretation:
 - unlike upload, degradation under higher load does not currently manifest as controlled rejection
 - instead, the first visible failure mode is timeout-based degradation around the 40-50 concurrent range
 
+## Mixed workload findings
+
+A mixed workload scenario was introduced to simulate a more realistic production pattern, combining:
+- register
+- relogin
+- upload
+
+Each worker randomly selects an operation, resulting in a shared-concurrency environment.
+
+### Observed behavior
+
+- upload is the first operation to degrade under load
+- register and relogin remain stable even when the system is under pressure
+- rejections occur almost exclusively in the upload path due to upload backpressure
+- under moderate load (e.g., 25 concurrent requests), upload begins to show rejection behavior while other operations maintain 100% success
+
+At higher loads:
+- upload latency increases significantly (p95 spikes)
+- upload rejection rate grows
+- register and relogin continue to succeed, with only moderate latency increase
+
+### CPU and resource behavior
+
+- mixed workload amplifies CPU utilization compared to single-scenario runs
+- for larger file sizes (1MB, 5MB), CPU saturation occurs much earlier
+- memory usage (RSS) also increases with file size, especially under concurrent upload pressure
+
+### Sensitivity to file size
+
+Under mixed workload:
+
+- 100KB files:
+  - system remains stable up to higher loads (up to ~50)
+  - overload expressed primarily as upload rejections
+
+- 1MB files:
+  - CPU saturation occurs earlier (around load 25)
+  - upload rejection appears sooner
+
+- 5MB files:
+  - CPU saturation occurs even at low load (~10)
+  - memory usage increases significantly
+  - system reaches overload state much earlier
+
+### Interpretation
+
+- upload remains the dominant cost driver even in mixed scenarios
+- register and relogin are comparatively lightweight and resilient
+- system behavior under realistic mixed load is primarily dictated by upload pressure
+- file size significantly affects how early the system reaches CPU saturation and overload
+
+### Key insight
+
+In mixed workloads:
+- upload dictates system capacity
+- other operations are effectively "shielded" until upload saturates resources
+
+This indicates that optimization efforts should primarily target:
+- upload concurrency handling
+- CPU efficiency of upload processing
+- memory usage per upload
+
 ## Bottleneck summary
 
 ### Register
@@ -147,11 +211,13 @@ Interpretation:
 - secondary overload symptoms: timeout failures and throughput collapse under heavier load
 - overload behavior shifts with file size: smaller uploads are rejected more often, while larger uploads produce more timeout failures
 - conclusion: upload capacity is constrained both by configured concurrency and by the per-upload resource cost of larger files
+- under mixed workloads, upload is also the first path to degrade and reject requests
 
 ### Relogin
 - primary observed bottleneck: timeout-based degradation under higher concurrency
 - behavior under load: stable through 40 concurrent relogins, then begins failing around 50
 - conclusion: relatively lightweight path, but currently degrades through timeouts rather than controlled rejection
+- remains stable even under mixed load conditions
 
 ## Practical conclusions
 At this stage, the server already shows meaningful differentiated behavior across paths:
@@ -159,6 +225,7 @@ At this stage, the server already shows meaningful differentiated behavior acros
 - upload is the most expensive path and is constrained first by concurrent upload limits, then degrades further under overload
 - relogin is lighter, but under higher concurrency currently degrades through timeout failures rather than controlled rejection
 - upload overload behavior is also sensitive to file size: larger files increase memory pressure and shift overload behavior toward more timeout-driven failures
+- under mixed workloads, system capacity is effectively determined by upload performance, while register and relogin remain stable
 
 ## Charts
 
@@ -189,11 +256,24 @@ At this stage, the server already shows meaningful differentiated behavior acros
 ### Upload RSS peak by file size
 ![Upload Size RSS](../tools/plots/upload_size_rss.png)
 
-## Next steps
-- add a mixed workload scenario
-- add a connection churn scenario
-- document benchmark configuration and scenario assumptions more explicitly
-- refine relogin benchmarking to reduce setup-side distortion if cleaner isolation is needed
-- use the current findings to define concrete follow-up optimization candidates in later stages
+### Mixed workload per-operation latency
+![Mixed Operation Latency](../tools/plots/mixed_100kb_operation_latency_p95.png)
 
+### Mixed workload rejected rate per operation
+![Mixed Operation Rejected](../tools/plots/mixed_100kb_operation_rejected.png)
+
+### Mixed workload success rate per operation
+![Mixed Operation Success](../tools/plots/mixed_100kb_operation_success.png)
+
+### Mixed upload p95 latency by file size
+![Mixed Upload Size Latency](../tools/plots/mixed_upload_latency_p95_by_size.png)
+
+### Mixed upload rejected rate by file size
+![Mixed Upload Size Rejected](../tools/plots/mixed_upload_rejected_by_size.png)
+
+## Next steps
+- add a connection churn scenario to complete Stage 6 load coverage
+- refine mixed workload generation (for example, deterministic ratios for more stable comparisons)
+- translate the measured upload bottlenecks into concrete optimization candidates for later stages
+- defer deeper runtime observability improvements (active uploads, queue depth, internal timing breakdown) to Stage 8
 

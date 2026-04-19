@@ -146,7 +146,7 @@ A mixed workload scenario was introduced to simulate a more realistic production
 
 Each worker randomly selects an operation, resulting in a shared-concurrency environment.
 
-## churn findings
+## Churn findings
 
 - under default connection caps, churn exposed abrupt connection termination behavior
 - after raising connection limits, churn remained stable through the tested range

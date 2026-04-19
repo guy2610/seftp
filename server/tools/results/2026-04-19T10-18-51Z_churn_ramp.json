@@ -1,0 +1,127 @@
+{
+  "run_id": "2026-04-19T10-18-51Z_churn_ramp",
+  "created_at": "2026-04-19T10:18:51.142652+00:00",
+  "tool_version": "stage6-v1",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 1234,
+    "server_pid": 29804
+  },
+  "scenario": {
+    "mode": "churn",
+    "ramp": [
+      10,
+      25,
+      50
+    ],
+    "concurrency_limit": 25,
+    "pause_between_stages_s": 1.0
+  },
+  "thresholds": {
+    "stop_failure_rate": 0.1,
+    "stop_p95_ms": 30000.0,
+    "stop_rss_mb": 2048.0,
+    "stop_cpu_percent": 300.0
+  },
+  "scenario_params": {
+    "io_timeout_s": 30.0,
+    "hold_s": null,
+    "connect_timeout_s": null,
+    "file_size_bytes": null,
+    "chunk_size_bytes": null
+  },
+  "stages": [
+    {
+      "load": 10,
+      "concurrency": 10,
+      "elapsed_s": 0.2130081999930553,
+      "stop_reason": null,
+      "throughput_ops_per_s": 46.94654947709069,
+      "summary": {
+        "total": 10,
+        "ok": 10,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 152.20220999908634,
+          "p50": 151.89090004423633,
+          "p95": 155.78219998860732,
+          "p99": 155.78219998860732,
+          "max": 155.78219998860732
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 27.671875,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "after": {
+          "rss_mb": 27.7578125,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "peak": {
+          "rss_mb": 28.25,
+          "cpu_percent": 99.2,
+          "num_threads": 1
+        }
+      },
+      "per_operation_summaries": null
+    },
+    {
+      "load": 25,
+      "concurrency": 25,
+      "elapsed_s": 0.2438710000133142,
+      "stop_reason": "failure_rate 60.0% > threshold 10.0%",
+      "throughput_ops_per_s": 41.00528557907274,
+      "summary": {
+        "total": 25,
+        "ok": 10,
+        "failed": 15,
+        "rejected": 0,
+        "success_rate": 0.4,
+        "failure_rate": 0.6,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 138.67122999508865,
+          "p50": 138.466399977915,
+          "p95": 140.43969998601824,
+          "p99": 140.43969998601824,
+          "max": 140.43969998601824
+        },
+        "errors": {
+          "IncompleteReadError: 0 bytes read on a total of 7 expected bytes": 14,
+          "ConnectionResetError: [WinError 64] The specified network name is no longer available": 1
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 27.7578125,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "after": {
+          "rss_mb": 27.85546875,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "peak": {
+          "rss_mb": 28.54296875,
+          "cpu_percent": 133.0,
+          "num_threads": 1
+        }
+      },
+      "per_operation_summaries": null
+    }
+  ],
+  "final_status": {
+    "completed_all_stages": false,
+    "stopped_early": true,
+    "final_exit_code": 2
+  }
+}

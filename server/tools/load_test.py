@@ -410,6 +410,40 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
                 pass
         return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
 
+async def churn_client(host: str, port: int, io_timeout: float,connections_per_worker:int) -> Result:
+    started = time.perf_counter()
+    writer = None
+    try:
+        for i in range(connections_per_worker):
+            reader, writer = await asyncio.open_connection(host, port)
+            username = random_username("reg")
+            frame = build_request_frame(
+                client_id=b"\x00" * 16,
+                code=825,
+                payload=build_825_payload(username),
+            )
+            writer.write(frame)
+            await writer.drain()
+
+            _, code, payload = await read_response_frame(reader, io_timeout)
+            if code not in (1600, 1601):
+                raise RuntimeError(f"unexpected_response_{code}")
+
+            if code == 1600 and len(payload) != 16:
+                raise RuntimeError("bad_1600_payload_len")
+
+            writer.close()
+            await writer.wait_closed()
+        return Result(ok=True, duration_ms=(time.perf_counter() - started) * 1000)
+    except Exception as e:
+        if writer:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+        return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
+
 async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
     writer = None
     try:
@@ -721,6 +755,13 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     args.io_timeout,
                 ),
             )
+        elif mode == "churn":
+            summary = await run_batched(
+                total_clients=load,
+                concurrency=min(args.concurrency, load),
+                summary_name=f"churn (short-lived connections) load={load} concurrency={min(args.concurrency, load)} connection_per_worker={args.connections_per_worker}",
+                worker_coro_factory=lambda _: churn_client(args.host, args.port, args.io_timeout, args.connections_per_worker),
+            )
         elif mode == "mixed":
             async def mixed_worker(i: int):
                 r = random.random()
@@ -1019,6 +1060,10 @@ def parse_args():
     build_common_parser(mixed_parser)
     mixed_parser.add_argument("--file-size", type=int, default=100_000)
     mixed_parser.add_argument("--chunk-size", type=int, default=60_000)
+
+    churn_parser = sub.add_parser("churn")
+    build_common_parser(churn_parser)
+    churn_parser.add_argument("--connections-per-worker", type=int, default=5)
 
 
     return parser.parse_args()

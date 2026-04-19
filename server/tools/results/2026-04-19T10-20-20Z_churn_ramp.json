@@ -1,0 +1,166 @@
+{
+  "run_id": "2026-04-19T10-20-20Z_churn_ramp",
+  "created_at": "2026-04-19T10:20:20.643688+00:00",
+  "tool_version": "stage6-v1",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 1234,
+    "server_pid": 408
+  },
+  "scenario": {
+    "mode": "churn",
+    "ramp": [
+      10,
+      25,
+      50
+    ],
+    "concurrency_limit": 25,
+    "pause_between_stages_s": 1.0
+  },
+  "thresholds": {
+    "stop_failure_rate": 0.1,
+    "stop_p95_ms": 30000.0,
+    "stop_rss_mb": 2048.0,
+    "stop_cpu_percent": 300.0
+  },
+  "scenario_params": {
+    "io_timeout_s": 30.0,
+    "hold_s": null,
+    "connect_timeout_s": null,
+    "file_size_bytes": null,
+    "chunk_size_bytes": null
+  },
+  "stages": [
+    {
+      "load": 10,
+      "concurrency": 10,
+      "elapsed_s": 0.24656810000305995,
+      "stop_reason": null,
+      "throughput_ops_per_s": 40.55674679683178,
+      "summary": {
+        "total": 10,
+        "ok": 10,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 114.23396000172943,
+          "p50": 113.87380002997816,
+          "p95": 118.3358000125736,
+          "p99": 118.3358000125736,
+          "max": 118.3358000125736
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 27.23828125,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "after": {
+          "rss_mb": 27.953125,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "peak": {
+          "rss_mb": 28.41015625,
+          "cpu_percent": 100.8,
+          "num_threads": 5
+        }
+      },
+      "per_operation_summaries": null
+    },
+    {
+      "load": 25,
+      "concurrency": 25,
+      "elapsed_s": 0.4600139000103809,
+      "stop_reason": null,
+      "throughput_ops_per_s": 54.34618388582571,
+      "summary": {
+        "total": 25,
+        "ok": 25,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 330.60606399783865,
+          "p50": 330.2076000254601,
+          "p95": 333.0773999914527,
+          "p99": 333.4179000230506,
+          "max": 333.4179000230506
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 27.953125,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "after": {
+          "rss_mb": 28.27734375,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "peak": {
+          "rss_mb": 28.71484375,
+          "cpu_percent": 133.0,
+          "num_threads": 5
+        }
+      },
+      "per_operation_summaries": null
+    },
+    {
+      "load": 50,
+      "concurrency": 25,
+      "elapsed_s": 0.7342241000151262,
+      "stop_reason": null,
+      "throughput_ops_per_s": 68.09909944248619,
+      "summary": {
+        "total": 50,
+        "ok": 50,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 299.62138199829496,
+          "p50": 300.34279997926205,
+          "p95": 320.22640004288405,
+          "p99": 321.35240000206977,
+          "max": 321.35240000206977
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 28.27734375,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "after": {
+          "rss_mb": 28.4375,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "peak": {
+          "rss_mb": 29.34765625,
+          "cpu_percent": 100.3,
+          "num_threads": 5
+        }
+      },
+      "per_operation_summaries": null
+    }
+  ],
+  "final_status": {
+    "completed_all_stages": true,
+    "stopped_early": false,
+    "final_exit_code": 0
+  }
+}

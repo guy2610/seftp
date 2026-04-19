@@ -146,6 +146,14 @@ A mixed workload scenario was introduced to simulate a more realistic production
 
 Each worker randomly selects an operation, resulting in a shared-concurrency environment.
 
+## churn findings
+
+- under default connection caps, churn exposed abrupt connection termination behavior
+- after raising connection limits, churn remained stable through the tested range
+- no rejections or failures were observed up to load 50 with 10 short-lived connections per worker
+- CPU utilization increased quickly under churn, but without operational collapse
+- this suggests the main issue was configured connection admission limits rather than a fundamental cleanup or teardown bottleneck
+
 ### Observed behavior
 
 - upload is the first operation to degrade under load

@@ -1,0 +1,169 @@
+{
+  "run_id": "2026-04-20T08-29-07Z_idle_upload_ramp",
+  "created_at": "2026-04-20T08:29:07.301384+00:00",
+  "tool_version": "stage6-v1",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 1234,
+    "server_pid": null
+  },
+  "scenario": {
+    "mode": "idle_upload",
+    "ramp": [
+      5,
+      10
+    ],
+    "concurrency_limit": 5,
+    "pause_between_stages_s": 1.0
+  },
+  "thresholds": {
+    "stop_failure_rate": 0.1,
+    "stop_p95_ms": 30000.0,
+    "stop_rss_mb": 2048.0,
+    "stop_cpu_percent": 95.0
+  },
+  "scenario_params": {
+    "io_timeout_s": 30.0,
+    "hold_s": null,
+    "connect_timeout_s": null,
+    "file_size_bytes": 100000,
+    "chunk_size_bytes": 60000
+  },
+  "stages": [
+    {
+      "load": 5,
+      "concurrency": 5,
+      "elapsed_s": 5.015126700047404,
+      "stop_reason": null,
+      "throughput_ops_per_s": 0.9969837850662356,
+      "summary": {
+        "total": 5,
+        "ok": 5,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 4542.262800014578,
+          "p50": 4230.690199998207,
+          "p95": 5014.3475999939255,
+          "p99": 5014.3475999939255,
+          "max": 5014.3475999939255
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": null,
+        "after": null,
+        "peak": null
+      },
+      "per_operation_summaries": {
+        "idle": {
+          "total": 2,
+          "ok": 2,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 5014.178850018652,
+            "p50": 5014.010100043379,
+            "p95": 5014.3475999939255,
+            "p99": 5014.3475999939255,
+            "max": 5014.3475999939255
+          },
+          "errors": {}
+        },
+        "upload": {
+          "total": 3,
+          "ok": 3,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 4227.652100011862,
+            "p50": 4227.634400012903,
+            "p95": 4230.690199998207,
+            "p99": 4230.690199998207,
+            "max": 4230.690199998207
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "load": 10,
+      "concurrency": 5,
+      "elapsed_s": 10.203862700029276,
+      "stop_reason": null,
+      "throughput_ops_per_s": 0.9800210267403253,
+      "summary": {
+        "total": 10,
+        "ok": 10,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 5096.017059998121,
+          "p50": 5030.915699957404,
+          "p95": 5168.176000006497,
+          "p99": 5168.176000006497,
+          "max": 5168.176000006497
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": null,
+        "after": null,
+        "peak": null
+      },
+      "per_operation_summaries": {
+        "idle": {
+          "total": 5,
+          "ok": 5,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 5028.139540005941,
+            "p50": 5028.140100010205,
+            "p95": 5030.915699957404,
+            "p99": 5030.915699957404,
+            "max": 5030.915699957404
+          },
+          "errors": {}
+        },
+        "upload": {
+          "total": 5,
+          "ok": 5,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 5163.894579990301,
+            "p50": 5164.064799959306,
+            "p95": 5168.176000006497,
+            "p99": 5168.176000006497,
+            "max": 5168.176000006497
+          },
+          "errors": {}
+        }
+      }
+    }
+  ],
+  "final_status": {
+    "completed_all_stages": true,
+    "stopped_early": false,
+    "final_exit_code": 0
+  }
+}

@@ -1,0 +1,279 @@
+{
+  "run_id": "2026-04-20T08-32-36Z_idle_upload_ramp",
+  "created_at": "2026-04-20T08:32:36.376227+00:00",
+  "tool_version": "stage6-v1",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 1234,
+    "server_pid": 15648
+  },
+  "scenario": {
+    "mode": "idle_upload",
+    "ramp": [
+      10,
+      25,
+      50
+    ],
+    "concurrency_limit": 25,
+    "pause_between_stages_s": 1.0
+  },
+  "thresholds": {
+    "stop_failure_rate": 0.1,
+    "stop_p95_ms": 30000.0,
+    "stop_rss_mb": 2048.0,
+    "stop_cpu_percent": 95.0
+  },
+  "scenario_params": {
+    "io_timeout_s": 30.0,
+    "hold_s": null,
+    "connect_timeout_s": null,
+    "file_size_bytes": 100000,
+    "chunk_size_bytes": 60000
+  },
+  "stages": [
+    {
+      "load": 10,
+      "concurrency": 10,
+      "elapsed_s": 10.10857500002021,
+      "stop_reason": null,
+      "throughput_ops_per_s": 0.9892591191122396,
+      "summary": {
+        "total": 10,
+        "ok": 10,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 7627.0751199976075,
+          "p50": 5259.99289995525,
+          "p95": 9995.367299998179,
+          "p99": 9995.367299998179,
+          "max": 9995.367299998179
+        },
+        "errors": {}
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 27.80078125,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "after": {
+          "rss_mb": 29.1875,
+          "cpu_percent": 0.0,
+          "num_threads": 7
+        },
+        "peak": {
+          "rss_mb": 31.33984375,
+          "cpu_percent": 43.0,
+          "num_threads": 7
+        }
+      },
+      "per_operation_summaries": {
+        "idle": {
+          "total": 5,
+          "ok": 5,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 9994.467440003064,
+            "p50": 9994.422199961264,
+            "p95": 9995.367299998179,
+            "p99": 9995.367299998179,
+            "max": 9995.367299998179
+          },
+          "errors": {}
+        },
+        "upload": {
+          "total": 5,
+          "ok": 5,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 5259.682799992152,
+            "p50": 5259.676999994554,
+            "p95": 5259.99289995525,
+            "p99": 5259.99289995525,
+            "max": 5259.99289995525
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "load": 25,
+      "concurrency": 25,
+      "elapsed_s": 10.089274199970532,
+      "stop_reason": null,
+      "throughput_ops_per_s": 2.180533461967389,
+      "summary": {
+        "total": 25,
+        "ok": 22,
+        "failed": 0,
+        "rejected": 3,
+        "success_rate": 0.88,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.12,
+        "latency_ms": {
+          "avg": 9233.633050007153,
+          "p50": 9998.979600029998,
+          "p95": 10007.756199978758,
+          "p99": 10008.94570001401,
+          "max": 10008.94570001401
+        },
+        "errors": {
+          "rejected_by_backpressure: server busy: too many concurrent uploads": 3
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 29.1875,
+          "cpu_percent": 0.0,
+          "num_threads": 7
+        },
+        "after": {
+          "rss_mb": 29.52734375,
+          "cpu_percent": 0.0,
+          "num_threads": 8
+        },
+        "peak": {
+          "rss_mb": 34.046875,
+          "cpu_percent": 66.5,
+          "num_threads": 8
+        }
+      },
+      "per_operation_summaries": {
+        "idle": {
+          "total": 12,
+          "ok": 12,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 10004.05768334167,
+            "p50": 10003.995200037025,
+            "p95": 10008.94570001401,
+            "p99": 10008.94570001401,
+            "max": 10008.94570001401
+          },
+          "errors": {}
+        },
+        "upload": {
+          "total": 13,
+          "ok": 10,
+          "failed": 0,
+          "rejected": 3,
+          "success_rate": 0.7692307692307693,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.23076923076923078,
+          "latency_ms": {
+            "avg": 8309.123490005732,
+            "p50": 8303.101099969354,
+            "p95": 8327.03720004065,
+            "p99": 8327.03720004065,
+            "max": 8327.03720004065
+          },
+          "errors": {
+            "rejected_by_backpressure: server busy: too many concurrent uploads": 3
+          }
+        }
+      }
+    },
+    {
+      "load": 50,
+      "concurrency": 25,
+      "elapsed_s": 31.417880700028036,
+      "stop_reason": "cpu 118.7% > threshold 95.0%",
+      "throughput_ops_per_s": 1.1140153065756841,
+      "summary": {
+        "total": 50,
+        "ok": 35,
+        "failed": 0,
+        "rejected": 15,
+        "success_rate": 0.7,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.3,
+        "latency_ms": {
+          "avg": 13257.089922859866,
+          "p50": 10039.157600025646,
+          "p95": 21316.310500027612,
+          "p99": 21318.073400005233,
+          "max": 21318.073400005233
+        },
+        "errors": {
+          "rejected_by_backpressure: server busy: too many concurrent uploads": 15
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 29.52734375,
+          "cpu_percent": 0.0,
+          "num_threads": 8
+        },
+        "after": {
+          "rss_mb": 29.67578125,
+          "cpu_percent": 0.0,
+          "num_threads": 5
+        },
+        "peak": {
+          "rss_mb": 31.53515625,
+          "cpu_percent": 118.7,
+          "num_threads": 8
+        }
+      },
+      "per_operation_summaries": {
+        "idle": {
+          "total": 25,
+          "ok": 25,
+          "failed": 0,
+          "rejected": 0,
+          "success_rate": 1.0,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.0,
+          "latency_ms": {
+            "avg": 10034.795332001522,
+            "p50": 10034.608700021636,
+            "p95": 10043.277599965222,
+            "p99": 10044.661499967333,
+            "max": 10044.661499967333
+          },
+          "errors": {}
+        },
+        "upload": {
+          "total": 25,
+          "ok": 10,
+          "failed": 0,
+          "rejected": 15,
+          "success_rate": 0.4,
+          "failure_rate": 0.0,
+          "rejected_rate": 0.6,
+          "latency_ms": {
+            "avg": 21312.826400005724,
+            "p50": 21311.165599967353,
+            "p95": 21318.073400005233,
+            "p99": 21318.073400005233,
+            "max": 21318.073400005233
+          },
+          "errors": {
+            "rejected_by_backpressure: server busy: too many concurrent uploads": 15
+          }
+        }
+      }
+    }
+  ],
+  "final_status": {
+    "completed_all_stages": false,
+    "stopped_early": true,
+    "final_exit_code": 2
+  }
+}

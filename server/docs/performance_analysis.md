@@ -154,6 +154,14 @@ Each worker randomly selects an operation, resulting in a shared-concurrency env
 - CPU utilization increased quickly under churn, but without operational collapse
 - this suggests the main issue was configured connection admission limits rather than a fundamental cleanup or teardown bottleneck
 
+## Idle + active upload findings
+
+- idle connections remained stable across the tested range
+- under combined idle + upload load, degradation appeared in the upload path only
+- uploads were increasingly rejected via backpressure as idle connection count grew
+- no timeout or crash-based failures were observed in this scenario
+- this suggests that passive open connections reduce effective capacity for active work, while the server still preserves stable idle-session handling
+
 ### Observed behavior
 
 - upload is the first operation to degrade under load

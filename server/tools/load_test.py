@@ -702,6 +702,32 @@ async def run_mixed_batched(total_clients: int, concurrency: int, worker_coro_fa
 
     await asyncio.gather(*(runner_mixed(i) for i in range(total_clients)))
     return summary_overall,summaries
+async def run_idle_upload_batched(  idle_clients: int,upload_clients: int, concurrency: int, host: str, port: int,
+                                    io_timeout: float, hold: float, connect_timeout: float, file_size: int,
+                                    chunk_size: int,summary_name: str):
+    sem = asyncio.Semaphore(concurrency)
+    summary_overall = Summary(summary_name)
+    summaries = {
+        "idle": Summary("idle"),
+        "upload": Summary("upload")
+    }
+    async def run_idle_once():
+        async with sem:
+            result = await idle_connection_client(host, port, hold, connect_timeout)
+            summary_overall.add(result)
+            summaries["idle"].add(result)
+    async def run_upload_once():
+        async with sem:
+            result = await upload_client(host, port, io_timeout, file_size, chunk_size)
+            summary_overall.add(result)
+            summaries["upload"].add(result)
+
+    idle_tasks = [asyncio.create_task(run_idle_once()) for _ in range(idle_clients)]
+    await asyncio.sleep(0.1)
+    upload_tasks = [asyncio.create_task(run_upload_once()) for _ in range(upload_clients)]
+
+    await asyncio.gather(*(idle_tasks+upload_tasks))
+    return summary_overall, summaries
 
 async def run_single_stage(args, mode: str, load: int) -> StageReport:
     started = time.perf_counter()
@@ -780,6 +806,26 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     f"file_size={args.file_size} chunk_size={args.chunk_size}"
                 ),
                 worker_coro_factory=mixed_worker,
+            )
+        elif mode == "idle_upload":
+            idle_load = load // 2
+            upload_load = load - idle_load
+            summary, per_operation_summaries = await run_idle_upload_batched(
+                idle_clients=idle_load,
+                upload_clients=upload_load,
+                concurrency=min(args.concurrency, load),
+                host=args.host,
+                port=args.port,
+                io_timeout=args.io_timeout,
+                hold=args.hold,
+                connect_timeout=args.connect_timeout,
+                file_size=args.file_size,
+                chunk_size=args.chunk_size,
+                summary_name=(
+                    f"idle_upload load={load} idle={idle_load} upload={upload_load} "
+                    f"concurrency={min(args.concurrency, load)} "
+                    f"hold={args.hold} file_size={args.file_size} chunk_size={args.chunk_size}"
+                ),
             )
         else:
             raise RuntimeError(f"unknown mode: {mode}")
@@ -914,7 +960,7 @@ def build_scenario_params(args, mode: str) -> dict:
         params["connect_timeout_s"] = args.connect_timeout
         params["file_size_bytes"] = None
         params["chunk_size_bytes"] = None
-    elif mode in ("upload", "mixed"):
+    elif mode in ("upload", "mixed","idle_upload"):
         params["hold_s"] = None
         params["connect_timeout_s"] = None
         params["file_size_bytes"] = args.file_size
@@ -1064,6 +1110,15 @@ def parse_args():
     churn_parser = sub.add_parser("churn")
     build_common_parser(churn_parser)
     churn_parser.add_argument("--connections-per-worker", type=int, default=5)
+
+    idle_upload_parser = sub.add_parser("idle_upload")
+    build_common_parser(idle_upload_parser)
+    idle_upload_parser.add_argument("--hold", type=float, default=20.0)
+    idle_upload_parser.add_argument("--connect-timeout", type=float, default=10.0)
+    idle_upload_parser.add_argument("--file-size", type=int, default=100_000)
+    idle_upload_parser.add_argument("--chunk-size", type=int, default=60_000)
+
+
 
 
     return parser.parse_args()

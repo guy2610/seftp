@@ -740,7 +740,7 @@ Improve server scalability and storage architecture.
 
 Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
 * Extend load and stress testing scenarios
-  * Parallel clients (idle + active uploads) (PARTIAL)
+  * Parallel clients (idle + active uploads) (DONE)
   * High connection churn (DONE)
   * Mixed workloads (registration, re-login, uploads) (DONE)
 

@@ -761,8 +761,8 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
 
 * Bottleneck identification
   * Detect hot paths (CPU vs I/O vs DB) (DONE - first level)
-  * Evaluate effectiveness of in-memory client index
-  * Identify whether additional caching or indexing is justified
+  * Evaluate effectiveness of in-memory client index (deferred to future optimization work)
+  * Identify whether additional caching or indexing is justified (deferred to future optimization work)
 
 * Evidence-based optimization targets
   * Define concrete candidates for future improvements (DONE - basic level)

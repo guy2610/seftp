@@ -41,51 +41,8 @@ Response:
 
 On the server side, framing is handled incrementally from the TCP stream, and routing extracts the request code and payload only after a full frame is available.
 
-```mermaid
-flowchart LR
-    subgraph Client["C++ Client"]
-        CCFG["Config + Local Persistence
-transfer.info / me.info / aes.key / priv.key"]
-        CFLOW["Flow Orchestration
-connect / handshake / upload"]
-        CCRYPTO["Crypto
-RSA / AES-256-CBC / CRC32"]
-        CPROTO["Protocol Builder / Parser"]
-        CUI["Console UI / Headless CLI"]
-    end
-
-    subgraph Protocol["Binary TCP Protocol"]
-        PFRAME["Request / Response Frames
-client_id | version | code | payload_size | payload"]
-    end
-
-    subgraph Server["Python Async Server"]
-        SENTRY["server_async.py
-connection lifecycle"]
-        SROUTER["Router + Handlers + Session"]
-        SLIMIT["Admission Control
-ConnectionLimiter / UploadLimiter"]
-        SEXEC["BoundedExecutor
-CPU-bound upload finalization"]
-        SSTORE["Store
-SQLite + in-memory client index"]
-        SFILES["Uploaded Files
-data/uploads/..."]
-    end
-
-    CUI --> CFLOW
-    CCFG --> CFLOW
-    CFLOW --> CCRYPTO
-    CFLOW --> CPROTO
-    CPROTO <--> PFRAME
-    PFRAME <--> SENTRY
-    SENTRY --> SROUTER
-    SROUTER --> SLIMIT
-    SROUTER --> SEXEC
-    SROUTER --> SSTORE
-    SEXEC --> SFILES
-    SSTORE --> SFILES
-```
+> Diagram placeholder  
+> A Mermaid overview diagram should be inserted here, immediately after the high-level architecture section.
 
 
 ## 3. Major Components
@@ -155,37 +112,6 @@ A new client sends `request 825` with a null-terminated username. The handler st
 ### 4.2 Public Key Submission and AES Bootstrap
 
 After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid. The server then stores the public key, generates a fresh 32-byte AES key, stores that AES key in Base64 form, encrypts it with RSA-OAEP, and returns it in `response 1602` together with the client ID.
-
-```markdown
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Server
-    participant Store as SQLite / Store
-    participant Disk as data/uploads
-
-    Client->>Server: 825 register
-    Server-->>Client: 1600 client_id
-
-    Client->>Server: 826 username + RSA public key
-    Server-->>Client: 1602 AES key encrypted with RSA
-
-    Client->>Client: decrypt AES key locally
-    Client->>Client: encrypt file with AES-256-CBC + fresh IV
-
-    Client->>Server: 828 packet 0 (metadata + IV)
-    Client->>Server: 828 packet 1..N (ciphertext chunks)
-
-    Server->>Store: create upload record (in_progress)
-    Server->>Server: validate order / sizes / state
-    Server->>Disk: write finalized plaintext file
-    Server->>Store: update upload metadata
-    Server-->>Client: 1603 CRC result
-
-    Client->>Server: 900 / 901 / 902
-    Server->>Store: mark completed / crc_mismatch / failed
-    Server-->>Client: 1604 when applicable
-```
 
 ### 4.3 Relogin Flow
 

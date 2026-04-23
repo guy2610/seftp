@@ -42,8 +42,51 @@ The system is composed of three major boundaries:
 
 The client is responsible for local orchestration, persistence, cryptographic preparation, and request emission. The protocol boundary defines the binary frame format and request/response semantics. The server is responsible for framed request handling, validation, admission control, persistence, and upload completion.
 
-> Diagram placeholder  
-> A Mermaid system overview diagram should be inserted here.
+```mermaid
+flowchart LR
+    subgraph Client["C++ Client"]
+        CCFG["Config + Local Persistence
+transfer.info / me.info / aes.key / priv.key"]
+        CFLOW["Flow Orchestration
+connect / handshake / upload"]
+        CCRYPTO["Crypto
+RSA / AES-256-CBC / CRC32"]
+        CPROTO["Protocol Builder / Parser"]
+        CUI["Console UI / Headless CLI"]
+    end
+
+    subgraph Protocol["Binary TCP Protocol"]
+        PFRAME["Request / Response Frames
+client_id | version | code | payload_size | payload"]
+    end
+
+    subgraph Server["Python Async Server"]
+        SENTRY["server_async.py
+connection lifecycle"]
+        SROUTER["Router + Handlers + Session"]
+        SLIMIT["Admission Control
+ConnectionLimiter / UploadLimiter"]
+        SEXEC["BoundedExecutor
+CPU-bound upload finalization"]
+        SSTORE["Store
+SQLite + in-memory client index"]
+        SFILES["Uploaded Files
+data/uploads/..."]
+    end
+
+    CUI --> CFLOW
+    CCFG --> CFLOW
+    CFLOW --> CCRYPTO
+    CFLOW --> CPROTO
+    CPROTO <--> PFRAME
+    PFRAME <--> SENTRY
+    SENTRY --> SROUTER
+    SROUTER --> SLIMIT
+    SROUTER --> SEXEC
+    SROUTER --> SSTORE
+    SEXEC --> SFILES
+    SSTORE --> SFILES
+```
 
 ## 4. End-to-End Flows
 
@@ -61,6 +104,37 @@ This flow establishes:
 On later runs, the client attempts relogin using its persisted identity. It sends request `827`, and the server either restores the session by returning a fresh AES key in response `1605`, or forces the client into a recovery path if relogin cannot proceed.
 
 This keeps identity stable across sessions while allowing session encryption material to rotate.
+
+```markdown
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    participant Store as SQLite / Store
+    participant Disk as data/uploads
+
+    Client->>Server: 825 register
+    Server-->>Client: 1600 client_id
+
+    Client->>Server: 826 username + RSA public key
+    Server-->>Client: 1602 AES key encrypted with RSA
+
+    Client->>Client: decrypt AES key locally
+    Client->>Client: encrypt file with AES-256-CBC + fresh IV
+
+    Client->>Server: 828 packet 0 (metadata + IV)
+    Client->>Server: 828 packet 1..N (ciphertext chunks)
+
+    Server->>Store: create upload record (in_progress)
+    Server->>Server: validate order / sizes / state
+    Server->>Disk: write finalized plaintext file
+    Server->>Store: update upload metadata
+    Server-->>Client: 1603 CRC result
+
+    Client->>Server: 900 / 901 / 902
+    Server->>Store: mark completed / crc_mismatch / failed
+    Server-->>Client: 1604 when applicable
+```
 
 ### 4.3 Secure File Upload Flow
 

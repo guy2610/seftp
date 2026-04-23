@@ -56,8 +56,52 @@ Response:
 
 The client builds outgoing frames through `protocol.hpp` and reads incoming response frames through `net.hpp` and `net.cpp`.
 
-> Diagram placeholder  
-> A Mermaid overview diagram should be inserted here, immediately after the high-level architecture section.
+```mermaid
+flowchart LR
+    subgraph UX["User Interaction"]
+        UI["Console UI / Headless CLI"]
+    end
+
+    subgraph Orchestration["Client Orchestration"]
+        FLOW["Flow
+connect / handshake / upload"]
+        CTX["ClientContext
+identity / AES state / status"]
+    end
+
+    subgraph ClientCore["Client Core"]
+        PROTO["Protocol
+request builders / response parsers"]
+        NET["Net
+framed response IO"]
+        CRYPTO["Crypto
+RSA / AES-256-CBC / CRC32"]
+    end
+
+    subgraph LocalState["Local Persistence"]
+        PERSIST["Client Persistence"]
+        FILES["Files
+transfer.info / me.info / aes.key / priv.key"]
+        LOG["Logger"]
+    end
+
+    subgraph Remote["Remote Server"]
+        SERVER["SEFTP Server"]
+    end
+
+    UI --> FLOW
+    FLOW --> CTX
+    FLOW --> PROTO
+    FLOW --> NET
+    FLOW --> CRYPTO
+    FLOW --> PERSIST
+    PERSIST --> FILES
+    FLOW --> LOG
+
+    PROTO <--> NET
+    NET <--> SERVER
+    CRYPTO --> FLOW
+```
 
 ## 3. Major Components
 

@@ -105,7 +105,6 @@ On later runs, the client attempts relogin using its persisted identity. It send
 
 This keeps identity stable across sessions while allowing session encryption material to rotate.
 
-```markdown
 ```mermaid
 sequenceDiagram
     participant Client

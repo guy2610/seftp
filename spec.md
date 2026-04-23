@@ -1,4 +1,4 @@
-# Secure File Transfer Protocol - Specification (v0.2.0)
+# Secure File Transfer Protocol - Specification (v0.6.0)
 
 This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, and CRC validation for correctness.
 
@@ -6,9 +6,11 @@ This document defines the binary protocol used between the C++ client and the Py
 
 ## 1. Frame Structure
 
-All messages (client -> server and server -> client) follow this binary format:
+The protocol uses different frame formats for requests and responses.
 
-```
+### Client -> Server (Request)
+
+```text
 [ 0..15 ] 16 bytes   client_id       (UUID raw bytes; 0x00..00 on first registration)
 [ 16    ] 1 byte     version         (currently always 3)
 [ 17..18] 2 bytes    code            (uint16 LE)
@@ -16,11 +18,21 @@ All messages (client -> server and server -> client) follow this binary format:
 [ 23..  ] payload    (variable)
 ```
 
+### Server -> Client (Response)
+```text
+[ 0     ] 1 byte     version         (currently always 3)
+[ 1..2  ] 2 bytes    code            (uint16 LE)
+[ 3..6  ] 4 bytes    payload_size    (uint32 LE)
+[ 7..   ] payload    (variable)
+```
+
 ### Notes:
 
-* `client_id` is raw 16-byte UUID (not hex string).
+* `client_id is` a raw 16-byte UUID in client requests, not a hex string.
 * For code `825` (first registration), `client_id` must be all zero bytes.
-* `payload_size` indicates number of bytes after the header.
+* Server responses do not include `client_id` in the response header.
+* Some response payloads include `client_id` as part of the payload.
+* `payload_size` indicates the number of bytes after the header.
 
 ---
 
@@ -227,9 +239,15 @@ Meaning:
 
 ### **1607 - General Error**
 
-Indicates protocol/logic error.
+Indicates a protocol or logic error.
+
+**Payload:**
+
+```text
 client_id (16 bytes)
 error_message (UTF-8 string)
+```
+
 ---
 
 ## 4. Cryptography Details
@@ -255,16 +273,19 @@ error_message (UTF-8 string)
 
 ## 5. Known Limitations (v0.2.0)
 
-* Single-process asyncio server (multi-client, event-loop based)
-* No replay protection or authentication
-* CRC32 is used for transmission integrity only and provides no authenticity or tamper resistance.
+* Single-process `asyncio` server (multi-client, event-loop based)
+* No replay protection or authenticated encryption
+* CRC32 is used for transmission integrity only and provides no authenticity or tamper resistance
+* Client-side key persistence is file-based and not backed by platform-native secure storage
 
 ---
 
 ## 6. Future Improvements
 
-* Database-backed persistence
 * Authenticated encryption
-* Rate limiting
+* Rate limiting / abuse protection
+* Resumable uploads
+* Stronger local key storage on the client
+* Deeper observability and protocol-level diagnostics
 
 ```

@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server (v0.5.0)
+# Secure File Transfer - C++ Client & Python Server (v0.6.0)
 
 This project implements a simple **secure file transfer protocol** over TCP.
 
@@ -14,7 +14,7 @@ This is an independent engineering project focused on protocol design,
 defensive validation, concurrency, and end-to-end reliability.
 The system is not intended for production use.
 
-Stage 6 is in progress and now includes structured performance benchmarking, ramp-based load testing, resource sampling, mixed workload analysis, and visualization of latency, throughput, overload behavior, and file-size sensitivity.
+Stage 6 is complete and includes structured performance benchmarking, ramp-based load testing, resource sampling, mixed workload analysis, architecture documentation, and visualization of latency, throughput, overload behavior, and file-size sensitivity.
 
 Stage 5 is complete. The server now includes bounded concurrency controls, SQLite-backed persistence, persisted upload lifecycle tracking, and an in-memory client metadata index with write-through synchronization for low-latency hot-path lookups.
 
@@ -28,7 +28,7 @@ The system is functional end-to-end and includes defensive protocol validation, 
 
 ## Version
 
-**Stage 6 progress - Performance Analysis, Observability & Design Documentation**
+**v0.6.0 - Stage 6 complete (Performance Analysis, Observability & Design Documentation)**
 
 * Ramp-based benchmark runner for register, relogin, upload, and mixed workloads
 * Structured JSON benchmark output per run
@@ -37,6 +37,9 @@ The system is functional end-to-end and includes defensive protocol validation, 
 * Visualization for latency, throughput, overload behavior, and file-size sensitivity
 * Mixed workload analysis with per-operation breakdown (register / relogin / upload)
 * Initial bottleneck identification: upload dominates capacity under realistic mixed load
+* System, client, and server architecture/design documents
+* Mermaid-based architecture diagrams for system, client, and server views
+* Clear documentation of component boundaries, persistence model, data flow, and design tradeoffs
 
 **v0.5.0 - Stage 5 scalability and persistence foundations**
 
@@ -241,6 +244,16 @@ Python server
   - Uses a bounded executor for CPU-bound upload finalization
   - Protects the event loop from unbounded CPU-bound work
 ```
+
+---
+
+## Architecture Documents
+
+Detailed design documentation is available under `docs/`:
+
+- `docs/system_design.md` - full system architecture overview
+- `docs/client_design.md` - client architecture, flow, persistence, and design decisions
+- `docs/server_design.md` - server architecture, concurrency model, persistence, and resource control
 
 ---
 
@@ -736,7 +749,7 @@ Improve server scalability and storage architecture.
  
 ---
 
-### **Stage 6 - Performance Analysis, Observability & Design Documentation**
+### **Stage 6 - Performance Analysis, Observability & Design Documentation** DONE
 
 Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
 * Extend load and stress testing scenarios
@@ -768,56 +781,88 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
   * Define concrete candidates for future improvements (DONE - basic level)
   * Feed results into Stage 8 (future work / optimizations)
 
-* Architecture / design documentation 
-  * Document component boundaries, data flow, and persistence model
-  * Capture key design decisions and tradeoffs
+* Architecture / design documentation (DONE)
+  * Document component boundaries, data flow, and persistence model (DONE)
+  * Capture key design decisions and tradeoffs (DONE)
   * Summarize measured bottlenecks and likely optimization directions (DONE)
+  * Add system, client, and server design documents with Mermaid diagrams (DONE)
 
 ---
-### **Stage 7 - Security Hardening**
-Additional security protections beyond baseline protocol validation.
+### **Stage 7 - Security Hardening & Protocol Evolution**
+Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
 
-* Protocol hardening
-  * Payload size and packet limits (DONE)
-  * Strong payload validation (DONE)
-  * Additional input validation (DONE)
-  * Key lifecycle handling
+* Protocol security extension
+  * Introduce authenticated server identity during the bootstrap phase
+  * Extend the current protocol with a MITM-resistant key establishment flow
+  * Preserve the existing request/response model (`825`/`826`/`827`/`828`/...) while strengthening the handshake
+  * Define a trust model for first connection (e.g. pinned key / TOFU / pre-configured trust)
+
+* Cryptographic model improvements
+  * Strengthen session key establishment and binding between identity and AES key
+  * Evaluate replay resistance and handshake integrity guarantees
+  * Improve key lifecycle handling (rotation, overwrite, invalidation)
+
+* Client-side key security
+  * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence
+  * Evaluate stronger protection or platform-native secure storage
+
+* Upload pipeline evolution
+  * Move from full-file pre-encryption to incremental streaming encryption and transmission  
+    (read -> encrypt -> send in a pipeline, reducing peak memory usage and avoiding full-file buffering)
+  * Keep AES-CBC state continuity across chunks or define a controlled protocol extension if chunk boundaries require explicit IV handling
 
 * Abuse protection
-  * Connection rate limiting
-  * Basic DoS protection
+  * Connection rate limiting (limit new connections per time window, per IP/global)
+  * Basic DoS protection (burst control, early rejection under load, guarding expensive paths)
+  * Hardening of edge-case protocol paths under adversarial input
 
 ---
 
 ### **Stage 8 - Observability & Production Behavior**
-Operational visibility and diagnostics.
+Operational visibility, diagnostics, and runtime insight into system behavior under real-world conditions.
 
 * Metrics
-  * Connection statistics
-  * Upload statistics
-  * Protocol error counters
+  * Connection statistics (active, rejected, per-IP)
+  * Upload statistics (throughput, duration, success/failure rates)
+  * Protocol error counters (`1607` and validation failures)
   * Active connection and active upload visibility
-  * Queue / executor saturation visibility
+  * Queue / executor saturation visibility (bounded executor)
 
 * Logging and diagnostics
   * Structured logging (DONE)
-  * Request / response tracing
+  * Request / response tracing across the full lifecycle
+  * Correlation between `connection_id`, `request_id`, and `upload_id`
+  * Improved visibility into upload phases (receive, finalize, persist)
 
 * Runtime behavior
   * Configuration validation (DONE)
   * Runtime configuration reporting (DONE)
+  * Exposure of internal state for debugging and benchmarking
+  * Optional lightweight metrics export (future)
+
+* Client experience improvements
+  * Improved client-side progress and status reporting for uploads
 
 ---
 
 ### **Stage 9 - Extensions & Portfolio Polish**
-Future work
+Future work and optional extensions.
 
-* Optional C++ server implementation
-* Cross-client communication (relay / messaging)
-* Optional GUI client (Qt / ImGui / DearPyGui)
+* Upload model extensions
+  * Evaluate resumable uploads across reconnects (protocol and persistence implications)
+  * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
+
+* Storage and performance exploration
+  * Evaluate additional caching / indexing strategies on the server (based on measured bottlenecks)
+
+* System extensions
+  * Optional C++ server implementation
+  * Cross-client communication (relay / messaging)
+  * Optional GUI client (Qt / ImGui / DearPyGui)
+
 * Portfolio polish
-  * Full protocol specification
-  * Demo instructions
-  * Release polish
+  * Full protocol specification (aligned with implementation)
+  * Demo instructions and usage flows
+  * Release polish and packaging
 
 ---

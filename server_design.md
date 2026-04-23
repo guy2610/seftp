@@ -41,8 +41,56 @@ Response:
 
 On the server side, framing is handled incrementally from the TCP stream, and routing extracts the request code and payload only after a full frame is available.
 
-> Diagram placeholder  
-> A Mermaid overview diagram should be inserted here, immediately after the high-level architecture section.
+```mermaid
+flowchart LR
+    subgraph Net["Network Edge"]
+        SOCK["TCP Listener"]
+        CONN["Per-Connection Handler"]
+    end
+
+    subgraph Session["Session Layer"]
+        SESS["ClientSession
+connection state / upload state / counters"]
+        FRAMER["Framer
+stream -> complete frames"]
+    end
+
+    subgraph Protocol["Protocol Layer"]
+        ROUTER["Router
+code dispatch"]
+        ANSWERS["Answers
+response builders"]
+        HANDLERS["Handlers
+825 / 826 / 827 / 828 / 900 / 901 / 902"]
+    end
+
+    subgraph Control["Resource Control"]
+        CLIM["ConnectionLimiter"]
+        ULIM["UploadLimiter"]
+        BEXEC["BoundedExecutor"]
+    end
+
+    subgraph Storage["Persistence and Files"]
+        STORE["Store
+SQLite + in-memory client index"]
+        UPFILES["data/uploads/..."]
+    end
+
+    SOCK --> CONN
+    CONN --> SESS
+    SESS --> FRAMER
+    FRAMER --> ROUTER
+    ROUTER --> HANDLERS
+    HANDLERS --> ANSWERS
+
+    CONN --> CLIM
+    HANDLERS --> ULIM
+    HANDLERS --> BEXEC
+
+    HANDLERS --> STORE
+    BEXEC --> UPFILES
+    STORE --> UPFILES
+```
 
 
 ## 3. Major Components

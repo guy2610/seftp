@@ -13,7 +13,7 @@ Existing protocol operations:
  - 900/901/902 CRC confirmation flow
 
 Stage 7 focuses on strengthening bootstrap and key establishment without replacing the protocol.
----
+
 
 ## Assets to protect
 
@@ -29,7 +29,7 @@ Client should know it is talking to the intended server.
 Attacker should not learn, replace, or influence the AES key used for upload encryption.
 6. Protocol state
 Attacker should not replay old handshake/upload messages to confuse state or bypass validation.
----
+
 
 ## Attacker capabilities
 
@@ -50,7 +50,7 @@ Assume the attacker cannot:
  * compromise the client private key
  * read local client files directly
  * read server database/storage directly
----
+
 
 ## Current weakness
 
@@ -61,7 +61,7 @@ Main issue:
 During initial key establishment, the client has no cryptographic proof that it is talking to the real server.
 
 That means a MITM may be able to interfere with the bootstrap flow before the AES key is trusted.
----
+
 
 ## Threats
 
@@ -205,7 +205,7 @@ Stage 7 mitigation:
  * stricter handshake timeout
  * reject unauthenticated clients before expensive work
  * malformed handshake tests
----
+
 
 ## Trust model options
 
@@ -255,7 +255,7 @@ Cons:
  * risks becoming partial TLS reimplementation
 
 Keep as future direction, not Stage 7 core.
----
+
 
 ## Recommended Stage 7 decision
 
@@ -270,7 +270,7 @@ Implement:
 7. Tests for MITM-style key change and replay attempts
 
 Do not implement full TLS, certificates, or upload streaming yet.
----
+
 
 ## Important limitation to document
 

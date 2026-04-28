@@ -36,7 +36,120 @@ The protocol uses different frame formats for requests and responses.
 
 ---
 
-## 2. Request Codes (Client -> Server)
+## 2. Security Handshake (Stage 7)
+
+Before any application-level request (825–902), the client MUST complete a security handshake with the server.
+
+If the handshake is not completed, the server MUST reject all requests with response `1607`.
+
+### 2.1 Handshake Flow
+
+1. Client connects via TCP
+2. Client sends `829 CLIENT_HELLO`
+3. Server replies with `1608 SERVER_HELLO`
+4. Client verifies server identity
+5. Only after successful verification:
+   - client may send requests 825 / 826 / 827 / 828
+
+No fallback to pre-handshake behavior is allowed.
+
+---
+
+### 2.2 Request 829 - CLIENT_HELLO
+
+**Payload:**
+
+```text
+uint8   security_version
+bytes32 client_nonce
+uint8   flags
+```
+**Notes:**
+
+- MUST be the first request on every connection
+- `client_nonce` MUST be randomly generated per connection
+- server MUST reject any other request before this
+### 2.3 Response 1608 - SERVER_HELLO
+
+**Payload:**
+
+```text
+uint8   security_version
+bytes32 server_nonce
+uint16  server_public_key_len
+bytes   server_public_key (DER)
+uint16  signature_len
+bytes   signature
+```
+
+### 2.4 Handshake Signature
+
+The server signs the following transcript:
+
+```text
+"SEFFP_STAGE7_SERVER_HELLO" ||
+security_version ||
+client_nonce ||
+server_nonce ||
+server_public_key
+```
+
+The client verifies the signature using the provided server_public_key.
+
+### 2.5 Trust Model
+
+The protocol supports two trust modes:
+
+#### TOFU (Trust On First Use)
+
+- First connection: client stores server fingerprint
+- Subsequent connections: fingerprint must match
+
+#### Pinned Key
+
+- Client is pre-configured with expected server fingerprint
+- Mismatch → connection rejected
+
+### 2.6 Server Fingerprint
+```text
+SHA-256(server_public_key_der)
+```
+
+### 2.7 Enforcement Rules
+
+#### Server
+
+- MUST reject any request before CLIENT_HELLO
+- MUST reject malformed handshake with 1607
+- MUST enforce handshake completion before processing requests
+
+#### Client
+
+- MUST verify signature
+- MUST enforce fingerprint match (TOFU or pinned)
+- MUST abort on failure
+
+### 2.8 Replay Protection
+- Handshake uses client_nonce and server_nonce
+- Signature binds both nonces
+- Replay of SERVER_HELLO is rejected due to nonce mismatch
+
+### 2.9 Backward Compatibility
+
+This version does NOT support fallback to pre-handshake protocol.
+
+**Rationale:**
+
+- prevents downgrade attacks
+---
+
+## 3. Request Codes (Client -> Server)
+
+### **829 - CLIENT_HELLO**
+
+Starts the Stage 7 security handshake.
+
+See section 2 for full definition.
 
 ### **825 - Register**
 
@@ -188,7 +301,15 @@ Server responds:
 
 ---
 
-## 3. Response Codes (Server -> Client)
+## 4. Response Codes (Server -> Client)
+
+### **1608 - SERVER_HELLO**
+
+Returned in response to CLIENT_HELLO.
+
+Contains server identity and signature for handshake verification.
+
+See section 2 for full structure.
 
 ### **1600 - Registration Success**
 
@@ -250,7 +371,7 @@ error_message (UTF-8 string)
 
 ---
 
-## 4. Cryptography Details
+## 5. Cryptography Details
 
 ### AES
 
@@ -271,16 +392,34 @@ error_message (UTF-8 string)
 
 ---
 
-## 5. Known Limitations (v0.2.0)
+## 6. Security Guarantees
 
-* Single-process `asyncio` server (multi-client, event-loop based)
-* No replay protection or authenticated encryption
-* CRC32 is used for transmission integrity only and provides no authenticity or tamper resistance
-* Client-side key persistence is file-based and not backed by platform-native secure storage
+After Stage 7:
+
+* Server identity is verified before AES key establishment
+* In pinned mode, MITM is prevented from the first connection
+* In TOFU mode, MITM is prevented after the first trusted connection
+* Replay of handshake messages is mitigated via nonce binding
+* Downgrade attacks are mitigated via signed security_version
+* Unauthenticated requests are rejected early (1607)
+* File contents remain encrypted over the network using AES-256-CBC
 
 ---
 
-## 6. Future Improvements
+## 7. Known Limitations (v0.6.0)
+
+* TOFU mode is vulnerable to MITM on the first connection
+* No certificate-based trust or external CA
+* No mutual authentication (client is not authenticated to server cryptographically)
+* AES-CBC does not provide authenticated encryption (no AEAD)
+* CRC32 is not a cryptographic integrity mechanism
+* No forward secrecy (no ephemeral key exchange)
+* Client-side keys are stored as plain files (no secure storage)
+* No protection against traffic analysis
+
+---
+
+## 8. Future Improvements
 
 * Authenticated encryption
 * Rate limiting / abuse protection
@@ -288,4 +427,4 @@ error_message (UTF-8 string)
 * Stronger local key storage on the client
 * Deeper observability and protocol-level diagnostics
 
-```
+

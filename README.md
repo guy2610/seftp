@@ -249,11 +249,11 @@ Python server
 
 ## Architecture Documents
 
-Detailed design documentation is available under `docs/`:
+Detailed design documentation is available:
 
-- `docs/system_design.md` - full system architecture overview
-- `docs/client_design.md` - client architecture, flow, persistence, and design decisions
-- `docs/server_design.md` - server architecture, concurrency model, persistence, and resource control
+- `system_design.md` - full system architecture overview
+- `client_design.md` - client architecture, flow, persistence, and design decisions
+- `server_design.md` - server architecture, concurrency model, persistence, and resource control
 
 ---
 

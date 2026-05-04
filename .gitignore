@@ -62,3 +62,16 @@ vcpkg/
 *.jpg
 *.jpeg
 *.jfif
+# Local Python virtual environments
+.venv/
+server/.venv/
+
+# macOS metadata
+.DS_Store
+
+# Local runtime/client state
+transfer.info
+test.txt
+me.info
+aes.key
+priv.key

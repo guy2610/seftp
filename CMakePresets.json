@@ -4,9 +4,19 @@
     {
       "name": "vs2022-x64",
       "generator": "Visual Studio 17 2022",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/vs2022-x64",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "macos-arm64",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-arm64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "arm64-osx"
       }
     }
   ],
@@ -15,6 +25,10 @@
       "name": "release",
       "configurePreset": "vs2022-x64",
       "configuration": "Release"
+    },
+    {
+      "name": "macos-release",
+      "configurePreset": "macos-arm64"
     }
   ]
 }

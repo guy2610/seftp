@@ -69,6 +69,15 @@ server/.venv/
 # macOS metadata
 .DS_Store
 
+# JetBrains IDE
+.idea/
+
+# macOS
+.DS_Store
+
+# Local test/runtime files
+test_upload.txt
+
 # Local runtime/client state
 transfer.info
 test.txt

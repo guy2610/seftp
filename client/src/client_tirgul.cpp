@@ -27,6 +27,8 @@
 #include <chrono>
 #include <filesystem>
 #include <random>
+#include <cctype>
+#include <algorithm>
 #include "protocol/protocol.hpp"
 #include "net/net.hpp"
 #include "util/util.hpp"
@@ -71,6 +73,9 @@ seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, u
 void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::string& key = std::string());
 CliOptions parse_cli(int argc, char* argv[]);
 void print_client_exit_summary();
+static std::string trim_copy(const std::string& s);
+static std::string normalize_user_path_input(const std::string& raw);
+static std::string protocol_filename_from_path(const std::string& path);
 
 vector<ClientEvent> client_history;
 bool debug_mode = false;
@@ -268,8 +273,9 @@ namespace seftp::flow{
 	}
 	bool send_single_file(tcp::socket&s, const std::string& aes_key, ClientContext& cc, const std::string& path){
 		cc.last_error_text.clear();
-		if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
-			cc.last_error_text = "file does not exist or is not a regular file: " + path;
+		const std::string normalized_path = normalize_user_path_input(path);
+		if (normalized_path.empty()|| !std::filesystem::exists(normalized_path) || !std::filesystem::is_regular_file(normalized_path)) {
+			cc.last_error_text = "file does not exist or is not a regular file: " + normalized_path;
 			g_logger.error(cc.last_error_text);
 			return false;
 		}
@@ -284,14 +290,14 @@ namespace seftp::flow{
 			return false;
 		}
 		try {
-			request_828_retry(s, aes_key, cc, path);
+			request_828_retry(s, aes_key, cc, normalized_path);
 		}
 		catch(const std::exception& e){
 			cc.last_error_text = e.what();
 			g_logger.error(cc.last_error_text);
 			return false;
 		}
-		// Read final response (e.g., 1604 – transfer finished)
+		// Read final response (e.g., 1604 ï¿½ transfer finished)
 		auto r = answer_manager(s, cc);
 		if (r.step == NextStep::Fatal) {
 			g_logger.error("send_single_file failed: " + cc.last_error_text);
@@ -419,7 +425,36 @@ bool load_tranfer_info(const std::string& path, seftp::ClientConfig& out) {
 	out.username = line2;
 	return !out.host.empty() && !out.port.empty() && !out.username.empty();
 }
+static std::string trim_copy(const std::string& s) {
+	auto begin = std::find_if_not(s.begin(), s.end(),
+		[](unsigned char ch) { return std::isspace(ch); });
 
+	auto end = std::find_if_not(s.rbegin(), s.rend(),
+		[](unsigned char ch) { return std::isspace(ch); }).base();
+
+	if (begin >= end) {
+		return "";
+	}
+
+	return std::string(begin, end);
+}
+static std::string normalize_user_path_input(const std::string& row) {
+	std::string s = trim_copy(row);
+	if (s.size()>=2) {
+		const char first = s.front();
+		const char last = s.back();
+		if ((first == '\'' && last == '\'') ||
+		 (first == '"' && last == '"')) {
+			s = s.substr(1, s.size() - 2);
+			s = trim_copy(s);
+		}
+	}
+	return s;
+}
+
+static std::string protocol_filename_from_path(const std::string& path) {
+	return std::filesystem::path(path).filename().string();
+}
 void request_825(tcp::socket& s, const string& name) {
 	// Build and send request 825: initial registration.
 	// Payload: username + '\0'.
@@ -579,6 +614,7 @@ void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext&
 	// Encrypt file and compute its CRC32
 	// components = [ file_name, plaintext, ciphertext, crc_string, random iv ]
 	vector<string> components = encrypt_file(encrypt_key, file_name);
+	const std::string protocol_file_name = protocol_filename_from_path(file_name);
 	while (retries < MAX_RETRIES && !*crc_ok) {
 		// 1) Send encrypted file (828) and get original CRC of plaintext
 		uint32_t original_crc_file = request_828(s, cc.username, cc.client_id, components);
@@ -590,17 +626,17 @@ void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext&
 			if (retries < MAX_RETRIES) {
 				g_logger.info("CRC mismatch, retry " + std::to_string(retries) + "/" + std::to_string(MAX_RETRIES));		
 				// Notify server: CRC invalid but we will resend (901)
-				request_901(s, file_name,cc.client_id);			
+				request_901(s, protocol_file_name,cc.client_id);
 			}
 			else {
 				// 4th failure -> give up (902)
 				g_logger.info("CRC mismatch after 4 retries, sending 902");				
-				request_902(s, file_name, cc.client_id);
+				request_902(s, protocol_file_name, cc.client_id);
 			}
 		}
 		else {
 			// CRC OK -> confirm success (900)
-			request_900(s, file_name, cc.client_id);
+			request_900(s, protocol_file_name, cc.client_id);
 		}	
 	}
 	

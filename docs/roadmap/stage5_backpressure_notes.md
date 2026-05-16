@@ -1,5 +1,7 @@
 # Stage 5 - Upload Backpressure Notes
 
+Status: historical engineering note from Stage 5. The broader benchmark analysis lives in `docs/performance/performance_analysis.md`.
+
 ## Goal
 
 Validate current server scalability behavior under concurrent uploads and add controlled upload admission when the server is under pressure.

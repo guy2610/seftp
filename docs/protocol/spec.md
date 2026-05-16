@@ -1,6 +1,8 @@
-# Secure File Transfer Protocol - Specification (v0.6.0)
+# Secure File Transfer Protocol - Specification (v0.7.0-draft)
 
-This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, and CRC validation for correctness.
+This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, CRC validation, and the Stage 7 draft server-identity handshake.
+
+Status: draft for Stage 7. The v0.6.0 protocol is implemented by the current stable system. The Stage 7 security handshake described in this document is a planned protocol evolution and should be treated as draft until the implementation and tests are complete.
 
 ---
 
@@ -36,9 +38,9 @@ The protocol uses different frame formats for requests and responses.
 
 ---
 
-## 2. Security Handshake (Stage 7)
+## 2. Security Handshake (Stage 7 Draft)
 
-Before any application-level request (825–902), the client MUST complete a security handshake with the server.
+In the Stage 7 draft, before any application-level request (825–902), the client MUST complete a security handshake with the server.
 
 If the handshake is not completed, the server MUST reject all requests with response `1607`.
 
@@ -394,7 +396,7 @@ error_message (UTF-8 string)
 
 ## 6. Security Guarantees
 
-After Stage 7:
+If Stage 7 is implemented as designed:
 
 * Server identity is verified before AES key establishment
 * In pinned mode, MITM is prevented from the first connection
@@ -406,7 +408,7 @@ After Stage 7:
 
 ---
 
-## 7. Known Limitations (v0.6.0)
+## 7. Known Limitations (v0.7.0-draft)
 
 * TOFU mode is vulnerable to MITM on the first connection
 * No certificate-based trust or external CA

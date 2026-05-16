@@ -1,5 +1,7 @@
 ## Protocol Extension Design (Aligned with Existing Architecture)
 
+Status: Stage 7 design document. This document describes the intended server-identity handshake extension before it is treated as part of the stable protocol specification.
+
 ### Goal
 
 Stage 7 introduces authenticated server identity verification during connection bootstrap.

@@ -73,8 +73,6 @@ server/.venv/
 .idea/
 
 # macOS
-.DS_Store
-.DS_Store
 
 # Local test/runtime files
 test_upload.txt

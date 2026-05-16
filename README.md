@@ -1,6 +1,6 @@
 # Secure File Transfer - C++ Client & Python Server
 
-Secure File Transfer Protocol, SEFFP, is an independent engineering project that implements encrypted file transfer over a custom binary TCP protocol.
+Secure File Transfer Protocol, SEFTP, is an independent engineering project that implements encrypted file transfer over a custom binary TCP protocol.
 
 The project is built around a C++ client, a Python asyncio server, strict protocol validation, client-side encryption, server-side persistence, controlled concurrency, and performance analysis.
 
@@ -141,6 +141,8 @@ Main design boundary:
         CHANGELOG.md
         stage5_backpressure_notes.md
         stage7_threat_model.md
+      operations/
+        setup_and_usage.md
 
     tests/
       client/
@@ -225,6 +227,9 @@ Protocol:
 Performance:
 - `docs/performance/performance_analysis.md` - Stage 6 benchmark findings
 
+Operations:
+- `docs/operations/setup_and_usage.md` - detailed setup, runtime configuration, server limits, and client usage
+
 Roadmap:
 - `docs/roadmap/ROADMAP.md` - completed and planned stages
 - `docs/roadmap/CHANGELOG.md` - version history
@@ -262,7 +267,7 @@ Interactive mode starts when no file arguments are provided.
 
 Headless multi-file mode:
 
-    ./seffp_client --files=file1.txt file2.txt
+    ./seftp_client --files=file1.txt file2.txt
 
 ---
 

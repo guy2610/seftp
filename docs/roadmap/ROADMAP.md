@@ -2,122 +2,240 @@
 
 This roadmap tracks completed project stages and planned future work.
 
-## Completed
+The detailed stage breakdown was moved out of the top-level README to keep the README focused as a short project overview.
 
-### Stage 1 - Security & Protocol Correctness
+---
 
-Completed.
+### **Stage 1 - Security & Protocol Correctness** DONE
+Completed
 
-Focus:
-- random IV per file
-- RSA-2048 public key validation
-- stable server-issued client_id
-- structured 1607 error responses
+* Random IV per file (AES-256-CBC)
+* RSA-2048 public key validation (Base64 DER, public-only)
+* Stable server-issued `client_id`
+* Proper 1607 error response with payload
 
-### Stage 2 - Architecture & Refactor
+---
 
-Completed.
+### **Stage 2 - Architecture & Refactor** DONE
+Client refactor complete, server async refactor, multi-client support, and stabilization complete (up to 2.6.5)
 
-Focus:
-- modular C++ client layers
-- protocol, crypto, network, file, and flow separation
-- async Python server refactor
-- per-connection session isolation
-- handler/router separation
+**Client (completed):**
+* Refactored client into modules:
+  * `crypto` - AES, RSA, Base64, CRC helpers
+  * `protocol` - request/response framing and parsing
+  * `net` - TCP framing and IO
+  * `util` - file IO and helpers
+* Introduced `ClientContext` as a single source of truth
+* Explicit dispatch and flow handling (`DispatchResult`)
+* Removed raw protocol codes in favor of enums
+* File IO cleanup (`me.info`, `aes.key`, `priv.key`)
+* Configuration cleanup (replaced ad-hoc parsing with structured config)
 
-### Stage 3 - Testing & Reliability
+**Server (completed):**
+* Modular router/handlers/answers
+* ClientSession + Store (no global state)
+* JSON persistence (startup load / shutdown save)
+* Asyncio-based server with per-connection session isolation
+* Concurrent multi-client support (single-process, event-loop based)
+* Concurrent file uploads with per-client isolation
+* CPU-bound upload finalization offloaded using a bounded executor
+* User-scoped upload directories to avoid filename collisions
+* Pure protocol handlers (no direct socket or transport logic)
+* Graceful disconnect handling with disconnect summaries
+* Idle and upload inactivity timeouts
+* Defensive upload protocol validation for 828 (ordering, consistency, limits)
+* Atomic persistence for clients_info.json (temp file + replace)
 
-Completed.
 
-Focus:
-- C++ unit tests
-- Python async unit tests
-- end-to-end integration tests
-- CI validation
-- defensive protocol enforcement
+---
 
-### Stage 4 - Client UX, Persistence & Operational Polish
+### **Stage 3 - Testing & Reliability** DONE
 
-Completed.
+Completed
 
-Focus:
-- interactive console UI
-- headless multi-file upload
-- centralized client persistence
-- atomic writes
-- clearer error reporting
+* C++ unit tests (GoogleTest)
+  - Protocol build/parse
+  - AES / RSA helpers
+  - CRC validation
+* Python async unit tests (pytest + pytest-asyncio)
+  - Router dispatch
+  - Handlers (825-828, 900-902)
+  - 1607 enforcement on invalid 828 headers
+* End-to-end integration tests
+  - Register -> key exchange -> upload -> CRC validation
+  - Re-login flows (1605 / 1606)
+  - CRC retry scenarios
+  - Oversize file rejection (max_file_size enforcement)
+  - Parallel client uploads
+* GitHub Actions CI (Ubuntu + Windows)
+  - Automated E2E execution
+  - Parallel validation
+  - Limit enforcement checks
+  - Fails on protocol violations
 
-### Stage 5 - Scalability & Persistence
+---
 
-Completed.
+### **Stage 4 - Client UX, Persistence & Operational Polish** DONE
 
-Focus:
-- upload backpressure
-- connection limits
-- bounded executor
-- SQLite persistence
-- persisted upload lifecycle
-- in-memory client metadata index
+Completed
 
-### Stage 6 - Performance Analysis, Observability & Design Documentation
+* Client-side console UI
+  * Connect / reconnect
+  * Status screen
+  * Single-file upload
+  * Batch upload
+* Headless multi-file CLI upload mode
+* Extracted client flow helpers for connection, handshake, and upload
+* Centralized client persistence abstraction
+* Atomic writes for client persistence files
+* Clearer client-side error reporting
+* Clearer server-side protocol error reporting
+* Server startup and shutdown polish
+* Additional unit tests for persistence and atomic writes
 
-Completed.
+---
 
-Focus:
-- ramp-based load testing
-- structured benchmark output
-- latency, throughput, rejection, and resource metrics
-- mixed workload analysis
-- architecture documentation
-- bottleneck identification
+### **Stage 5 - Scalability & Persistence** DONE
+Improve server scalability and storage architecture.
 
-## Active
+* Server concurrency improvements
+  * Async multi-client server (DONE)
+  * Worker model / bounded executor for CPU-bound tasks (DONE)
+  * Connection limits and backpressure (DONE)
 
-### Stage 7 - Security Hardening & Protocol Evolution
+* Persistence layer evolution
+  * JSON persistence layer (DONE)
+  * SQLite persistence layer (DONE)
+  * Client metadata storage (DONE)
+  * Upload lifecycle persistence (DONE)
+  * Migration from JSON store (DONE)
+  * Separation of runtime session state vs persistent storage (DONE)
+  * Keep upload/session transient state in memory (DONE)
+  * Avoid DB access on packet hot path (DONE)
+  * In-memory client index for low-latency lookups (DONE)
+  * Write-through synchronization for persistent client metadata (DONE)
 
-Goal:
-strengthen the bootstrap phase by adding authenticated server identity verification before existing protocol operations.
+---
+
+### **Stage 6 - Performance Analysis, Observability & Design Documentation** DONE
+
+Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
+* Extend load and stress testing scenarios
+  * Parallel clients (idle + active uploads) (DONE)
+  * High connection churn (DONE)
+  * Mixed workloads (registration, re-login, uploads) (DONE)
+
+* Collect performance metrics
+  * Request/response latency (p50 / p95 / p99) (DONE)
+  * Upload duration and throughput (DONE)
+  * Success / failure / rejection rates (DONE)
+
+* Resource usage analysis
+  * CPU utilization under load (DONE)
+  * Memory usage (RSS / growth over time) (DONE)
+  * Backpressure behavior under overload (DONE - first level)
+
+* Output and visualization
+  * Structured results (JSON / CSV) (DONE)
+  * Summary tables per scenario (DONE)
+  * Basic charts for latency, throughput, and resource usage (DONE)
+
+* Bottleneck identification
+  * Detect hot paths (CPU vs I/O vs DB) (DONE - first level)
+  * Evaluate effectiveness of in-memory client index (deferred to future optimization work)
+  * Identify whether additional caching or indexing is justified (deferred to future optimization work)
+
+* Evidence-based optimization targets
+  * Define concrete candidates for future improvements (DONE - basic level)
+  * Feed results into Stage 8 (future work / optimizations)
+
+* Architecture / design documentation (DONE)
+  * Document component boundaries, data flow, and persistence model (DONE)
+  * Capture key design decisions and tradeoffs (DONE)
+  * Summarize measured bottlenecks and likely optimization directions (DONE)
+  * Add system, client, and server design documents with Mermaid diagrams (DONE)
+
+---
+### **Stage 7 - Security Hardening & Protocol Evolution**
 
 Related documents:
 - `../protocol/protocol_extension_design.md`
 - `stage7_threat_model.md`
 
-Planned work:
-- add CLIENT_HELLO / SERVER_HELLO handshake
-- add server identity keypair
-- sign handshake transcript
-- verify server fingerprint on the client
-- support TOFU mode
-- support pinned fingerprint mode
-- reject unauthenticated requests before 825 / 826 / 827 / 828
-- add tests for malformed handshake, fingerprint mismatch, replay attempts, and downgrade behavior
+Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
 
-Out of scope for Stage 7:
-- full TLS implementation
-- certificate-chain validation
-- mutual authentication
-- resumable uploads
-- GUI client
-- distributed deployment
+* Protocol security extension
+  * Introduce authenticated server identity during the bootstrap phase
+  * Extend the current protocol with a MITM-resistant key establishment flow
+  * Preserve the existing request/response model (`825`/`826`/`827`/`828`/...) while strengthening the handshake
+  * Define a trust model for first connection (e.g. pinned key / TOFU / pre-configured trust)
 
-## Future
+* Cryptographic model improvements
+  * Strengthen session key establishment and binding between identity and AES key
+  * Evaluate replay resistance and handshake integrity guarantees
+  * Improve key lifecycle handling (rotation, overwrite, invalidation)
 
-### Stage 8 - Observability & Production Behavior
+* Client-side key security
+  * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence
+  * Evaluate stronger protection or platform-native secure storage
 
-Planned direction:
-- structured runtime metrics
-- active connection and active upload visibility
-- executor saturation visibility
-- request/response tracing
-- improved upload phase diagnostics
-- improved client-side progress reporting
+* Upload pipeline evolution
+  * Move from full-file pre-encryption to incremental streaming encryption and transmission
+    (read -> encrypt -> send in a pipeline, reducing peak memory usage and avoiding full-file buffering)
+  * Keep AES-CBC state continuity across chunks or define a controlled protocol extension if chunk boundaries require explicit IV handling
 
-### Stage 9 - Extensions & Portfolio Polish
+* Abuse protection
+  * Connection rate limiting (limit new connections per time window, per IP/global)
+  * Basic DoS protection (burst control, early rejection under load, guarding expensive paths)
+  * Hardening of edge-case protocol paths under adversarial input
 
-Planned direction:
-- resumable uploads exploration
-- controlled parallel upload exploration
-- optional GUI client
-- optional C++ server implementation
-- release packaging
-- technical demo polish
+---
+
+### **Stage 8 - Observability & Production Behavior**
+Operational visibility, diagnostics, and runtime insight into system behavior under real-world conditions.
+
+* Metrics
+  * Connection statistics (active, rejected, per-IP)
+  * Upload statistics (throughput, duration, success/failure rates)
+  * Protocol error counters (`1607` and validation failures)
+  * Active connection and active upload visibility
+  * Queue / executor saturation visibility (bounded executor)
+
+* Logging and diagnostics
+  * Structured logging (DONE)
+  * Request / response tracing across the full lifecycle
+  * Correlation between `connection_id`, `request_id`, and `upload_id`
+  * Improved visibility into upload phases (receive, finalize, persist)
+
+* Runtime behavior
+  * Configuration validation (DONE)
+  * Runtime configuration reporting (DONE)
+  * Exposure of internal state for debugging and benchmarking
+  * Optional lightweight metrics export (future)
+
+* Client experience improvements
+  * Improved client-side progress and status reporting for uploads
+
+---
+
+### **Stage 9 - Extensions & Portfolio Polish**
+Future work and optional extensions.
+
+* Upload model extensions
+  * Evaluate resumable uploads across reconnects (protocol and persistence implications)
+  * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
+
+* Storage and performance exploration
+  * Evaluate additional caching / indexing strategies on the server (based on measured bottlenecks)
+
+* System extensions
+  * Optional C++ server implementation
+  * Cross-client communication (relay / messaging)
+  * Optional GUI client (Qt / ImGui / DearPyGui)
+
+* Portfolio polish
+  * Full protocol specification (aligned with implementation)
+  * Demo instructions and usage flows
+  * Release polish and packaging
+
+---

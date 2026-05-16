@@ -89,7 +89,7 @@ bytes   signature
 The server signs the following transcript:
 
 ```text
-"SEFFP_STAGE7_SERVER_HELLO" ||
+"SEFTP_STAGE7_SERVER_HELLO" ||
 security_version ||
 client_nonce ||
 server_nonce ||

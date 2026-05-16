@@ -267,7 +267,7 @@ Interactive mode starts when no file arguments are provided.
 
 Headless multi-file mode:
 
-    ./seftp_client --files=file1.txt file2.txt
+    ./seffp_client --files=file1.txt file2.txt
 
 ---
 

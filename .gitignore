@@ -1,15 +1,15 @@
 # Visual Studio workspace + build output
-client/SEFFP-CLIENT/.vs/
-client/SEFFP-CLIENT/x64/
-client/SEFFP-CLIENT/**/Debug/
-client/SEFFP-CLIENT/**/Release/
-client/SEFFP-CLIENT/*.sln
-client/SEFFP-CLIENT/*.vcxproj*
+client/SEFTP-CLIENT/.vs/
+client/SEFTP-CLIENT/x64/
+client/SEFTP-CLIENT/**/Debug/
+client/SEFTP-CLIENT/**/Release/
+client/SEFTP-CLIENT/*.sln
+client/SEFTP-CLIENT/*.vcxproj*
 
 # Secrets / runtime identity
-client/SEFFP-CLIENT/me.info
-client/SEFFP-CLIENT/aes.key
-client/SEFFP-CLIENT/priv.key
+client/SEFTP-CLIENT/me.info
+client/SEFTP-CLIENT/aes.key
+client/SEFTP-CLIENT/priv.key
 *.key
 
 # Binaries / build artifacts
@@ -35,7 +35,7 @@ server/data/clients_info.json
 # Keep config files tracked
 !server/port.info
 **/transfer.info
-!client/SEFFP-CLIENT/transfer.info
+!client/SEFTP-CLIENT/transfer.info
 
 # Local / personal files
 *.xlsx

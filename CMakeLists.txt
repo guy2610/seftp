@@ -36,7 +36,7 @@ target_link_libraries(seftp_client PRIVATE Boost::system Boost::asio)
 find_package(cryptopp CONFIG REQUIRED)
 target_link_libraries(seftp_client PRIVATE cryptopp::cryptopp)
 
-set(TRANSFER_INFO_SRC "${CMAKE_SOURCE_DIR}/client/SEFFP-CLIENT/transfer.info")
+set(TRANSFER_INFO_SRC "${CMAKE_SOURCE_DIR}/client/SEFTP-CLIENT/transfer.info")
 add_custom_command(TARGET seftp_client POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TRANSFER_INFO_SRC}"

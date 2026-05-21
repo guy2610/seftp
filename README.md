@@ -97,7 +97,7 @@ Main design boundary:
 
     client/
       src/
-        client_tirgul.cpp
+        client_main.cpp
         client_types.hpp
         crypto/
         flow/

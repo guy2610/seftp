@@ -107,7 +107,7 @@ transfer.info / me.info / aes.key / priv.key"]
 
 ### 3.1 Client Entrypoint
 
-`client_tirgul.cpp` is the main orchestration entrypoint. It parses CLI options, loads transfer.info, initializes logging, creates the socket and resolver, and chooses between headless multi-file mode and interactive console mode.
+`client_main.cpp` is the main orchestration entrypoint. It parses CLI options, loads transfer.info, initializes logging, creates the socket and resolver, and chooses between headless multi-file mode and interactive console mode.
 
 The entrypoint also owns the top-level handshake path through `seftp::flow::connect_and_handshake(...)` and ensures that socket shutdown and final client summary printing are handled consistently.
 
@@ -123,7 +123,7 @@ This keeps cross-cutting runtime state explicit instead of scattering it across 
 
 ### 3.3 Flow Layer
 
-`flow.hpp` together with orchestration logic implemented in `client_tirgul.cpp` act as the orchestration layer. This is the most important control-plane layer on the client side.
+`flow.hpp` together with orchestration logic implemented in `client_main.cpp` act as the orchestration layer. This is the most important control-plane layer on the client side.
 
 It owns three high-level responsibilities:
 

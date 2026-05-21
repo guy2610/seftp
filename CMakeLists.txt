@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(seftp_client
-    client/src/client_tirgul.cpp
+    client/src/client_main.cpp
     client/src/crypto/crypto.cpp
     client/src/net/net.cpp
     client/src/util/files.cpp

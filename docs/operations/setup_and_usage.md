@@ -23,7 +23,7 @@ Run:
 1. Start the server (see below)
 2. Extract the zip
 3. Edit `transfer.info`
-4. Run `SEFFP-CLIENT.exe`
+4. Run `SEFTP-CLIENT.exe`
 
 ---
 
@@ -90,7 +90,7 @@ python server_async.py
 
 Place `transfer.info` in the same directory as the executable, then run:
 ```
-seffp_client.exe
+seftp_client.exe
 ```
 
 The client will:
@@ -204,7 +204,7 @@ cmake --build --preset release
 ### Run
 ```
 cd build\Release
-.\seffp_client.exe
+.\seftp_client.exe
 ```
 
 ### Notes:

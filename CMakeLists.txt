@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
-project(SEFFP LANGUAGES CXX)
+project(SEFTP LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(seffp_client
+add_executable(seftp_client
     client/src/client_tirgul.cpp
     client/src/crypto/crypto.cpp
     client/src/net/net.cpp
@@ -15,7 +15,7 @@ add_executable(seffp_client
 
 )
 
-target_include_directories(seffp_client PRIVATE
+target_include_directories(seftp_client PRIVATE
     client/src
     client/src/crypto
     client/src/net
@@ -25,22 +25,22 @@ target_include_directories(seffp_client PRIVATE
 )
 
 if (WIN32)
-    target_link_libraries(seffp_client PRIVATE ws2_32)
-    target_compile_definitions(seffp_client PRIVATE _WIN32_WINNT=0x0A00)
+    target_link_libraries(seftp_client PRIVATE ws2_32)
+    target_compile_definitions(seftp_client PRIVATE _WIN32_WINNT=0x0A00)
 endif()
 
 find_package(boost_system CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
-target_link_libraries(seffp_client PRIVATE Boost::system Boost::asio)
+target_link_libraries(seftp_client PRIVATE Boost::system Boost::asio)
 
 find_package(cryptopp CONFIG REQUIRED)
-target_link_libraries(seffp_client PRIVATE cryptopp::cryptopp)
+target_link_libraries(seftp_client PRIVATE cryptopp::cryptopp)
 
 set(TRANSFER_INFO_SRC "${CMAKE_SOURCE_DIR}/client/SEFFP-CLIENT/transfer.info")
-add_custom_command(TARGET seffp_client POST_BUILD
+add_custom_command(TARGET seftp_client POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TRANSFER_INFO_SRC}"
-            "$<TARGET_FILE_DIR:seffp_client>/transfer.info"
+            "$<TARGET_FILE_DIR:seftp_client>/transfer.info"
     VERBATIM
 )
 
@@ -50,7 +50,7 @@ enable_testing()
 if (BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
 
-    add_executable(seffp_tests
+    add_executable(seftp_tests
         tests/client/test_dummy.cpp
 	tests/client/proto_le_helpers_test.cpp
 	tests/client/proto_request_base_test.cpp
@@ -70,7 +70,7 @@ if (BUILD_TESTING)
        client/src/persistence/client_persistence.cpp
 
     )
-  target_include_directories(seffp_tests PRIVATE
+  target_include_directories(seftp_tests PRIVATE
        client/src
        client/src/crypto
        client/src/net
@@ -79,15 +79,15 @@ if (BUILD_TESTING)
        client/src/logger
        client/src/persistence
 )
-    target_link_libraries(seffp_tests PRIVATE GTest::gtest_main Boost::system Boost::asio cryptopp::cryptopp)
+    target_link_libraries(seftp_tests PRIVATE GTest::gtest_main Boost::system Boost::asio cryptopp::cryptopp)
    if (WIN32)
-      target_link_libraries(seffp_tests PRIVATE ws2_32)
+      target_link_libraries(seftp_tests PRIVATE ws2_32)
    endif()
 
     if (WIN32)
-        target_compile_definitions(seffp_tests PRIVATE _WIN32_WINNT=0x0A00)
+        target_compile_definitions(seftp_tests PRIVATE _WIN32_WINNT=0x0A00)
     endif()
 
     include(GoogleTest)
-    gtest_discover_tests(seffp_tests)
+    gtest_discover_tests(seftp_tests)
 endif()

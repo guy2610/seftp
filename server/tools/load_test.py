@@ -1083,7 +1083,7 @@ def build_common_parser(parser: argparse.ArgumentParser):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="SEFFP load and capacity test runner")
+    parser = argparse.ArgumentParser(description="SEFTP load and capacity test runner")
     sub = parser.add_subparsers(dest="mode", required=True)
 
     idle_parser = sub.add_parser("idle")

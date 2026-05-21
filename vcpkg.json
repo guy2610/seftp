@@ -1,5 +1,5 @@
 {
-  "name": "seffp-client",
+  "name": "seftp-client",
   "version-string": "0.2.0",
   "dependencies": [
     "cryptopp",

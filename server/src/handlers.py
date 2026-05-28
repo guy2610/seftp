@@ -516,6 +516,11 @@ async def request_828(payload_info,version,client_id,session):
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
 
+async def request_829(payload_info,version,client_id,session):
+    session.log.info("stage7 CLIENT_HELLO received")
+    await answers.answer_1607(client_id, version, "stage7 handshake not implemented yet", session)
+    return
+
 async def request_900(payload_info,version,client_id,session):
     """
     Handle request 900: client confirms valid CRC.

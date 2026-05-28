@@ -58,6 +58,8 @@ async def handle_frame(frame:bytes,session):
             await handlers.request_826(client_id, payload_info, version,session)
         elif code_num == "828":
             await handlers.request_828(payload_info,version,client_id,session)
+        elif code_num == "829":
+            await handlers.request_829(payload_info,version,client_id,session)
         elif code_num == "900":
             await handlers.request_900(payload_info, version, client_id,session)
         elif code_num == "901":

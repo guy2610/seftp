@@ -1,868 +1,380 @@
-# Secure File Transfer - C++ Client & Python Server (v0.6.0)
+# Secure File Transfer - C++ Client & Python Server
 
-This project implements a simple **secure file transfer protocol** over TCP.
+Secure File Transfer Protocol, SEFTP, is an independent engineering project that implements encrypted file transfer over a custom binary TCP protocol.
 
-* **Client**: C++ (Boost.Asio, Crypto++)
-* **Server**: Python (asyncio, PyCryptodome)
-* **Crypto**:
+The project is built around a C++ client, a Python asyncio server, strict protocol validation, client-side encryption, server-side persistence, controlled concurrency, and performance analysis.
 
-  * RSA-2048 (OAEP) for key exchange
-  * AES-256-CBC for file encryption
-  * CRC32 for integrity verification
-
-This is an independent engineering project focused on protocol design,
-defensive validation, concurrency, and end-to-end reliability.
-The system is not intended for production use.
-
-Stage 6 is complete and includes structured performance benchmarking, ramp-based load testing, resource sampling, mixed workload analysis, architecture documentation, and visualization of latency, throughput, overload behavior, and file-size sensitivity.
-
-Stage 5 is complete. The server now includes bounded concurrency controls, SQLite-backed persistence, persisted upload lifecycle tracking, and an in-memory client metadata index with write-through synchronization for low-latency hot-path lookups.
-
-Stages 1-4 completed: protocol hardening, architectural refactor,
-async multi-client support, automated testing, CI validation,
-client UX improvements, persistence polish, and operational improvements.
-
-The system is functional end-to-end and includes defensive protocol validation, timeouts, bounded concurrency controls, and persistent server-side storage via SQLite.
+The system is not intended for production use. It is a portfolio-grade systems project focused on protocol design, networking, cryptography integration, reliability, observability, and maintainability.
 
 ---
 
-## Version
+## Current Status
 
-**v0.6.0 - Stage 6 complete (Performance Analysis, Observability & Design Documentation)**
+Current stable baseline: v0.6.0
 
-* Ramp-based benchmark runner for register, relogin, upload, and mixed workloads
-* Structured JSON benchmark output per run
-* Latency percentiles, throughput, success / failure / rejection metrics
-* Sampled server CPU, RSS, and thread metrics
-* Visualization for latency, throughput, overload behavior, and file-size sensitivity
-* Mixed workload analysis with per-operation breakdown (register / relogin / upload)
-* Initial bottleneck identification: upload dominates capacity under realistic mixed load
-* System, client, and server architecture/design documents
-* Mermaid-based architecture diagrams for system, client, and server views
-* Clear documentation of component boundaries, persistence model, data flow, and design tradeoffs
+v0.6.0 completed Stage 6:
+- structured performance benchmarking
+- ramp-based load testing
+- mixed workload analysis
+- resource sampling
+- performance plots
+- system, client, and server architecture documentation
 
-**v0.5.0 - Stage 5 scalability and persistence foundations**
+Current active work:
+- Stage 7: security hardening and authenticated server identity verification
 
- * Upload backpressure with bounded concurrent uploads
- * Global and per-IP connection limits
- * Rejection and recovery behavior under connection overload
- * Bounded executor for CPU-bound upload finalization
- * SQLite-backed server persistence for Clients and Uploads
- * Persisted upload lifecycle tracking (in_progress, completed, crc_mismatch, failed)
- * Separation of transient in-memory session state from persistent server metadata
- * Added unit and integration tests for connection limiting, concurrency control, and SQLite-backed persistence
- * In-memory client metadata index for low-latency lookups
- * Write-through synchronization between SQLite persistence and runtime client metadata state
- * Hot-path client metadata reads served from an in-memory index instead of direct SQLite lookups
-
-**v0.4.0 - Stage 4 complete (Client UX, Persistence & Operational Polish)**
-
-* Interactive console UI with connect / reconnect / status
-* Single-file and batch upload modes from the client console
-* Headless multi-file upload support via CLI (`--files=...`)
-* Extracted client connection / handshake / send flow helpers
-* Centralized client persistence layer for identity, AES key, and private key
-* Atomic client-side writes for `me.info` and `aes.key`
-* Clearer client-side error reporting across connection, handshake, upload, and persistence
-* Improved server startup / shutdown behavior and configuration reporting
-* Clearer server-side 1607 protocol error messages
-* Added client persistence unit tests and atomic write coverage
-
-**v0.3.0 - Stage 3 complete (Testing & Reliability)**
-
-* Fully functional encrypted file transfer (client <-> server)
-* Clear separation between protocol parsing, networking, crypto, and flow logic
-* Explicit client state management (`ClientContext`)
-* Centralized file I/O helpers for identity and key persistence
-* Random IV per file (sent in the first `828` packet)
-* RSA public key validation (DER, public-only, 2048-bit)
-* Stable server-issued `client_id` persisted on client
-* Proper `1607` error responses with textual payload
-* Fully automated test coverage (unit + integration)
-* Async multi-client server with per-connection session isolation (Stage 2.5)
-* Async server with concurrent uploads and CPU-bound upload finalization offloaded using a bounded executor
-* Graceful disconnect handling and session cleanup
-* Idle and upload inactivity timeouts
-* Defensive protocol validation for uploads (828)
-* Atomic persistence for server state (crash-safe JSON writes)
+See:
+- `docs/roadmap/ROADMAP.md`
+- `docs/roadmap/CHANGELOG.md`
 
 ---
 
-## Prebuilt Client (Windows x64)
+## Why This Project Matters
 
-A prebuilt Windows x64 client binary is available.
+This project demonstrates several backend and systems engineering concerns in one end-to-end system:
 
-- No build required
-- Includes example runtime configuration
-- Built in Release mode
+- custom binary protocol design
+- C++ networking client using Boost.Asio
+- Python asyncio server with per-connection session isolation
+- RSA-based AES key bootstrap
+- AES-256-CBC encrypted file transfer
+- CRC-based upload completion flow
+- strict malformed-frame validation
+- SQLite-backed server persistence
+- upload lifecycle tracking
+- explicit connection limits and upload backpressure
+- load testing, resource sampling, and bottleneck analysis
 
-Download:
-A prebuilt Windows x64 client binary is currently available for v0.5.0.
+---
 
-https://github.com/guy2610/Portfolio/releases/tag/v0.5.0-win-x64
+## Technology Stack
 
-Run:
-1. Start the server (see below)
-2. Extract the zip
-3. Edit `transfer.info`
-4. Run `SEFFP-CLIENT.exe`
+Client:
+- C++17
+- Boost.Asio
+- Crypto++
+- CMake
+- GoogleTest
+
+Server:
+- Python
+- asyncio
+- PyCryptodome
+- SQLite
+- pytest
+
+Protocol / crypto:
+- custom binary TCP protocol
+- RSA-2048 with OAEP for AES key delivery
+- AES-256-CBC for file encryption
+- CRC32 for transfer validation
+
+---
+
+## Architecture at a Glance
+
+High-level flow:
+
+1. The client loads local configuration and identity material.
+2. The client connects to the server over TCP.
+3. The client performs registration or relogin.
+4. The server issues an AES key encrypted with the client's RSA public key.
+5. The client encrypts files locally using AES-256-CBC.
+6. The client uploads encrypted chunks through request `828`.
+7. The server validates ordering, limits, and upload state.
+8. The server decrypts, stores the file, computes CRC32, and returns the result.
+9. The client confirms the CRC result through `900`, `901`, or `902`.
+
+Main design boundary:
+
+- client owns local identity, encryption, request construction, and upload initiation
+- server owns protocol validation, resource control, persistence, and upload finalization
+- protocol spec defines the shared binary contract between both sides
 
 ---
 
 ## Project Structure
 
-```
-client/
-  src/
-    client_tirgul.cpp
-    client_types.hpp
-    crypto/
-      crypto.hpp
-      crypto.cpp
-    flow/
-      flow.hpp
-    net/
-      net.hpp
-      net.cpp
-    persistence/
-      client_persistence.hpp
-      client_persistence.cpp
-    protocol/
-      protocol.hpp
-    ui/
-      console_ui.hpp
-      console_ui.cpp
-    util/
-      util.hpp
-      files.hpp
-      files.cpp
-  transfer.info        # client configuration (host:port, username)
+    client/
+      src/
+        client_main.cpp
+        client_types.hpp
+        crypto/
+        flow/
+        net/
+        persistence/
+        protocol/
+        ui/
+        util/
+      transfer.info
 
-server/
-  server_async.py      # asyncio-based multi-client server
-  server_tirgul.py     # legacy not in use
-  port.info            # server port configuration
-  data/
-    seftp_server_sql.db
-    uploads/
-      <username>/
-        <filename>
-  src/
-    router.py
-    handlers.py
-    answers.py
-    session.py
-    store.py           # SQLite persistence and client metadata access helpers
-    config.py
-    framing.py         # TCP stream framing and reassembly
-    upload_limiter.py
-    connection_limiter.py
-    bounded_executor.py
+    server/
+      server_async.py
+      port.info
+      src/
+        router.py
+        handlers.py
+        answers.py
+        session.py
+        store.py
+        config.py
+        framing.py
+        upload_limiter.py
+        connection_limiter.py
+        bounded_executor.py
+      data/
+        seftp_server_sql.db
+        uploads/
 
-tests/
-  client/
-    files_test.cpp
-    persistence_test.cpp
-    logger_test.cpp
-    crypto_test.cpp
-  server/
-    test_answers.py
-    test_framing.py
-    test_handlers.py
-    test_router.py
-    test_session.py
-    test_store.py
-    test_connection_limiter.py
-    test_connection_limits_integration.py
-    test_bounded_executor.py
+    docs/
+      architecture/
+        system_design.md
+        client_design.md
+        server_design.md
+      protocol/
+        spec.md
+        protocol_extension_design.md
+      performance/
+        performance_analysis.md
+      roadmap/
+        ROADMAP.md
+        CHANGELOG.md
+        stage5_backpressure_notes.md
+        stage7_threat_model.md
+      operations/
+        setup_and_usage.md
 
-protocol/
-  spec.md              # full protocol specification
-```
+    tests/
+      client/
+      server/
 
 ---
 
-## Features
+## Key Capabilities
 
-* Client registration (`825 -> 1600 / 1601`)
-* RSA public key upload & AES-256 key exchange (`826 -> 1602`)
-* Re-login using persisted client_id and RSA keys (SSO) (`827 -> 1605 / 1606`)
-* Encrypted file upload in fixed-size chunks (`828`)
-* CRC validation with retry logic (`900 / 901 / 902 + 1603`)
-* Persistent client identity and keys on the client side
-* Server-side SQLite persistence for Clients and Uploads, including upload lifecycle tracking
-* In-memory client metadata index for fast username/client_id lookups
-* Write-through updates for persistent client metadata (public key, AES key, last_seen)
-* Hot-path client metadata access avoids repeated direct SQLite reads
-* Server-side idle and upload inactivity timeouts
-* Strict server-side validation of upload sequencing, size limits, and malformed frames
-* Graceful handling of client disconnects and protocol violations
-* 1607 error enforcement for protocol violations (invalid headers, limit breaches)
-* Interactive console UI with connect / reconnect / status
-* Console upload modes: single file and batch
-* Headless multi-file uploads via `--files=file1 file2 ...`
-* Centralized client persistence abstraction
-* Atomic client-side persistence writes
-* Server-side logging of client activity and startup configuration
-* Clear textual `1607` error enforcement for protocol and server failures
-* Upload admission control with bounded concurrent uploads
-* Global and per-IP connection limits
-* Bounded execution for CPU-bound upload finalization
-* Connection overload rejection and recovery behavior
-* Stage 6 benchmarking toolkit with ramp-based load testing, structured JSON output, and performance plots for single-scenario and mixed workloads
----
-
-## High-level Architecture
-
-```
-C++ client
-  - Reads configuration from transfer.info
-  - Maintains explicit client state (ClientContext)
-  - Handles registration or re-login
-  - Receives AES key encrypted with RSA-2048
-  - Encrypts files using AES-256-CBC with a random per-file IV
-  - Sends encrypted chunks via protocol code 828
-  - Verifies CRC and retries on mismatch
-  - Supports interactive console mode and headless CLI mode
-  - Uses flow helpers for connect / handshake / upload
-  - Uses a dedicated persistence layer for me.info / aes.key / priv.key
-  - Stores client files with atomic writes
-
-Python server
-  - Reads port.info and environment-based runtime limits
-  - Listens for TCP client connections
-  - Handles registration, SSO, and public key management
-  - Generates an AES-256 key per client
-  - Receives encrypted file chunks, decrypts, writes file
-  - Computes CRC32 and returns result (1603)
-  - Logs effective startup configuration
-  - Returns clearer 1607 protocol / internal error messages
-  - Persists client metadata and upload lifecycle state in SQLite
-  - Loads client metadata into an in-memory index at startup
-  - Serves hot-path client lookups from memory and synchronizes metadata updates with SQLite using write-through semantics
-  - Enforces upload backpressure and connection admission limits
-  - Uses a bounded executor for CPU-bound upload finalization
-  - Protects the event loop from unbounded CPU-bound work
-```
+- first-time client registration
+- relogin using persisted client identity
+- RSA public-key submission and AES key bootstrap
+- encrypted file upload in ordered chunks
+- CRC-based completion and retry signaling
+- client-side identity and key persistence
+- server-side SQLite persistence for clients and uploads
+- upload lifecycle states: `in_progress`, `completed`, `crc_mismatch`, `failed`
+- in-memory client metadata index for low-latency server lookups
+- strict server-side validation and `1607` protocol error responses
+- idle and upload inactivity timeouts
+- upload admission control and explicit backpressure
+- global and per-IP connection limits
+- bounded executor for CPU-heavy upload finalization
+- interactive console mode and headless multi-file client mode
+- automated unit, integration, and CI validation
 
 ---
 
-## Architecture Documents
+## Protocol Summary
 
-Detailed design documentation is available under `docs/`:
+Client request frame:
 
-- `docs/system_design.md` - full system architecture overview
-- `docs/client_design.md` - client architecture, flow, persistence, and design decisions
-- `docs/server_design.md` - server architecture, concurrency model, persistence, and resource control
+    [16 bytes] client_id
+    [1 byte ] version
+    [2 bytes] code, little-endian
+    [4 bytes] payload_size
+    [payload]
 
----
+Server response frame:
 
-## Testing & CI
+    [1 byte ] version
+    [2 bytes] code, little-endian
+    [4 bytes] payload_size
+    [payload]
 
-The project includes automated testing and CI validation.
+Main request codes:
+- `825` register
+- `826` upload RSA public key and receive AES key
+- `827` relogin
+- `828` encrypted file chunk
+- `900` CRC OK
+- `901` CRC mismatch, retry
+- `902` CRC mismatch, stop
 
-CI validates:
+Main response codes:
+- `1600` registration success
+- `1601` registration failure
+- `1602` AES key encrypted with RSA
+- `1603` server CRC result
+- `1604` transfer finished
+- `1605` relogin success
+- `1606` relogin rejected
+- `1607` protocol or server error
 
-- Protocol correctness (frame format, codes, payload validation)
-- Mandatory 1607 enforcement on invalid 828 headers
-- max_file_size limit enforcement
-- Parallel client isolation
-- End-to-end flow integrity (register -> upload -> CRC)
-- SQLite persistence and upload lifecycle behavior
-- Connection limit enforcement
-- Idle connection rejection and recovery
-
-### Continuous Integration
-
-GitHub Actions:
-
-- Ubuntu E2E workflow
-- Windows E2E workflow
-- Parallel client validation
-- Server restart persistence validation
-- Limit enforcement validation (1607 on invalid 828)
-- CI fails on protocol violations or missing enforcement
-
-### Unit Tests
-
-- C++ (GoogleTest):
-  - Protocol build/parse validation
-  - Crypto helpers (AES, RSA key generation, CRC32)
-  - Logger module
-  - Client persistence round-trip tests
-  - Atomic write behavior for client persistence files
-- Python (pytest + pytest-asyncio):
-  - Router dispatch validation
-  - Handlers (825-828, 900-902)
-  - 1607 enforcement on invalid 828 headers
-  - Connection limiter tests
-  - Bounded executor tests
-  - SQLite store behavior
-  - Upload lifecycle persistence across 828 / 900 / 901 / 902
-
-### Integration (E2E) Tests
-
-- Full flow: register -> key exchange -> encrypted upload -> CRC validation
-- Re-login scenarios (1605 / 1606)
-- Oversize file rejection (server max_file_size via environment)
-- Parallel client uploads
-- Connection limit enforcement scenarios
-- Recovery after rejected connections
+For the detailed protocol definition and Stage 7 draft evolution, see:
+- `docs/protocol/spec.md`
+- `docs/protocol/protocol_extension_design.md`
 
 ---
 
-# Protocol Overview (Short)
+## Documentation
 
-### Frame Format
+Architecture:
+- `docs/architecture/system_design.md` - full system architecture
+- `docs/architecture/client_design.md` - client internals
+- `docs/architecture/server_design.md` - server internals
 
-#### Client -> Server (Request)
+Protocol:
+- `docs/protocol/spec.md` - protocol specification and Stage 7 draft
+- `docs/protocol/protocol_extension_design.md` - authenticated server identity extension design
 
-```
-[16 bytes] client_id
-[1 byte ] version
-[2 bytes] code (little-endian)
-[4 bytes] payload_size
-[payload]
-```
-#### Server -> Client (Response)
-```
-[1 byte ] version
-[2 bytes] code (little-endian)
-[4 bytes] payload_size
-[payload]
-```
-Notes:
-- `client_id` is included only in client requests.
-- During initial registration (825), `client_id` is 16 zero bytes.
-- Server responses intentionally omit `client_id`.
+Performance:
+- `docs/performance/performance_analysis.md` - Stage 6 benchmark findings
 
-For the full, authoritative protocol definition, see protocol/spec.md.
+Operations:
+- `docs/operations/setup_and_usage.md` - detailed setup, runtime configuration, server limits, and client usage
 
----
-
-## Request Codes (Client -> Server)
-
-### **825 - Register**
-
-Payload:
-
-```
-username + '\0'
-```
-
-Responses:
-
-* **1600** - success (returns client_id)
-* **1601** - failure
-
----
-
-### **826 - Send RSA Public Key**
-
-Payload:
-
-```
-username + '\0' + public_key_b64
-```
-
-Response:
-
-* **1602** - AES key encrypted with RSA-OAEP
-
----
-
-### **827 - Re-login / SSO**
-
-Payload:
-
-```
-username + '\0'
-```
-
-Responses:
-
-* **1605** - success (AES key sent again)
-* **1606** - rejected (unknown user or invalid public key)
-
----
-
-### **828 - Encrypted File Chunk**
-
-Payload format:
-
-```
-uint32  total_cipher_size
-uint32  original_plain_size
-uint16  packet_number
-uint16  total_packets
-filename + '\0'
-cipher_chunk
-
-* packet_number and total_packets are uint16 (max 65535 packets per file) This avoids protocol changes while allowing large files without overflow.
-* Client dynamically adjusts chunk size to stay within this limit
-```
-
-Purpose:
-
-* Packet 0 carries a 16-byte random IV
-* Packets 1..N carry AES-CBC ciphertext chunks
-* Server reassembles, decrypts using the IV from packet 0, writes file, returns CRC (1603)
----
-
-### **900 - CRC OK**
-
-Client confirms CRC match.
-
-### **901 - CRC mismatch (retry)**
-
-Client retries sending file.
-
-### **902 - CRC mismatch after 4 retries (give up)**
-
-Client stops retrying.
-
----
-
-## Response Codes (Server -> Client)
-
-* **1600** - registration success
-* **1601** - registration failed
-* **1602** - AES key encrypted with RSA
-* **1603** - server CRC result
-* **1604** - transfer finished
-* **1605** - re-login success
-* **1606** - re-login rejected
-* **1607** - general error
-  Payload format:
-  ```
-  [16 bytes] client_id
-  [UTF-8 string] error_message
-  ```
-
-
----
-
-## Security Notes
-
-* Uses random AES IV per file (sent in 828 packet_number = 0)
-* AES key stored in `aes.key` on client (demo only)
-* RSA private key stored in `priv.key`
-* No replay protection or authentication
-* Server supports multiple concurrent clients (asyncio, single-process, event-loop based concurrency).
-  *(Server-side client metadata and upload records are persisted in SQLite.)*
-* Concurrent uploads are isolated per client
-* Server stores uploaded files under data/uploads/<username>/<filename>
-* Uploads with identical filenames from different clients do not overwrite each other
-* Upload protocol enforces strict packet ordering and size limits
-* Malformed or out-of-order uploads are rejected with 1607
-* Invalid 828 headers (size mismatch, limit violation, sequencing errors) are rejected with 1607
-* Server enforces max_file_size limit (configurable via environment variable)
-
----
-
-## Server Limits (Environment Variables)
-
-The server enforces defensive runtime limits.  
-Defaults can be overridden via environment variables:
-
-- `SEFTP_MAX_FILE_SIZE` (default: 100MB)
-- `SEFTP_MAX_PACKETS` (default: 12000)
-- `SEFTP_MAX_CHUNK_SIZE` (default: 64KB)
-- `SEFTP_MAX_PAYLOAD_SIZE` (default: 10,000,000 bytes)
-- `SEFTP_IDLE_TIMEOUT_S` (default: 60)
-- `SEFTP_UPLOAD_INACTIVITY_TIMEOUT_S` (default: 20)
-- `SEFTP_READ_TIMEOUT_S` (default: 10)
-- `SEFTP_LOG_LEVEL` (default: INFO)
-- `SEFTP_MAX_CONCURRENT_UPLOADS` (default: 10)
-- `SEFTP_MAX_CONNECTIONS` (default: 10)
-- `SEFTP_MAX_CONNECTIONS_PER_IP` (default: 10)
-- `SEFTP_CPU_WORKER_THREADS` (default: 4)
-- `SEFTP_CPU_MAX_IN_FLIGHT` (default: 8)
-
-Violations of size or sequencing constraints result in a `1607` error response.
-
----
-
-## Requirements
-
-### Server
-
-* Python 3.9+
-* PyCryptodome
-
-```
-pip install pycryptodome
-```
-
-### Client (Build from source)
-
-* C++17 compiler
-* CMake 3.21+
-* vcpkg
-* Boost (via vcpkg)
-* Crypto++ (via vcpkg)
+Roadmap:
+- `docs/roadmap/ROADMAP.md` - completed and planned stages
+- `docs/roadmap/CHANGELOG.md` - version history
+- `docs/roadmap/stage7_threat_model.md` - Stage 7 threat model
+- `docs/roadmap/stage5_backpressure_notes.md` - historical Stage 5 backpressure note
 
 ---
 
 ## Running the Project
 
-### Quickstart
+### Start the server
 
-#### Start Server
-```
-cd server
-python server_async.py
-```
-#### Run Client
+    cd server
+    python3 server_async.py
 
-Place `transfer.info` in the same directory as the executable, then run:
-```
-seffp_client.exe
-```
+The server initializes SQLite storage under `server/data/` if needed.
 
-The client will:
-
-- Load configuration from transfer.info
-- Connect and authenticate with the server
-- Start the interactive console UI
-- Allow single-file or batch uploads
-- Validate CRC and retry if necessary
-
-### Detailed Setup
-
-#### 1. Start the server
-
-```
-Prerequisites (persistence)
-
-On startup, the server initializes the SQLite database under server/data/ if it does not already exist.
-
-Client metadata and upload records are persisted in SQLite during runtime.
-
-cd server
-python server_async.py
-(python server_tirgul.py legacy not in use)
-*(server_tirgul.py is kept for reference only and is not maintained.)*
-```
-
-#### 2. Prepare client configuration
+### Prepare client configuration
 
 Edit:
 
-```
-client/transfer.info
-```
+    client/transfer.info
 
 Format:
 
-```
-127.0.0.1:1256
-myuser
-file name (not in use)
-```
-#### Example `transfer.info`
+    127.0.0.1:1234
+    myuser
+    optional_file_path
 
-```text
-127.0.0.1:1234
-Michael Jackson
-New_product_spec.docx
-```
+### Run the client
 
----
+After building the client, run the executable from the build output directory.
 
-## Client CLI
+Interactive mode starts when no file arguments are provided.
 
-Optional runtime flags:
+Headless multi-file mode:
 
-- `--info` - run with info-level logs
-- `--debug` - enable debug logs
-- `--debug=0/1` - explicit debug toggle
-- `--files=file1 file2 ...` - upload multiple files without entering the interactive menu (separated by space)
-
-Positional file arguments are also supported for backward compatibility.
-
-### Interactive Console Mode
-
-When no `--files` argument is provided, the client starts in interactive console mode.
-
-Available actions:
-
-- Connect / reconnect
-- View connection status
-- Send a single file
-- Send a batch of files
-- Exit cleanly
-
-Interactive batch mode accepts space-separated file paths.
-
-
-### 3. Build from Source (Windows, CMake + vcpkg)
-
-### Prerequisites
-
-- Visual Studio 2022 (Desktop C++ workload)
-- Git
-- Python 3.9+ (for server)
-
-### Clone Project
-```
-To clone only this project without downloading the entire portfolio:
-git clone --depth 1 --filter=blob:none --sparse https://github.com/guy2610/Portfolio.git
-cd Portfolio
-git sparse-checkout init --cone
-git sparse-checkout set Secure-Encrypted-File-Transfer-Protocol
-cd Secure-Encrypted-File-Transfer-Protocol
-```
-
-### Setup vcpkg
-```
-git clone https://github.com/microsoft/vcpkg
-.\vcpkg\bootstrap-vcpkg.bat
-```
-
-### Build (Windows, VS2022)
-```
-cmake --preset vs2022-x64 --fresh
-cmake --build --preset release
-```
-
-### Run
-```
-cd build\Release
-.\seffp_client.exe
-```
-
-### Notes:
-
-- `transfer.info` is automatically copied next to the built executable.
-
-## Roadmap
-
-### **Stage 1 - Security & Protocol Correctness** DONE
-Completed
-
-* Random IV per file (AES-256-CBC)
-* RSA-2048 public key validation (Base64 DER, public-only)
-* Stable server-issued `client_id`
-* Proper 1607 error response with payload
+    ./seftp_client --files=file1.txt file2.txt
 
 ---
 
-### **Stage 2 - Architecture & Refactor** DONE  
-Client refactor complete, server async refactor, multi-client support, and stabilization complete (up to 2.6.5)
+## Build From Source
 
-**Client (completed):**
-* Refactored client into modules:
-  * `crypto` - AES, RSA, Base64, CRC helpers
-  * `protocol` - request/response framing and parsing
-  * `net` - TCP framing and IO
-  * `util` - file IO and helpers
-* Introduced `ClientContext` as a single source of truth
-* Explicit dispatch and flow handling (`DispatchResult`)
-* Removed raw protocol codes in favor of enums
-* File IO cleanup (`me.info`, `aes.key`, `priv.key`)
-* Configuration cleanup (replaced ad-hoc parsing with structured config)
+Requirements:
+- C++17 compiler
+- CMake 3.21+
+- vcpkg
+- Boost
+- Crypto++
+- Python 3.9+
 
-**Server (completed):**
-* Modular router/handlers/answers
-* ClientSession + Store (no global state)
-* JSON persistence (startup load / shutdown save)
-* Asyncio-based server with per-connection session isolation
-* Concurrent multi-client support (single-process, event-loop based)
-* Concurrent file uploads with per-client isolation
-* CPU-bound upload finalization offloaded using a bounded executor
-* User-scoped upload directories to avoid filename collisions
-* Pure protocol handlers (no direct socket or transport logic)
-* Graceful disconnect handling with disconnect summaries
-* Idle and upload inactivity timeouts
-* Defensive upload protocol validation for 828 (ordering, consistency, limits)
-* Atomic persistence for clients_info.json (temp file + replace)
+Windows example:
 
+    cmake --preset vs2022-x64 --fresh
+    cmake --build --preset release
+
+macOS example:
+
+    cmake --preset macos-arm64 --fresh
+    cmake --build --preset macos-release
 
 ---
 
-### **Stage 3 - Testing & Reliability** DONE
+## Testing
 
-Completed
+Server tests:
 
-* C++ unit tests (GoogleTest)
-  - Protocol build/parse
-  - AES / RSA helpers
-  - CRC validation
-* Python async unit tests (pytest + pytest-asyncio)
-  - Router dispatch
-  - Handlers (825-828, 900-902)
-  - 1607 enforcement on invalid 828 headers
-* End-to-end integration tests
-  - Register -> key exchange -> upload -> CRC validation
-  - Re-login flows (1605 / 1606)
-  - CRC retry scenarios
-  - Oversize file rejection (max_file_size enforcement)
-  - Parallel client uploads
-* GitHub Actions CI (Ubuntu + Windows)
-  - Automated E2E execution
-  - Parallel validation
-  - Limit enforcement checks
-  - Fails on protocol violations
+    python3 -m pytest
+
+Client tests are implemented with GoogleTest and run through the CMake build/test setup.
+
+CI validates:
+- protocol correctness
+- invalid-frame rejection
+- end-to-end register, key exchange, upload, and CRC flow
+- relogin behavior
+- parallel client isolation
+- SQLite persistence
+- connection limit behavior
+- upload backpressure behavior
 
 ---
 
-### **Stage 4 - Client UX, Persistence & Operational Polish** DONE
+## Performance Findings
 
-Completed
+Stage 6 introduced benchmark tooling and performance analysis.
 
-* Client-side console UI
-  * Connect / reconnect
-  * Status screen
-  * Single-file upload
-  * Batch upload
-* Headless multi-file CLI upload mode
-* Extracted client flow helpers for connection, handshake, and upload
-* Centralized client persistence abstraction
-* Atomic writes for client persistence files
-* Clearer client-side error reporting
-* Clearer server-side protocol error reporting
-* Server startup and shutdown polish
-* Additional unit tests for persistence and atomic writes
+Main findings:
+- upload is the dominant cost path
+- register and relogin behave more like lighter control-plane operations
+- upload capacity is affected by both concurrency and file size
+- explicit upload backpressure prevents uncontrolled overload
+- larger files increase RSS and CPU pressure more sharply
+- mixed workloads are primarily constrained by upload pressure
+
+See `docs/performance/performance_analysis.md`.
 
 ---
 
-### **Stage 5 - Scalability & Persistence** DONE
-Improve server scalability and storage architecture.
+## Security Model
 
-* Server concurrency improvements
-  * Async multi-client server (DONE)
-  * Worker model / bounded executor for CPU-bound tasks (DONE)
-  * Connection limits and backpressure (DONE)
+Current stable baseline:
+- files are encrypted client-side before upload
+- AES keys are delivered encrypted under the client RSA public key
+- each file uses a fresh AES IV
+- malformed protocol flows are rejected with `1607`
+- uploaded files are validated through CRC32 completion flow
 
-* Persistence layer evolution
-  * JSON persistence layer (DONE)
-  * SQLite persistence layer (DONE)
-  * Client metadata storage (DONE)
-  * Upload lifecycle persistence (DONE)
-  * Migration from JSON store (DONE)
-  * Separation of runtime session state vs persistent storage (DONE)
-  * Keep upload/session transient state in memory (DONE)
-  * Avoid DB access on packet hot path (DONE)
-  * In-memory client index for low-latency lookups (DONE)
-  * Write-through synchronization for persistent client metadata (DONE)
- 
----
+Known limitations:
+- no authenticated transport in the stable v0.6.0 baseline
+- AES-CBC does not provide authenticated encryption
+- CRC32 is not a cryptographic authentication mechanism
+- client-side keys are stored as local files
+- no forward secrecy
+- no mutual authentication
 
-### **Stage 6 - Performance Analysis, Observability & Design Documentation** DONE
-
-Measure and analyze runtime behavior under load to identify bottlenecks and guide future optimizations.
-* Extend load and stress testing scenarios
-  * Parallel clients (idle + active uploads) (DONE)
-  * High connection churn (DONE)
-  * Mixed workloads (registration, re-login, uploads) (DONE)
-
-* Collect performance metrics
-  * Request/response latency (p50 / p95 / p99) (DONE)
-  * Upload duration and throughput (DONE)
-  * Success / failure / rejection rates (DONE)
-
-* Resource usage analysis
-  * CPU utilization under load (DONE)
-  * Memory usage (RSS / growth over time) (DONE)
-  * Backpressure behavior under overload (DONE - first level)
-
-* Output and visualization
-  * Structured results (JSON / CSV) (DONE)
-  * Summary tables per scenario (DONE)
-  * Basic charts for latency, throughput, and resource usage (DONE)
-
-* Bottleneck identification
-  * Detect hot paths (CPU vs I/O vs DB) (DONE - first level)
-  * Evaluate effectiveness of in-memory client index (deferred to future optimization work)
-  * Identify whether additional caching or indexing is justified (deferred to future optimization work)
-
-* Evidence-based optimization targets
-  * Define concrete candidates for future improvements (DONE - basic level)
-  * Feed results into Stage 8 (future work / optimizations)
-
-* Architecture / design documentation (DONE)
-  * Document component boundaries, data flow, and persistence model (DONE)
-  * Capture key design decisions and tradeoffs (DONE)
-  * Summarize measured bottlenecks and likely optimization directions (DONE)
-  * Add system, client, and server design documents with Mermaid diagrams (DONE)
-
----
-### **Stage 7 - Security Hardening & Protocol Evolution**
-Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
-
-* Protocol security extension
-  * Introduce authenticated server identity during the bootstrap phase
-  * Extend the current protocol with a MITM-resistant key establishment flow
-  * Preserve the existing request/response model (`825`/`826`/`827`/`828`/...) while strengthening the handshake
-  * Define a trust model for first connection (e.g. pinned key / TOFU / pre-configured trust)
-
-* Cryptographic model improvements
-  * Strengthen session key establishment and binding between identity and AES key
-  * Evaluate replay resistance and handshake integrity guarantees
-  * Improve key lifecycle handling (rotation, overwrite, invalidation)
-
-* Client-side key security
-  * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence
-  * Evaluate stronger protection or platform-native secure storage
-
-* Upload pipeline evolution
-  * Move from full-file pre-encryption to incremental streaming encryption and transmission  
-    (read -> encrypt -> send in a pipeline, reducing peak memory usage and avoiding full-file buffering)
-  * Keep AES-CBC state continuity across chunks or define a controlled protocol extension if chunk boundaries require explicit IV handling
-
-* Abuse protection
-  * Connection rate limiting (limit new connections per time window, per IP/global)
-  * Basic DoS protection (burst control, early rejection under load, guarding expensive paths)
-  * Hardening of edge-case protocol paths under adversarial input
+Stage 7 is designed to add authenticated server identity verification with TOFU and pinned fingerprint modes.
 
 ---
 
-### **Stage 8 - Observability & Production Behavior**
-Operational visibility, diagnostics, and runtime insight into system behavior under real-world conditions.
+## Roadmap Snapshot
 
-* Metrics
-  * Connection statistics (active, rejected, per-IP)
-  * Upload statistics (throughput, duration, success/failure rates)
-  * Protocol error counters (`1607` and validation failures)
-  * Active connection and active upload visibility
-  * Queue / executor saturation visibility (bounded executor)
+Completed:
+- Stage 1: security and protocol correctness
+- Stage 2: architecture and refactor
+- Stage 3: testing and reliability
+- Stage 4: client UX, persistence, and operational polish
+- Stage 5: scalability and persistence
+- Stage 6: performance analysis, observability, and design documentation
 
-* Logging and diagnostics
-  * Structured logging (DONE)
-  * Request / response tracing across the full lifecycle
-  * Correlation between `connection_id`, `request_id`, and `upload_id`
-  * Improved visibility into upload phases (receive, finalize, persist)
+Active:
+- Stage 7: security hardening and protocol evolution
 
-* Runtime behavior
-  * Configuration validation (DONE)
-  * Runtime configuration reporting (DONE)
-  * Exposure of internal state for debugging and benchmarking
-  * Optional lightweight metrics export (future)
+Future:
+- Stage 8: observability and production behavior
+- Stage 9: extensions and portfolio polish
 
-* Client experience improvements
-  * Improved client-side progress and status reporting for uploads
+See `docs/roadmap/ROADMAP.md`.
 
 ---
 
-### **Stage 9 - Extensions & Portfolio Polish**
-Future work and optional extensions.
+## Prebuilt Client
 
-* Upload model extensions
-  * Evaluate resumable uploads across reconnects (protocol and persistence implications)
-  * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
+A prebuilt Windows x64 client binary exists for an earlier release, v0.5.0.
+Release:
+https://github.com/guy2610/Portfolio/releases/tag/v0.5.0-win-x64
 
-* Storage and performance exploration
-  * Evaluate additional caching / indexing strategies on the server (based on measured bottlenecks)
-
-* System extensions
-  * Optional C++ server implementation
-  * Cross-client communication (relay / messaging)
-  * Optional GUI client (Qt / ImGui / DearPyGui)
-
-* Portfolio polish
-  * Full protocol specification (aligned with implementation)
-  * Demo instructions and usage flows
-  * Release polish and packaging
-
----
+See the GitHub Releases page for available binaries.

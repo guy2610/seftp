@@ -261,14 +261,14 @@ The main architectural takeaway is that upload handling is the dominant cost pat
 ## 11. Limitations and Future Work
 
 Several future directions remain open:
-- Mermaid-based architecture diagrams
+- Stage 7 security handshake implementation and validation
 - deeper observability and per-phase timing
-- GUI-based client control
+- runtime metrics for active connections, active uploads, and executor saturation
 - more secure local key storage
-- evaluation of additional client/server refactoring boundaries
 - isolated profiling of the server's in-memory client index
-- possible future server implementation in C++
 - optional controlled parallel upload support if justified
+- optional GUI client
+- possible future server implementation in C++
 
 These are future improvements, not missing correctness requirements for the current project.
 
@@ -277,5 +277,7 @@ These are future improvements, not missing correctness requirements for the curr
 This document is the high-level architecture overview for the full system.
 
 For component-specific detail:
-- see `docs/client_design.md` for client internals
-- see `docs/server_design.md` for server internals
+- see `docs/architecture/client_design.md` for client internals
+- see `docs/architecture/server_design.md` for server internals
+- see `docs/protocol/spec.md` for the protocol specification
+- see `docs/performance/performance_analysis.md` for benchmark findings

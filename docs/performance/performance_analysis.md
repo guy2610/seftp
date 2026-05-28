@@ -246,50 +246,51 @@ At this stage, the server already shows meaningful differentiated behavior acros
 ## Charts
 
 ### Register CPU saturation
-![Register CPU](../tools/plots/register_cpu.png)
+![Register CPU](../../tools/plots/register_cpu.png)
 
 ### Upload throughput
-![Upload Throughput](../tools/plots/upload_throughput.png)
+![Upload Throughput](../../tools/plots/upload_throughput.png)
 
 ### Upload overload outcomes
-![Upload Outcomes](../tools/plots/upload_outcomes.png)
+![Upload Outcomes](../../tools/plots/upload_outcomes.png)
 
 ### Relogin overload outcomes
-![Relogin Outcomes](../tools/plots/relogin_outcomes.png)
+![Relogin Outcomes](../../tools/plots/relogin_outcomes.png)
 
 ### Cross-scenario latency comparison
-![Latency Comparison](../tools/plots/comparison_latency_p95.png)
+![Latency Comparison](../../tools/plots/comparison_latency_p95.png)
 
 ### Upload p95 latency by file size
-![Upload Size Latency](../tools/plots/upload_size_latency_p95.png)
+![Upload Size Latency](../../tools/plots/upload_size_latency_p95.png)
 
 ### Upload throughput by file size
-![Upload Size Throughput](../tools/plots/upload_size_throughput.png)
+![Upload Size Throughput](../../tools/plots/upload_size_throughput.png)
 
 ### Upload overload behavior by file size
-![Upload Size Overload](../tools/plots/upload_size_overload.png)
+![Upload Size Overload](../../tools/plots/upload_size_overload.png)
 
 ### Upload RSS peak by file size
-![Upload Size RSS](../tools/plots/upload_size_rss.png)
+![Upload Size RSS](../../tools/plots/upload_size_rss.png)
 
 ### Mixed workload per-operation latency
-![Mixed Operation Latency](../tools/plots/mixed_100kb_operation_latency_p95.png)
+![Mixed Operation Latency](../../tools/plots/mixed_100kb_operation_latency_p95.png)
 
 ### Mixed workload rejected rate per operation
-![Mixed Operation Rejected](../tools/plots/mixed_100kb_operation_rejected.png)
+![Mixed Operation Rejected](../../tools/plots/mixed_100kb_operation_rejected.png)
 
 ### Mixed workload success rate per operation
-![Mixed Operation Success](../tools/plots/mixed_100kb_operation_success.png)
+![Mixed Operation Success](../../tools/plots/mixed_100kb_operation_success.png)
 
 ### Mixed upload p95 latency by file size
-![Mixed Upload Size Latency](../tools/plots/mixed_upload_latency_p95_by_size.png)
+![Mixed Upload Size Latency](../../tools/plots/mixed_upload_latency_p95_by_size.png)
 
 ### Mixed upload rejected rate by file size
-![Mixed Upload Size Rejected](../tools/plots/mixed_upload_rejected_by_size.png)
+![Mixed Upload Size Rejected](../../tools/plots/mixed_upload_rejected_by_size.png)
 
 ## Next steps
-- add a connection churn scenario to complete Stage 6 load coverage
-- refine mixed workload generation (for example, deterministic ratios for more stable comparisons)
-- translate the measured upload bottlenecks into concrete optimization candidates for later stages
-- defer deeper runtime observability improvements (active uploads, queue depth, internal timing breakdown) to Stage 8
+
+- refine mixed workload generation using deterministic operation ratios for more stable comparisons
+- translate measured upload bottlenecks into concrete optimization candidates for later stages
+- evaluate size-aware upload backpressure for larger files
+- defer deeper runtime observability improvements such as active upload visibility, queue depth, and internal timing breakdown to Stage 8
 

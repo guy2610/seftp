@@ -13,6 +13,8 @@ import sys
 import  logging
 from src import answers
 import asyncio
+from Crypto.Random import get_random_bytes
+from src.server_identity import get_public_key_der, sign_server_hello
 
 async def request_825(payload_info,version,session):
     """
@@ -518,6 +520,10 @@ async def request_828(payload_info,version,client_id,session):
 
 async def request_829(payload_info, version, client_id, session):
     session.log.info("stage7 CLIENT_HELLO received")
+    
+    if session.client_nonce is not None or session.server_nonce is not None:
+        await answers.answer_1607(client_id, version, "bad 829: handshake already started", session)
+        return
 
     if len(payload_info) != 34:
         await answers.answer_1607(client_id, version, "bad 829: invalid payload length", session)
@@ -542,11 +548,37 @@ async def request_829(payload_info, version, client_id, session):
     session.security_version = security_version
     session.client_nonce = client_nonce
 
-    server_nonce =  b'\x9e\x41\x1c\xfa\x7f\x8d\xb2\x34\x0e\x67\x11\xc9\xa3\x5b\xdc\x82\x10\x54\x4c\xfe\x0a\xb8\x49\x2d\x3b\xef\x61\x70\x88\x12\xfa\xbc'
+    server_nonce = get_random_bytes(32)
+    server_public_key_der = get_public_key_der(session.server_identity_key)
+    signature = sign_server_hello(
+        session.server_identity_key,
+        security_version,
+        client_nonce,
+        server_nonce,
+        server_public_key_der,
+    )
     session.server_nonce = server_nonce
-    server_public_key_der = b"dummy"
-    signature = b"dummy"
-    await answers.answer_1608(version, security_version, server_nonce, server_public_key_der,signature , session)
+
+    await answers.answer_1608(version, security_version, server_nonce, server_public_key_der, signature, session)
+    return
+
+async def request_830(payload_info, version, client_id, session):
+    session.log.info("stage7 CLIENT_HANDSHAKE_ACK received")
+
+    if payload_info:
+        await answers.answer_1607(client_id, version, "bad 830: expected empty payload", session)
+        return
+
+    if session.handshake_verified:
+        await answers.answer_1607(client_id, version, "bad 830: handshake already completed", session)
+        return
+
+    if session.client_nonce is None or session.server_nonce is None or session.security_version is None:
+        await answers.answer_1607(client_id, version, "bad 830: server hello not completed", session)
+        return
+
+    session.handshake_verified = True
+    session.log.info("stage7 handshake completed")
     return
 
 async def request_900(payload_info,version,client_id,session):

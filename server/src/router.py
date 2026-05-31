@@ -50,7 +50,14 @@ async def handle_frame(frame:bytes,session):
 
         session.on_frame_ok()
         payload_info = frame[23:23 + payload_size]
-        if code_num=="825":
+        handshake_codes = {"829", "830"}
+        if not session.handshake_verified and code_num not in handshake_codes:
+            await answers.answer_1607(client_id, version, "stage7 handshake required", session)
+            return
+        elif session.handshake_verified and code_num in handshake_codes:
+            await answers.answer_1607(client_id, version, "stage7 handshake already completed", session)
+            return
+        elif code_num=="825":
             await handlers.request_825(payload_info, version,session)
         elif code_num=="827":
             await handlers.request_827(client_id,payload_info, version,session)
@@ -60,6 +67,8 @@ async def handle_frame(frame:bytes,session):
             await handlers.request_828(payload_info,version,client_id,session)
         elif code_num == "829":
             await handlers.request_829(payload_info,version,client_id,session)
+        elif code_num == "830":
+            await handlers.request_830(payload_info, version, client_id, session)
         elif code_num == "900":
             await handlers.request_900(payload_info, version, client_id,session)
         elif code_num == "901":

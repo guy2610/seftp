@@ -10,6 +10,7 @@ import signal
 from src.upload_limiter import UploadLimiter
 from src.connection_limiter import ConnectionLimiter
 from src.bounded_executor import BoundedExecutor
+from src.server_identity import load_or_create_server_identity
 
 async def main():
     config = Config.load()
@@ -46,7 +47,7 @@ async def main():
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
         peer_ip = addr[0] if isinstance(addr, tuple) and len(addr) >= 1 else str(addr)
-        session = ClientSession(writer, store, logger,config,upload_limiter, bounded_executor)
+        session = ClientSession(writer, store, logger,config,upload_limiter, bounded_executor, server_identity_key)
         session.peer = addr
         connection_acquired = False
         try:
@@ -125,6 +126,8 @@ async def main():
                 session.frames_bad,
             )
 
+    server_identity_key = load_or_create_server_identity(f"{config.data_path}/server_identity.pem")
+    logger.info("server identity key loaded")
     server = await asyncio.start_server(handle_client, config.host, config.port)
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     logger.info("async server listening on %s", addrs)

@@ -6,7 +6,7 @@ import time
 from typing import Optional
 
 class ClientSession:
-    def __init__(self, writer,store ,base_logger,config,upload_limiter,bounded_executor):
+    def __init__(self, writer,store ,base_logger,config,upload_limiter,bounded_executor,server_identity_key):
         self.config=config
         self.writer=writer
         self.store = store
@@ -47,6 +47,7 @@ class ClientSession:
         self.client_nonce = None
         self.server_nonce = None
         self.security_version = None
+        self.server_identity_key = server_identity_key
 
     async def release_upload_slot(self):
         if self.has_upload_slot:

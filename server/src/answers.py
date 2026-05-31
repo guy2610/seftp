@@ -210,3 +210,31 @@ async def answer_1607(client_id,version,text,session):
         store.touch_client_last_seen(client_record.client_id_hex)
     store.clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
     await session.send(message)
+
+async def answer_1608(version, security_version, server_nonce, server_public_key_der, signature, session):
+    session.log.debug("inside answer 1608")
+
+    if len(server_nonce) != 32:
+        raise ValueError("server_nonce must be exactly 32 bytes")
+
+    if not (0 <= int(security_version) <= 255):
+        raise ValueError("security_version must fit in one byte")
+
+    if len(server_public_key_der) > 65535:
+        raise ValueError("server_public_key_der too large")
+
+    if len(signature) > 65535:
+        raise ValueError("signature too large")
+
+    payload = (
+        int(security_version).to_bytes(1, "little") +
+        server_nonce +
+        len(server_public_key_der).to_bytes(2, "little") +
+        server_public_key_der +
+        len(signature).to_bytes(2, "little") +
+        signature
+    )
+
+    message = message_answer(version, "1608", str(len(payload)), payload, session)
+    session.log.info("sending stage7 SERVER_HELLO")
+    await session.send(message)

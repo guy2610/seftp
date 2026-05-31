@@ -516,9 +516,37 @@ async def request_828(payload_info,version,client_id,session):
             # Respond with 1603 including server-side CRC
             await answers.answer_1603(client_id, version, file_name, content_size, crc32_val,session)
 
-async def request_829(payload_info,version,client_id,session):
+async def request_829(payload_info, version, client_id, session):
     session.log.info("stage7 CLIENT_HELLO received")
-    await answers.answer_1607(client_id, version, "stage7 handshake not implemented yet", session)
+
+    if len(payload_info) != 34:
+        await answers.answer_1607(client_id, version, "bad 829: invalid payload length", session)
+        return
+
+    security_version = payload_info[0]
+    client_nonce = payload_info[1:33]
+    flags = payload_info[33]
+
+    if security_version != 1:
+        await answers.answer_1607(client_id, version, "bad 829: unsupported security version", session)
+        return
+
+    if len(client_nonce) != 32:
+        await answers.answer_1607(client_id, version, "bad 829: invalid client nonce", session)
+        return
+
+    if flags != 0:
+        await answers.answer_1607(client_id, version, "bad 829: unsupported flags", session)
+        return
+
+    session.security_version = security_version
+    session.client_nonce = client_nonce
+
+    server_nonce =  b'\x9e\x41\x1c\xfa\x7f\x8d\xb2\x34\x0e\x67\x11\xc9\xa3\x5b\xdc\x82\x10\x54\x4c\xfe\x0a\xb8\x49\x2d\x3b\xef\x61\x70\x88\x12\xfa\xbc'
+    session.server_nonce = server_nonce
+    server_public_key_der = b"dummy"
+    signature = b"dummy"
+    await answers.answer_1608(version, security_version, server_nonce, server_public_key_der,signature , session)
     return
 
 async def request_900(payload_info,version,client_id,session):

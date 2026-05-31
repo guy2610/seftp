@@ -44,9 +44,9 @@ class ClientSession:
         self.upload_path = None
         self.upload_crc = None
         self.handshake_verified = False
-        self.stage7_client_nonce = None
-        self.stage7_server_nonce = None
-        self.stage7_security_version = None
+        self.client_nonce = None
+        self.server_nonce = None
+        self.security_version = None
 
     async def release_upload_slot(self):
         if self.has_upload_slot:

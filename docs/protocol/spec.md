@@ -49,8 +49,13 @@ If the handshake is not completed, the server MUST reject all requests with resp
 1. Client connects via TCP
 2. Client sends `829 CLIENT_HELLO`
 3. Server replies with `1608 SERVER_HELLO`
-4. Client verifies server identity
-5. Only after successful verification:
+4. Client verifies:
+   - server signature
+   - server fingerprint
+   - TOFU or pinned-key trust requirements
+5. Client sends `830 CLIENT_HANDSHAKE_ACK`
+6. Server marks the handshake as complete
+7. Only after successful handshake completion:
    - client may send requests 825 / 826 / 827 / 828
 
 No fallback to pre-handshake behavior is allowed.
@@ -84,7 +89,29 @@ uint16  signature_len
 bytes   signature
 ```
 
-### 2.4 Handshake Signature
+### 2.4 Request 830 - CLIENT_HANDSHAKE_ACK
+
+Direction:
+
+client -> server
+
+Purpose:
+
+Indicates that the client successfully verified the server identity and accepted the handshake.
+
+Payload:
+
+```text
+empty
+```
+
+Notes:
+
+- MUST be sent only after successful verification of SERVER_HELLO
+- MUST be the final step of the Stage 7 handshake
+- Any application request received before CLIENT_HANDSHAKE_ACK MUST be rejected
+
+### 2.5 Handshake Signature
 
 The server signs the following transcript:
 
@@ -98,7 +125,7 @@ server_public_key
 
 The client verifies the signature using the provided server_public_key.
 
-### 2.5 Trust Model
+### 2.6 Trust Model
 
 The protocol supports two trust modes:
 
@@ -112,16 +139,17 @@ The protocol supports two trust modes:
 - Client is pre-configured with expected server fingerprint
 - Mismatch → connection rejected
 
-### 2.6 Server Fingerprint
+### 2.7 Server Fingerprint
 ```text
 SHA-256(server_public_key_der)
 ```
 
-### 2.7 Enforcement Rules
+### 2.8 Enforcement Rules
 
 #### Server
 
-- MUST reject any request before CLIENT_HELLO
+- MUST reject any application-level request before handshake completion
+- MUST allow only CLIENT_HELLO and CLIENT_HANDSHAKE_ACK during the handshake phase
 - MUST reject malformed handshake with 1607
 - MUST enforce handshake completion before processing requests
 
@@ -131,12 +159,31 @@ SHA-256(server_public_key_der)
 - MUST enforce fingerprint match (TOFU or pinned)
 - MUST abort on failure
 
-### 2.8 Replay Protection
+### 2.9 Replay Protection
 - Handshake uses client_nonce and server_nonce
 - Signature binds both nonces
 - Replay of SERVER_HELLO is rejected due to nonce mismatch
 
-### 2.9 Backward Compatibility
+### 2.10 Handshake Completion
+
+The server MUST NOT process application-level requests until a valid
+CLIENT_HANDSHAKE_ACK has been received.
+
+Upon receiving a valid CLIENT_HANDSHAKE_ACK:
+
+```text
+handshake_verified = true
+```
+
+Before handshake completion:
+
+```text
+handshake_verified = false
+```
+
+Requests 825, 826, 827, 828, 900, 901 and 902 MUST be rejected if the handshake has not completed successfully.
+
+### 2.11 Backward Compatibility
 
 This version does NOT support fallback to pre-handshake protocol.
 
@@ -150,6 +197,12 @@ This version does NOT support fallback to pre-handshake protocol.
 ### **829 - CLIENT_HELLO**
 
 Starts the Stage 7 security handshake.
+
+See section 2 for full definition.
+
+### **830 - CLIENT_HANDSHAKE_ACK**
+
+Completes the Stage 7 security handshake.
 
 See section 2 for full definition.
 
@@ -398,7 +451,7 @@ error_message (UTF-8 string)
 
 If Stage 7 is implemented as designed:
 
-* Server identity is verified before AES key establishment
+* Server identity is verified by the client before handshake completion and AES key establishment
 * In pinned mode, MITM is prevented from the first connection
 * In TOFU mode, MITM is prevented after the first trusted connection
 * Replay of handshake messages is mitigated via nonce binding

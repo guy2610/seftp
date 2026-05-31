@@ -6,7 +6,7 @@ import time
 from typing import Optional
 
 class ClientSession:
-    def __init__(self, writer,store ,base_logger,config,upload_limiter,bounded_executor,server_identity_key):
+    def __init__(self, writer, store, base_logger, config, upload_limiter, bounded_executor, server_identity_key=None):
         self.config=config
         self.writer=writer
         self.store = store

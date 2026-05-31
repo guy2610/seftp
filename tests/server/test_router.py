@@ -33,6 +33,7 @@ class FakeSession:
         self.on_frame_ok_calls = 0
         self.on_frame_bad_calls = []
         self.reset_calls = []
+        self.handshake_verified = True
 
     def on_frame_ok(self):
         self.on_frame_ok_calls += 1
@@ -316,3 +317,104 @@ async def test_handle_frame_updates_last_client_id_and_version(monkeypatch):
     assert s.request_id == "-"
     assert s.log.request_id == "-"
 
+@pytest.mark.asyncio
+async def test_router_rejects_application_request_before_stage7_handshake(monkeypatch):
+    s = FakeSession()
+    s.handshake_verified = False
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_825(payload_info, version, session):
+        raise AssertionError("825 handler should not be called before handshake")
+
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_825", fake_825)
+
+    client_id = b"\x01" * 16
+    version = b"\x03"
+    payload = b"alice\x00"
+    frame = (
+        client_id
+        + version
+        + (825).to_bytes(2, "little")
+        + len(payload).to_bytes(4, "little")
+        + payload
+    )
+
+    await router.handle_frame(frame, s)
+
+    assert len(calls) == 1
+    assert calls[0][0] == client_id
+    assert calls[0][1] == version
+    assert "handshake required" in calls[0][2]
+
+
+@pytest.mark.asyncio
+async def test_router_allows_829_before_stage7_handshake(monkeypatch):
+    s = FakeSession()
+    s.handshake_verified = False
+
+    calls = []
+
+    async def fake_829(payload_info, version, client_id, session):
+        calls.append((payload_info, version, client_id, session))
+
+    async def fake_1607(client_id, version, text, session):
+        raise AssertionError("1607 should not be called for 829 before handshake")
+
+    monkeypatch.setattr("src.router.handlers.request_829", fake_829)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+
+    client_id = b"\x00" * 16
+    version = b"\x03"
+    payload = b"\x01" + (b"\xAA" * 32) + b"\x00"
+    frame = (
+        client_id
+        + version
+        + (829).to_bytes(2, "little")
+        + len(payload).to_bytes(4, "little")
+        + payload
+    )
+
+    await router.handle_frame(frame, s)
+
+    assert len(calls) == 1
+    assert calls[0][0] == payload
+    assert calls[0][1] == version
+    assert calls[0][2] == client_id
+
+
+@pytest.mark.asyncio
+async def test_router_rejects_handshake_code_after_completion(monkeypatch):
+    s = FakeSession()
+    s.handshake_verified = True
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_829(payload_info, version, client_id, session):
+        raise AssertionError("829 should not be called after handshake completion")
+
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_829", fake_829)
+
+    client_id = b"\x00" * 16
+    version = b"\x03"
+    payload = b"\x01" + (b"\xAA" * 32) + b"\x00"
+    frame = (
+        client_id
+        + version
+        + (829).to_bytes(2, "little")
+        + len(payload).to_bytes(4, "little")
+        + payload
+    )
+
+    await router.handle_frame(frame, s)
+
+    assert len(calls) == 1
+    assert "already completed" in calls[0][2]

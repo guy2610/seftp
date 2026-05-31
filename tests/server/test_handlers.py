@@ -126,6 +126,12 @@ class FakeSession:
         self.on_frame_ok_calls = 0
         self.on_frame_bad_calls = []
 
+        self.handshake_verified = False
+        self.client_nonce = None
+        self.server_nonce = None
+        self.security_version = None
+        self.server_identity_key = RSA.generate(2048)
+
     def mark_upload_progress(self):
         pass
 
@@ -1554,3 +1560,97 @@ async def test_828_out_of_order_packet(monkeypatch, tmp_path):
     assert calls[-1][0] == "1607"
     assert calls[-1][3] == "bad 828: out of order"
     assert fake_session.reset_calls[-1] == "bad_828_out_of_order"
+
+@pytest.mark.asyncio
+async def test_829_valid_client_hello_sends_1608(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    calls = []
+
+    async def fake_1608(version, security_version, server_nonce, server_public_key_der, signature, session):
+        calls.append((version, security_version, server_nonce, server_public_key_der, signature, session))
+
+    async def fake_1607(client_id, version, text, session):
+        raise AssertionError(f"1607 should not be called: {text}")
+
+    monkeypatch.setattr(handlers.answers, "answer_1608", fake_1608)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    client_id = b"\x00" * 16
+    version = b"\x03"
+    client_nonce = b"\xAA" * 32
+    payload = b"\x01" + client_nonce + b"\x00"
+
+    await handlers.request_829(payload, version, client_id, fake_session)
+
+    assert len(calls) == 1
+    assert calls[0][0] == version
+    assert calls[0][1] == 1
+    assert len(calls[0][2]) == 32
+    assert len(calls[0][3]) > 0
+    assert len(calls[0][4]) > 0
+    assert calls[0][5] is fake_session
+
+    assert fake_session.security_version == 1
+    assert fake_session.client_nonce == client_nonce
+    assert fake_session.server_nonce == calls[0][2]
+    assert fake_session.handshake_verified is False
+
+
+@pytest.mark.asyncio
+async def test_829_rejects_bad_payload_length(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_1608(*args, **kwargs):
+        raise AssertionError("1608 should not be called for bad 829")
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers.answers, "answer_1608", fake_1608)
+
+    await handlers.request_829(b"\x01", b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "invalid payload length" in calls[0][2]
+    assert fake_session.client_nonce is None
+    assert fake_session.server_nonce is None
+    assert fake_session.handshake_verified is False
+
+
+@pytest.mark.asyncio
+async def test_830_completes_handshake_after_server_hello(tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    fake_session.client_nonce = b"\xAA" * 32
+    fake_session.server_nonce = b"\xBB" * 32
+    fake_session.security_version = 1
+
+    await handlers.request_830(b"", b"\x03", b"\x00" * 16, fake_session)
+
+    assert fake_session.handshake_verified is True
+
+
+@pytest.mark.asyncio
+async def test_830_rejects_ack_before_server_hello(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    await handlers.request_830(b"", b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "server hello not completed" in calls[0][2]
+    assert fake_session.handshake_verified is False

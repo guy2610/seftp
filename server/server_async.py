@@ -11,6 +11,7 @@ from src.upload_limiter import UploadLimiter
 from src.connection_limiter import ConnectionLimiter
 from src.bounded_executor import BoundedExecutor
 from src.server_identity import load_or_create_server_identity
+from pathlib import Path
 
 async def main():
     config = Config.load()
@@ -126,7 +127,8 @@ async def main():
                 session.frames_bad,
             )
 
-    server_identity_key = load_or_create_server_identity(f"{config.data_path}/server_identity.pem")
+    server_identity_path = Path(config.data_path).parent / "server_identity.pem"
+    server_identity_key = load_or_create_server_identity(str(server_identity_path))
     logger.info("server identity key loaded")
     server = await asyncio.start_server(handle_client, config.host, config.port)
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)

@@ -62,6 +62,8 @@ void request_826(tcp::socket& s, const string& name, const string& publicKeyStr,
 void request_827(tcp::socket& s, const string& name, const string & uuid);
 uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components);
 void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc, const std::string& file_name);
+void request_829(tcp::socket& s, std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce);
+void request_830(tcp::socket& s);
 void request_900(tcp::socket& s, const string& name, const string& uuid);
 void request_901(tcp::socket& s, const string& name, const string& uuid);
 void request_902(tcp::socket& s, const string& name, const string& uuid);
@@ -76,6 +78,8 @@ void print_client_exit_summary();
 static std::string trim_copy(const std::string& s);
 static std::string normalize_user_path_input(const std::string& raw);
 static std::string protocol_filename_from_path(const std::string& path);
+std::array<uint8_t, seftp::proto::kStage7NonceLen> generate_nonce();
+bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc);
 
 vector<ClientEvent> client_history;
 bool debug_mode = false;
@@ -153,6 +157,8 @@ namespace seftp::flow{
 			return false;
 		}
 		g_logger.info("\nconnection succeeded");
+		if (!execute_server_identity_handshake(s,cc)) return false;
+
 		std::string me_user, me_cid;
 		std::string persist_error;
 		seftp::persistence::StoredIdentity stored_identity{};
@@ -305,6 +311,62 @@ namespace seftp::flow{
 		}
 		return true;
 	}
+}
+/*
+ * Generate a fresh Stage 7 client nonce.
+ *
+ * The nonce is sent in CLIENT_HELLO and later used as part of the
+ * signed handshake transcript, preventing replay of old SERVER_HELLO
+ * messages across connections.
+ */
+std::array<uint8_t, seftp::proto::kStage7NonceLen> generate_nonce() {
+	std::array<uint8_t, seftp::proto::kStage7NonceLen> nonce{};
+	CryptoPP::AutoSeededRandomPool rng;
+	rng.GenerateBlock(nonce.data(), nonce.size());
+	return nonce;
+}
+/*
+ * Execute server-identity handshake.
+ *
+ * Flow:
+ * - generate a fresh client nonce
+ * - send 829 CLIENT_HELLO
+ * - expect 1608 SERVER_HELLO
+ * - parse the server identity payload
+ * - send 830 CLIENT_HANDSHAKE_ACK
+ *
+ * At this stage, this function only wires the protocol flow.
+ * Signature verification, TOFU, and pinned-key validation are added later.
+ */
+bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc) {
+	std::array<uint8_t, seftp::proto::kStage7NonceLen> client_nonce = generate_nonce();
+	request_829(s, client_nonce);
+	try {
+		auto frame = seftp::net::read_response_frame(s);
+		std::stringstream ss;
+		ss << "version: " << (int)frame.version << ", code: " << (uint16_t)frame.code << ", payload size: " << frame.payload.size();
+		g_logger.debug(ss.str());
+		seftp::proto::ByteView pv{ frame.payload.data(), frame.payload.size() };
+
+		auto res_code = frame.code;
+		if (res_code != seftp::proto::ResCode::ServerHello) {
+			cc.last_error_text = "expected SERVER_HELLO (1608)";
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+		auto hello = seftp::proto::parse_1608(pv);
+		if (hello.security_version != seftp::proto::kSecurityVersion) {
+			g_logger.error("unsupported security version");
+			return false;
+		}
+	}
+	catch (const std::exception& e) {
+		g_logger.error(std::string("server handshake failed: ") + e.what());
+		return false;
+	}
+	g_logger.info("Client Handshake Ack");
+	request_830(s);
+	return true;
 }
 void print_client_exit_summary() {
 	std::cout << "Thanks, Goodbye!!" << std::endl;
@@ -640,6 +702,26 @@ void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext&
 		}	
 	}
 	
+}
+void request_829(tcp::socket& s, std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce) {
+	g_logger.debug("in request_829");
+	try {
+		auto msg = seftp::proto::build_829_client_hello(client_nonce);
+		boost::asio::write(s, boost::asio::buffer(msg));
+	}
+	catch (const std::exception& e) {
+		g_logger.error("Error in request_829: " + std::string(e.what()));
+	}
+}
+void request_830(tcp::socket& s) {
+	g_logger.debug("in request_830");
+	try {
+		auto msg = seftp::proto::build_830_client_handshake_ack();
+		boost::asio::write(s, boost::asio::buffer(msg));
+	}
+	catch (const std::exception& e) {
+		g_logger.error("Error in request_830: " + std::string(e.what()));
+	}
 }
 void request_900(tcp::socket& s, const string& name, const string& uuid) {
 	// Send request 900: notify server that CRC matched for the given file name.

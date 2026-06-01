@@ -12,6 +12,8 @@ namespace seftp::proto {
 
 	constexpr uint8_t kVersion = 3;
 	constexpr size_t kClientIdLen = 16;
+	constexpr uint8_t kSecurityVersion = 1;
+	constexpr size_t kStage7NonceLen = 32;
 
 	constexpr size_t kReqHeaderLen = 16 + 1 + 2 + 4; // 23
 	constexpr size_t kResHeaderLen = 1 + 2 + 4;      // 7
@@ -23,6 +25,8 @@ namespace seftp::proto {
 		PublicKey = 826,
 		ReLogin = 827,
 		FileChunk = 828,
+		ClientHello = 829,
+		ClientHandshakeAck = 830,
 		CrcOk = 900,
 		CrcRetry = 901,
 		CrcFail = 902,
@@ -37,6 +41,7 @@ namespace seftp::proto {
 		ReloginOk = 1605,
 		ReloginFail = 1606,
 		Error = 1607,
+		ServerHello = 1608,
 	};
 
 	//----little-endian helpers
@@ -156,6 +161,19 @@ namespace seftp::proto {
 		p.insert(p.end(), chunk.begin(), chunk.end());
 		return build_request(client_id, ReqCode::FileChunk, p);
 	}
+	// 829: payload = security_version || client_nonce || flags
+	inline std::vector<uint8_t>build_829_client_hello(std::array<uint8_t, kStage7NonceLen>& client_nonce) {
+		std::vector<uint8_t> p;
+		p.reserve(1 + kStage7NonceLen + 1);
+		p.push_back(kSecurityVersion);
+		p.insert(p.end(), client_nonce.begin(), client_nonce.end());
+		p.push_back(0); // flags
+		return build_request(zero_client_id(), ReqCode::ClientHello, p);
+	}
+	// 830: CLIENT_HANDSHAKE_ACK with an empty payload.
+	inline std::vector<uint8_t>build_830_client_handshake_ack() {
+		return build_request(zero_client_id(), ReqCode::ClientHandshakeAck, {});
+	}
 	struct Res1600 
 	{
 		ClientId client_id;
@@ -171,6 +189,12 @@ namespace seftp::proto {
 		uint32_t content_size = 0;
 		std::string filename;
 		uint32_t server_crc = 0;
+	};
+	struct Res1608 {
+		uint8_t security_version = 0;
+		std::array<uint8_t, 32> server_nonce{};
+		std::vector<uint8_t> server_public_key_der;
+		std::vector<uint8_t> signature;
 	};
 
 	struct ByteView {
@@ -208,6 +232,48 @@ namespace seftp::proto {
 		off += filename_len;
 
 		r.server_crc = read_u32_le(payload.data + off);
+		return r;
+	}
+	inline Res1608 parse_1608(ByteView payload) {
+		constexpr size_t kMinLen = 1 + kStage7NonceLen + 2 + 2;
+		if (payload.size < kMinLen) {
+			throw std::runtime_error("1608 payload too short");
+		}
+
+		Res1608 r{};
+		size_t off = 0;
+
+		r.security_version = payload.data[off];
+		off += 1;
+
+		std::memcpy(r.server_nonce.data(), payload.data + off, kStage7NonceLen);
+		off += kStage7NonceLen;
+
+		const uint16_t public_key_len = read_u16_le(payload.data + off);
+		off += 2;
+
+		if (off + public_key_len + 2 > payload.size) {
+			throw std::runtime_error("1608 public key length out of bounds");
+		}
+
+		r.server_public_key_der.assign(
+			payload.data + off,
+			payload.data + off + public_key_len
+		);
+		off += public_key_len;
+
+		const uint16_t signature_len = read_u16_le(payload.data + off);
+		off += 2;
+
+		if (off + signature_len != payload.size) {
+			throw std::runtime_error("1608 signature length mismatch");
+		}
+
+		r.signature.assign(
+			payload.data + off,
+			payload.data + off + signature_len
+		);
+
 		return r;
 	}
 

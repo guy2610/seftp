@@ -359,6 +359,31 @@ bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc) 
 			g_logger.error("unsupported security version");
 			return false;
 		}
+
+		auto fingerprint = seftp::crypto::sha256_hex(hello.server_public_key_der);
+		g_logger.info("server identity fingerprint: " + fingerprint);
+
+		if (!seftp::crypto::verify_server_hello_signature(hello.security_version, client_nonce, hello.server_nonce, hello.server_public_key_der, hello.signature)) {
+			cc.last_error_text = "server identity signature verification failed";
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+		std::string stored;
+		std::string fingerprint_error;
+		if (seftp::persistence::load_server_fingerprint(stored, fingerprint_error)) {
+			if (stored != fingerprint) {
+				cc.last_error_text = "server fingerprint mismatch";
+				g_logger.error(cc.last_error_text);
+				return false;
+			}
+		} else {
+			if (!seftp::persistence::save_server_fingerprint(fingerprint, fingerprint_error)) {
+				cc.last_error_text = fingerprint_error;
+				g_logger.error(cc.last_error_text);
+				return false;
+			}
+			g_logger.warn("TOFU: stored new server fingerprint");
+		}
 	}
 	catch (const std::exception& e) {
 		g_logger.error(std::string("server handshake failed: ") + e.what());

@@ -1,5 +1,7 @@
 #include "client_persistence.hpp"
 
+#include <boost/asio/placeholders.hpp>
+
 namespace seftp::persistence {
 	bool load_identity(StoredIdentity& out, std::string& error) {
 		error.clear();
@@ -45,6 +47,22 @@ namespace seftp::persistence {
 		error.clear();
 		if (!seftp::util::files::read_private_key(out)) {
 			error = "failed to load private key from priv.key";
+			return false;
+		}
+		return true;
+	}
+	bool load_server_fingerprint(std::string& fingerprint, std::string& error) {
+		error.clear();
+		if (!seftp::util::files::read_fingerprint(fingerprint)) {
+			error = "failed to load server fingerprint";
+			return false;
+		}
+		return true;
+	}
+	bool save_server_fingerprint(const std::string& fingerprint, std::string& error) {
+		error.clear();
+		if (!seftp::util::files::write_fingerprint(fingerprint)) {
+			error = "failed to save server fingerprint";
 			return false;
 		}
 		return true;

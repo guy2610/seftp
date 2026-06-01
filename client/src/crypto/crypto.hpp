@@ -11,6 +11,10 @@
 #include <cryptopp/aes.h>
 #include <cryptopp/crc.h>
 #include <cryptopp/modes.h>
+#include <cryptopp/sha.h>
+#include <cryptopp/hex.h>
+#include <algorithm>
+#include "protocol/protocol.hpp"
 
 namespace seftp::crypto {
 	struct PublicKeyFormat
@@ -26,4 +30,10 @@ namespace seftp::crypto {
 	std::string aes256_cbc_encrypt(std::string plaintext, std::string_view key32, const std::array<uint8_t, 16>& iv_arr);
 	std::string aes256_cbc_decrypt(std::string ciphertext, std::string_view key32, const std::array<uint8_t, 16>& iv_arr);
 	std::string rsa_oaep_sha1_decrypt_from_file(const std::string& privkey_filename, const std::vector<uint8_t>& ciphertext);
+	std::string sha256_hex(const std::vector<uint8_t>& data);
+	bool verify_server_hello_signature(uint8_t security_version,
+		const std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce,
+		const std::array<uint8_t, seftp::proto::kStage7NonceLen>& server_nonce,
+		const std::vector<uint8_t>& server_public_key_der,
+		const std::vector<uint8_t>& signature);
 }

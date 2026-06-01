@@ -165,5 +165,62 @@ namespace seftp::crypto {
 		}
 		return decrypted;
 	}
+	std::string sha256_hex(const std::vector<uint8_t>& data) {
+		std::string digest;
+		CryptoPP::SHA256 hash;
+
+		CryptoPP::StringSource(
+			data.data(),
+			data.size(),
+			true,
+			new CryptoPP::HashFilter(
+				hash,
+				new CryptoPP::HexEncoder(
+					new CryptoPP::StringSink(digest),
+					false
+				)
+			)
+		);
+
+		std::transform(digest.begin(), digest.end(), digest.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+		return digest;
+	}
+	bool verify_server_hello_signature(uint8_t security_version,
+		const std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce,
+		const std::array<uint8_t, seftp::proto::kStage7NonceLen>& server_nonce,
+		const std::vector<uint8_t>& server_public_key_der,
+		const std::vector<uint8_t>& signature) {
+
+		std::vector<uint8_t> transcript;
+		const std::string context = "SEFTP_STAGE7_SERVER_HELLO";
+
+		transcript.insert(transcript.end(), context.begin(), context.end());
+		transcript.push_back(security_version);
+		transcript.insert(transcript.end(), client_nonce.begin(), client_nonce.end());
+		transcript.insert(transcript.end(), server_nonce.begin(), server_nonce.end());
+		transcript.insert(transcript.end(), server_public_key_der.begin(), server_public_key_der.end());
+
+		try {
+			CryptoPP::RSA::PublicKey publicKey;
+			CryptoPP::ArraySource keySource(
+				server_public_key_der.data(),
+				server_public_key_der.size(),
+				true
+			);
+			publicKey.Load(keySource);
+			CryptoPP::RSASS<CryptoPP::PKCS1v15, CryptoPP::SHA256>::Verifier verifier(publicKey);
+
+			return verifier.VerifyMessage(transcript.data(),
+				transcript.size(),
+				signature.data(),
+				signature.size()
+				);
+		}
+		catch (const CryptoPP::Exception& e) {
+			return false;
+		}
+	}
 
 }

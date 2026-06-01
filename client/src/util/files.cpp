@@ -70,5 +70,16 @@ namespace seftp::util::files {
 		}
 		MyReadFile.close();
 		return true;
-	}	
+	}
+	bool read_fingerprint(std::string& fingerprint, const std::string& file_name) {
+		std::ifstream f(file_name);
+		if (!f) return false;
+		std::getline(f, fingerprint);
+		return true;
+	}
+	bool write_fingerprint(const std::string& fingerprint, const std::string& file_name) {
+		std::string content = fingerprint + "\n";
+		return atomic_write(file_name, content);
+
+	}
 }	

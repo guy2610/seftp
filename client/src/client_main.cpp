@@ -325,6 +325,34 @@ std::array<uint8_t, seftp::proto::kStage7NonceLen> generate_nonce() {
 	rng.GenerateBlock(nonce.data(), nonce.size());
 	return nonce;
 }
+bool validate_server_hello_payload(const seftp::proto::Res1608& hello, seftp::ClientContext& cc) {
+	if (hello.security_version != seftp::proto::kSecurityVersion) {
+		cc.last_error_text	= "unsupported security version";
+		g_logger.error(cc.last_error_text);
+		return false;
+	}
+	if (hello.server_public_key_der.empty()) {
+		cc.last_error_text	= "public key is empty";
+		g_logger.error(cc.last_error_text);
+		return false;
+	}
+	if (hello.server_public_key_der.size() > 4096) {
+		cc.last_error_text = "public key too large";
+		g_logger.error(cc.last_error_text);
+		return false;
+	}
+	if (hello.signature.empty()) {
+		cc.last_error_text	= "signature is empty";
+		g_logger.error(cc.last_error_text);
+		return false;
+	}
+	if (hello.signature.size() !=256) {
+		cc.last_error_text	= "signature size mismatch";
+		g_logger.error(cc.last_error_text);
+		return false;
+	}
+	return true;
+}
 bool validate_server_trust(seftp::ClientContext& cc, const std::string& fingerprint) {
 	const std::string normalized_fingerprint = trim_copy(fingerprint);
 
@@ -397,8 +425,7 @@ bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc) 
 			return false;
 		}
 		auto hello = seftp::proto::parse_1608(pv);
-		if (hello.security_version != seftp::proto::kSecurityVersion) {
-			g_logger.error("unsupported security version");
+		if (!validate_server_hello_payload(hello,cc)) {
 			return false;
 		}
 
@@ -411,9 +438,6 @@ bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc) 
 			return false;
 		}
 		if (!validate_server_trust(cc, fingerprint)) return false;
-
-
-
 	}
 	catch (const std::exception& e) {
 		g_logger.error(std::string("server handshake failed: ") + e.what());

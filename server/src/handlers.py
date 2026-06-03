@@ -520,11 +520,15 @@ async def request_828(payload_info,version,client_id,session):
 
 async def request_829(payload_info, version, client_id, session):
     session.log.info("stage7 CLIENT_HELLO received")
-    
-    if session.client_nonce is not None or session.server_nonce is not None:
-        await answers.answer_1607(client_id, version, "bad 829: handshake already started", session)
+
+    if session.handshake_verified:
+        await answers.answer_1607(client_id, version, "bad 829: handshake already completed", session)
         return
 
+    if session.client_nonce is not None or session.server_nonce is not None or session.security_version is not None:
+        await answers.answer_1607(client_id, version, "bad 829: handshake already started", session)
+        return
+    
     if len(payload_info) != 34:
         await answers.answer_1607(client_id, version, "bad 829: invalid payload length", session)
         return

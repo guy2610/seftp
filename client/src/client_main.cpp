@@ -325,6 +325,25 @@ std::array<uint8_t, seftp::proto::kStage7NonceLen> generate_nonce() {
 	rng.GenerateBlock(nonce.data(), nonce.size());
 	return nonce;
 }
+bool validate_server_trust(seftp::ClientContext& cc, const std::string& fingerprint) {
+	std::string stored;
+	std::string fingerprint_error;
+	if (seftp::persistence::load_server_fingerprint(stored, fingerprint_error)) {
+		if (stored != fingerprint) {
+			cc.last_error_text = "server fingerprint mismatch";
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+	} else {
+		if (!seftp::persistence::save_server_fingerprint(fingerprint, fingerprint_error)) {
+			cc.last_error_text = fingerprint_error;
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+		g_logger.warn("TOFU: stored new server fingerprint");
+	}
+	return true;
+}
 /*
  * Execute server-identity handshake.
  *
@@ -368,22 +387,10 @@ bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc) 
 			g_logger.error(cc.last_error_text);
 			return false;
 		}
-		std::string stored;
-		std::string fingerprint_error;
-		if (seftp::persistence::load_server_fingerprint(stored, fingerprint_error)) {
-			if (stored != fingerprint) {
-				cc.last_error_text = "server fingerprint mismatch";
-				g_logger.error(cc.last_error_text);
-				return false;
-			}
-		} else {
-			if (!seftp::persistence::save_server_fingerprint(fingerprint, fingerprint_error)) {
-				cc.last_error_text = fingerprint_error;
-				g_logger.error(cc.last_error_text);
-				return false;
-			}
-			g_logger.warn("TOFU: stored new server fingerprint");
-		}
+		if (!validate_server_trust(cc, fingerprint)) return false;
+
+
+
 	}
 	catch (const std::exception& e) {
 		g_logger.error(std::string("server handshake failed: ") + e.what());

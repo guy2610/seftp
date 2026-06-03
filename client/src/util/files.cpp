@@ -80,6 +80,11 @@ namespace seftp::util::files {
 	bool write_fingerprint(const std::string& fingerprint, const std::string& file_name) {
 		std::string content = fingerprint + "\n";
 		return atomic_write(file_name, content);
-
+	}
+	bool read_server_pin(std::string& fingerprint, const std::string& file_name) {
+		std::ifstream f(file_name);
+		if (!f) return false;
+		std::getline(f, fingerprint);
+		return true;
 	}
 }	

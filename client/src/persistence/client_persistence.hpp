@@ -22,4 +22,6 @@ namespace seftp::persistence {
     bool load_server_fingerprint(std::string& fingerprint, std::string& error);
     bool save_server_fingerprint(const std::string& fingerprint, std::string& error);
 
+    bool load_server_pin(std::string& fingerprint, std::string& error);
+
 }

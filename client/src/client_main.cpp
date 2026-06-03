@@ -326,9 +326,32 @@ std::array<uint8_t, seftp::proto::kStage7NonceLen> generate_nonce() {
 	return nonce;
 }
 bool validate_server_trust(seftp::ClientContext& cc, const std::string& fingerprint) {
+	const std::string normalized_fingerprint = trim_copy(fingerprint);
+
+	std::string pinned;
+	std::string pin_error;
+
+	if (seftp::persistence::load_server_pin(pinned, pin_error)) {
+		pinned = trim_copy(pinned);
+
+		if (pinned != fingerprint) {
+			cc.last_error_text = "pinned server fingerprint mismatch";
+			g_logger.error(cc.last_error_text);
+			return false;
+		}
+
+		g_logger.info("pinned server fingerprint matched");
+		return true;
+	}
+
+	g_logger.debug("no pinned server fingerprint configured; using TOFU");
+
 	std::string stored;
 	std::string fingerprint_error;
+
 	if (seftp::persistence::load_server_fingerprint(stored, fingerprint_error)) {
+		stored = trim_copy(stored);
+		
 		if (stored != fingerprint) {
 			cc.last_error_text = "server fingerprint mismatch";
 			g_logger.error(cc.last_error_text);

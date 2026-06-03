@@ -67,4 +67,12 @@ namespace seftp::persistence {
 		}
 		return true;
 	}
+	bool load_server_pin(std::string& fingerprint, std::string& error) {
+		error.clear();
+		if (!seftp::util::files::read_server_pin(fingerprint)) {
+			error = "failed to load server pin";
+			return false;
+		}
+		return true;
+	}
 }

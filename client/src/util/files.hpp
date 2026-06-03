@@ -7,6 +7,8 @@ namespace seftp::util::files {
 	inline constexpr const char* kAesKey = "aes.key";
 	inline constexpr const char* kPrivKey = "priv.key";
 	inline constexpr const char* kFingerprint = "server.fingerprint";
+	inline constexpr const char* kServerPin = "server.pin";
+
 	
 	//me.info file
 	bool read_me_info(std::string& username, std::string& client_id_hex, std::string* public_key_b64 = nullptr, const std::string& file_name = kMeInfo);
@@ -23,5 +25,7 @@ namespace seftp::util::files {
 	//server fingerprint
 	bool read_fingerprint(std::string& fingerprint, const std::string& file_name = kFingerprint);
 	bool write_fingerprint(const std::string& fingerprint, const std::string& file_name = kFingerprint);
+
+	bool read_server_pin(std::string& fingerprint, const std::string& file_name = kServerPin);
 
 }

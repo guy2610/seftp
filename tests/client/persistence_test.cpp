@@ -10,6 +10,8 @@ namespace {
         std::remove("me.info");
         std::remove("aes.key");
         std::remove("priv.key");
+        std::remove("server.fingerprint");
+        std::remove("server.pin");
     }
 }
 
@@ -113,6 +115,64 @@ TEST(PersistenceTests, LoadPrivateKey_FileMissing_ReturnsFalseAndError) {
     std::string out;
     std::string error;
     EXPECT_FALSE(load_private_key(out, error));
+    EXPECT_FALSE(error.empty());
+
+    cleanup_default_files();
+}
+TEST(PersistenceTests, SaveLoadServerFingerprint_RoundTrip) {
+    cleanup_default_files();
+
+    std::string error;
+    const std::string expected = "abcdef123456";
+
+    ASSERT_TRUE(save_server_fingerprint(expected, error));
+    EXPECT_TRUE(error.empty());
+
+    std::string out;
+    ASSERT_TRUE(load_server_fingerprint(out, error));
+    EXPECT_EQ(out, expected);
+
+    cleanup_default_files();
+}
+
+TEST(PersistenceTests, LoadServerFingerprint_FileMissing_ReturnsFalseAndError) {
+    cleanup_default_files();
+
+    std::string out;
+    std::string error;
+
+    EXPECT_FALSE(load_server_fingerprint(out, error));
+    EXPECT_FALSE(error.empty());
+
+    cleanup_default_files();
+}
+
+TEST(PersistenceTests, LoadServerPin_FileExists_ReturnsContent) {
+    cleanup_default_files();
+
+    {
+        std::ofstream f("server.pin");
+        ASSERT_TRUE(f.is_open());
+        f << "pinned123\n";
+    }
+
+    std::string out;
+    std::string error;
+
+    ASSERT_TRUE(load_server_pin(out, error));
+    EXPECT_TRUE(error.empty());
+    EXPECT_EQ(out, "pinned123");
+
+    cleanup_default_files();
+}
+
+TEST(PersistenceTests, LoadServerPin_FileMissing_ReturnsFalseAndError) {
+    cleanup_default_files();
+
+    std::string out;
+    std::string error;
+
+    EXPECT_FALSE(load_server_pin(out, error));
     EXPECT_FALSE(error.empty());
 
     cleanup_default_files();

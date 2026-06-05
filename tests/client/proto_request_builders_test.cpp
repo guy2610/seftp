@@ -239,3 +239,45 @@ TEST(ProtocolBuild, Req828_chunk) {
 			std::invalid_argument
 		);
 }
+TEST(ProtocolBuild, Req829ClientHello) {
+	std::array<uint8_t, seftp::proto::kStage7NonceLen> client_nonce{};
+	for (size_t i = 0; i < client_nonce.size(); ++i) {
+		client_nonce[i] = static_cast<uint8_t>(i);
+	}
+
+	auto frame = seftp::proto::build_829_client_hello(client_nonce);
+
+	expect_req_header(
+		frame,
+		seftp::proto::zero_client_id(),
+		seftp::proto::ReqCode::ClientHello,
+		static_cast<uint32_t>(1 + seftp::proto::kStage7NonceLen + 1)
+	);
+
+	std::vector<uint8_t> payload(
+		frame.begin() + seftp::proto::kReqHeaderLen,
+		frame.end()
+	);
+
+	ASSERT_EQ(payload.size(), 1 + seftp::proto::kStage7NonceLen + 1);
+	EXPECT_EQ(payload[0], seftp::proto::kSecurityVersion);
+
+	for (size_t i = 0; i < client_nonce.size(); ++i) {
+		EXPECT_EQ(payload[1 + i], client_nonce[i]);
+	}
+
+	EXPECT_EQ(payload.back(), 0); // flags
+}
+
+TEST(ProtocolBuild, Req830ClientHandshakeAck) {
+	auto frame = seftp::proto::build_830_client_handshake_ack();
+
+	expect_req_header(
+		frame,
+		seftp::proto::zero_client_id(),
+		seftp::proto::ReqCode::ClientHandshakeAck,
+		0
+	);
+
+	EXPECT_EQ(frame.size(), seftp::proto::kReqHeaderLen);
+}

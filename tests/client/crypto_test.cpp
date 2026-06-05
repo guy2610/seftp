@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <vector>
+#include <cryptopp/osrng.h>
+#include <cryptopp/rsa.h>
+#include <cryptopp/sha.h>
+#include <cryptopp/pssr.h>
+#include <cryptopp/filters.h>
 #include "../../client/src/crypto/crypto.hpp"
 
 static std::string make_data(size_t n) {
@@ -124,4 +129,113 @@ TEST(CryptoTests, RSA_LoadingSamePrivateKey_ReturnsSamePublicDer) {
     EXPECT_EQ(pk2.publicKeyDer, pk1.publicKeyDer);
     EXPECT_EQ(pk2.publicKeyB64, pk1.publicKeyB64);
     std::remove(fname.c_str());
+}
+TEST(CryptoTests, SHA256HexKnownVectorEmpty) {
+    std::vector<uint8_t> data;
+
+    EXPECT_EQ(
+        seftp::crypto::sha256_hex(data),
+        "e3b0c44298fc1c149afbf4c8996fb924"
+        "27ae41e4649b934ca495991b7852b855"
+    );
+}
+
+TEST(CryptoTests, VerifyServerHelloSignatureValid) {
+    CryptoPP::AutoSeededRandomPool rng;
+    CryptoPP::RSA::PrivateKey private_key;
+    private_key.GenerateRandomWithKeySize(rng, 2048);
+
+    CryptoPP::RSA::PublicKey public_key(private_key);
+
+    std::string public_key_der_str;
+    public_key.DEREncode(CryptoPP::StringSink(public_key_der_str).Ref());
+
+    std::vector<uint8_t> public_key_der(
+        public_key_der_str.begin(),
+        public_key_der_str.end()
+    );
+
+    std::array<uint8_t, seftp::proto::kStage7NonceLen> client_nonce{};
+    std::array<uint8_t, seftp::proto::kStage7NonceLen> server_nonce{};
+
+    for (size_t i = 0; i < client_nonce.size(); ++i) {
+        client_nonce[i] = static_cast<uint8_t>(i);
+        server_nonce[i] = static_cast<uint8_t>(0x80 + i);
+    }
+
+    std::vector<uint8_t> transcript;
+    const std::string context = "SEFTP_STAGE7_SERVER_HELLO";
+    transcript.insert(transcript.end(), context.begin(), context.end());
+    transcript.push_back(seftp::proto::kSecurityVersion);
+    transcript.insert(transcript.end(), client_nonce.begin(), client_nonce.end());
+    transcript.insert(transcript.end(), server_nonce.begin(), server_nonce.end());
+    transcript.insert(transcript.end(), public_key_der.begin(), public_key_der.end());
+
+    CryptoPP::RSASS<CryptoPP::PKCS1v15, CryptoPP::SHA256>::Signer signer(private_key);
+    std::vector<uint8_t> signature(signer.MaxSignatureLength());
+
+    size_t sig_len = signer.SignMessage(
+        rng,
+        transcript.data(),
+        transcript.size(),
+        signature.data()
+    );
+    signature.resize(sig_len);
+
+    EXPECT_TRUE(seftp::crypto::verify_server_hello_signature(
+        seftp::proto::kSecurityVersion,
+        client_nonce,
+        server_nonce,
+        public_key_der,
+        signature
+    ));
+}
+
+TEST(CryptoTests, VerifyServerHelloSignatureRejectsTamperedNonce) {
+    CryptoPP::AutoSeededRandomPool rng;
+    CryptoPP::RSA::PrivateKey private_key;
+    private_key.GenerateRandomWithKeySize(rng, 2048);
+
+    CryptoPP::RSA::PublicKey public_key(private_key);
+
+    std::string public_key_der_str;
+    public_key.DEREncode(CryptoPP::StringSink(public_key_der_str).Ref());
+
+    std::vector<uint8_t> public_key_der(
+        public_key_der_str.begin(),
+        public_key_der_str.end()
+    );
+
+    std::array<uint8_t, seftp::proto::kStage7NonceLen> client_nonce{};
+    std::array<uint8_t, seftp::proto::kStage7NonceLen> server_nonce{};
+    server_nonce.fill(0xAA);
+
+    std::vector<uint8_t> transcript;
+    const std::string context = "SEFTP_STAGE7_SERVER_HELLO";
+    transcript.insert(transcript.end(), context.begin(), context.end());
+    transcript.push_back(seftp::proto::kSecurityVersion);
+    transcript.insert(transcript.end(), client_nonce.begin(), client_nonce.end());
+    transcript.insert(transcript.end(), server_nonce.begin(), server_nonce.end());
+    transcript.insert(transcript.end(), public_key_der.begin(), public_key_der.end());
+
+    CryptoPP::RSASS<CryptoPP::PKCS1v15, CryptoPP::SHA256>::Signer signer(private_key);
+    std::vector<uint8_t> signature(signer.MaxSignatureLength());
+
+    size_t sig_len = signer.SignMessage(
+        rng,
+        transcript.data(),
+        transcript.size(),
+        signature.data()
+    );
+    signature.resize(sig_len);
+
+    server_nonce[0] ^= 0xFF;
+
+    EXPECT_FALSE(seftp::crypto::verify_server_hello_signature(
+        seftp::proto::kSecurityVersion,
+        client_nonce,
+        server_nonce,
+        public_key_der,
+        signature
+    ));
 }

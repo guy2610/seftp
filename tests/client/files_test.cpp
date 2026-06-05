@@ -276,6 +276,44 @@ TEST(FileFunc, WriteMePublicKey) {
     std::remove(testFile.c_str());
     EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
 }
+TEST(FileFunc, WriteAndReadServerFingerprint) {
+    const std::string testFile = "test_server.fingerprint";
+    std::remove(testFile.c_str());
+
+    const std::string fingerprint = "abcdef123456";
+
+    ASSERT_TRUE(seftp::util::files::write_fingerprint(fingerprint, testFile));
+
+    std::string out;
+    ASSERT_TRUE(seftp::util::files::read_fingerprint(out, testFile));
+    EXPECT_EQ(out, fingerprint);
+
+    std::remove(testFile.c_str());
+    EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
+}
+
+TEST(FileFunc, ReadServerPin) {
+    const std::string testFile = "test_server.pin";
+    std::remove(testFile.c_str());
+
+    {
+        std::string out;
+        EXPECT_FALSE(seftp::util::files::read_server_pin(out, testFile));
+    }
+
+    const std::string pin = "pin123456";
+    {
+        std::ofstream f(testFile);
+        ASSERT_TRUE(f.is_open());
+        f << pin << "\n";
+    }
+
+    std::string out;
+    ASSERT_TRUE(seftp::util::files::read_server_pin(out, testFile));
+    EXPECT_EQ(out, pin);
+
+    std::remove(testFile.c_str());
+}
 
 
 

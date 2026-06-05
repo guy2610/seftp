@@ -10,18 +10,21 @@ The system is not intended for production use. It is a portfolio-grade systems p
 
 ## Current Status
 
-Current stable baseline: v0.6.0
+Current stable baseline: v0.7.0
 
-v0.6.0 completed Stage 6:
-- structured performance benchmarking
-- ramp-based load testing
-- mixed workload analysis
-- resource sampling
-- performance plots
-- system, client, and server architecture documentation
+v0.7.0 completed the Stage 7 core handshake:
+- authenticated server identity verification
+- signed server handshake transcript
+- TOFU trust model
+- optional pinned fingerprint validation
+- protocol handshake gating
+- server, client, and E2E test coverage
 
-Current active work:
-- Stage 7: security hardening and authenticated server identity verification
+Stage 7 remains active for broader hardening work:
+- key lifecycle improvements
+- stronger local key storage
+- upload streaming pipeline evolution
+- abuse protection and rate limiting
 
 See:
 - `docs/roadmap/ROADMAP.md`
@@ -37,6 +40,7 @@ This project demonstrates several backend and systems engineering concerns in on
 - C++ networking client using Boost.Asio
 - Python asyncio server with per-connection session isolation
 - RSA-based AES key bootstrap
+- authenticated server identity verification with TOFU and pinned trust modes
 - AES-256-CBC encrypted file transfer
 - CRC-based upload completion flow
 - strict malformed-frame validation
@@ -65,9 +69,12 @@ Server:
 
 Protocol / crypto:
 - custom binary TCP protocol
-- RSA-2048 with OAEP for AES key delivery
+- Stage 7 authenticated server-identity handshake
+- RSA-2048 server identity signatures (PKCS#1 v1.5 + SHA-256)
+- RSA-2048 OAEP for AES key delivery
 - AES-256-CBC for file encryption
 - CRC32 for transfer validation
+- TOFU and optional pinned fingerprint trust models
 
 ---
 
@@ -77,13 +84,15 @@ High-level flow:
 
 1. The client loads local configuration and identity material.
 2. The client connects to the server over TCP.
-3. The client performs registration or relogin.
-4. The server issues an AES key encrypted with the client's RSA public key.
-5. The client encrypts files locally using AES-256-CBC.
-6. The client uploads encrypted chunks through request `828`.
-7. The server validates ordering, limits, and upload state.
-8. The server decrypts, stores the file, computes CRC32, and returns the result.
-9. The client confirms the CRC result through `900`, `901`, or `902`.
+3. The client performs the Stage 7 server-identity handshake.
+4. The client validates the server signature and trust model.
+5. The client performs registration or relogin.
+6. The server issues an AES key encrypted with the client's RSA public key.
+7. The client encrypts files locally using AES-256-CBC.
+8. The client uploads encrypted chunks through request `828`.
+9. The server validates ordering, limits, and upload state.
+10. The server decrypts, stores the file, computes CRC32, and returns the result.
+11. The client confirms the CRC result through `900`, `901`, or `902`.
 
 Main design boundary:
 
@@ -168,6 +177,10 @@ Main design boundary:
 - bounded executor for CPU-heavy upload finalization
 - interactive console mode and headless multi-file client mode
 - automated unit, integration, and CI validation
+- Stage 7 authenticated server-identity handshake
+- SHA-256 server fingerprint validation
+- TOFU trust model (`server.fingerprint`)
+- optional pinned trust mode (`server.pin`)
 
 ---
 
@@ -188,7 +201,12 @@ Server response frame:
     [4 bytes] payload_size
     [payload]
 
-Main request codes:
+Stage 7 handshake:
+- `829` CLIENT_HELLO
+- `1608` SERVER_HELLO
+- `830` CLIENT_HANDSHAKE_ACK
+
+ֿMain request codes:
 - `825` register
 - `826` upload RSA public key and receive AES key
 - `827` relogin
@@ -221,8 +239,8 @@ Architecture:
 - `docs/architecture/server_design.md` - server internals
 
 Protocol:
-- `docs/protocol/spec.md` - protocol specification and Stage 7 draft
-- `docs/protocol/protocol_extension_design.md` - authenticated server identity extension design
+- `docs/protocol/spec.md` - protocol specification including the implemented Stage 7 handshake
+- `docs/protocol/protocol_extension_design.md` - Stage 7 handshake design and implementation notes
 
 Performance:
 - `docs/performance/performance_analysis.md` - Stage 6 benchmark findings
@@ -331,22 +349,28 @@ See `docs/performance/performance_analysis.md`.
 
 ## Security Model
 
-Current stable baseline:
-- files are encrypted client-side before upload
-- AES keys are delivered encrypted under the client RSA public key
-- each file uses a fresh AES IV
-- malformed protocol flows are rejected with `1607`
-- uploaded files are validated through CRC32 completion flow
+Current v0.7.0 security model:
+
+- authenticated server identity verification before AES key establishment
+- signed Stage 7 handshake transcript
+- TOFU trust model through `server.fingerprint`
+- optional pinned trust mode through `server.pin`
+- AES keys delivered encrypted under the client RSA public key
+- files encrypted client-side before upload
+- fresh AES IV per file
+- malformed protocol flows rejected with `1607`
+- application requests rejected before handshake completion
+- uploaded files validated through CRC32 completion flow
 
 Known limitations:
-- no authenticated transport in the stable v0.6.0 baseline
+
+- TOFU is vulnerable on first connection
+- no certificate authority or PKI
 - AES-CBC does not provide authenticated encryption
 - CRC32 is not a cryptographic authentication mechanism
 - client-side keys are stored as local files
 - no forward secrecy
 - no mutual authentication
-
-Stage 7 is designed to add authenticated server identity verification with TOFU and pinned fingerprint modes.
 
 ---
 

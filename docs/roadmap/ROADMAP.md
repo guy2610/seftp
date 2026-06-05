@@ -156,24 +156,45 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
   * Add system, client, and server design documents with Mermaid diagrams (DONE)
 
 ---
-### **Stage 7 - Security Hardening & Protocol Evolution**
+### **Stage 7 - Security Hardening & Protocol Evolution** IN PROGRESS
 
 Related documents:
 - `../protocol/protocol_extension_design.md`
 - `stage7_threat_model.md`
 
+Current status:
+
+The core server-identity handshake is implemented and tested as protocol version `v0.7.0`.
+
+Completed:
+- mandatory `829 CLIENT_HELLO` / `1608 SERVER_HELLO` / `830 CLIENT_HANDSHAKE_ACK`
+- persistent server RSA identity key
+- signed handshake transcript
+- client-side server signature verification
+- SHA-256 server fingerprint calculation
+- TOFU trust mode using `server.fingerprint`
+- optional pinned mode using `server.pin`
+- server-side router gating before handshake completion
+- server, client, and E2E test coverage for the core handshake
+
+Remaining Stage 7 work:
+- stronger key lifecycle handling
+- stronger local storage for client keys
+- upload pipeline evolution toward streaming encryption
+- additional abuse protection and rate limiting
+
 Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
 
 * Protocol security extension
-  * Introduce authenticated server identity during the bootstrap phase
-  * Extend the current protocol with a MITM-resistant key establishment flow
-  * Preserve the existing request/response model (`825`/`826`/`827`/`828`/...) while strengthening the handshake
-  * Define a trust model for first connection (e.g. pinned key / TOFU / pre-configured trust)
+  * Introduce authenticated server identity during the bootstrap phase (DONE)
+  * Extend the current protocol with a MITM-resistant key establishment flow (PARTIAL - server identity handshake implemented; broader key lifecycle work remains)
+  * Preserve the existing request/response model (`825`/`826`/`827`/`828`/...) while strengthening the handshake (DONE)
+  * Define a trust model for first connection (TOFU and pinned mode implemented)
 
 * Cryptographic model improvements
-  * Strengthen session key establishment and binding between identity and AES key
-  * Evaluate replay resistance and handshake integrity guarantees
-  * Improve key lifecycle handling (rotation, overwrite, invalidation)
+  * Strengthen session key establishment and binding between identity and AES key (PARTIAL - AES key exchange now occurs only after verified server identity; deeper key lifecycle binding remains)
+  * Evaluate replay resistance and handshake integrity guarantees (PARTIAL - nonce-bound signed handshake implemented)
+  * Improve key lifecycle handling (rotation, overwrite, invalidation) (FUTURE)
 
 * Client-side key security
   * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence

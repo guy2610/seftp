@@ -13,6 +13,9 @@ The current scope includes:
 - upload lifecycle tracking
 - connection limiting and upload backpressure
 - load-testing and plotting tooling for performance analysis
+- Stage 7 server-identity handshake using `829`, `1608`, and `830`
+- persistent server RSA identity key generation/loading
+- router gating that rejects application requests before handshake completion
 
 The current scope does not include:
 - multi-node deployment
@@ -105,6 +108,16 @@ Each accepted connection gets a `ClientSession` instance. The session holds per-
 
 The session also centralizes common behaviors such as sending framed responses, marking activity, tracking good and bad frames, recording upload progress, releasing upload slots, and resetting transfer state. That makes cleanup predictable and reduces the risk that one handler forgets to clear upload-related state after an error path.
 
+Stage 7 also adds handshake state to each session:
+
+- `handshake_verified`
+- `client_nonce`
+- `server_nonce`
+- `security_version`
+- `server_identity_key`
+
+This state ensures that application-level handlers are not reachable until the server-identity handshake has completed.
+
 ### 3.3 Framing Layer
 
 The `Framer` is responsible for stream-to-frame extraction. It buffers raw bytes across reads, waits until at least a full header is available, reads the declared payload size from the header, validates it against a maximum payload size, and emits complete frames only when enough bytes have arrived. It does not interpret payload semantics. This keeps transport framing separate from protocol business logic.
@@ -113,10 +126,13 @@ The `Framer` is responsible for stream-to-frame extraction. It buffers raw bytes
 
 The router parses the binary frame header, assigns a per-request ID for logging correlation, validates minimum frame structure, extracts the request code and payload, and dispatches to the corresponding request handler. Unknown codes and malformed frames are handled as protocol errors and trigger `response 1607`. The router is the narrow control point between low-level frame parsing and request-specific business logic.
 
+For Stage 7, the router also enforces handshake gating. Before `handshake_verified` is true, only `829 CLIENT_HELLO` and `830 CLIENT_HANDSHAKE_ACK` are allowed. After handshake completion, additional handshake messages are rejected and normal application requests are allowed.
+
 ### 3.5 Request Handlers
 
 The `handlers` module implements the core protocol operations:
-
+- `829` handles `CLIENT_HELLO`, validates the security version, client nonce, and flags, generates a server nonce, signs the handshake transcript, and returns `1608`
+- `830` handles `CLIENT_HANDSHAKE_ACK` and marks the session handshake as complete after validating protocol order
 - `825` creates a new registered client if the username is not already present
 - `826` validates the client identity and public key, stores the key, generates a fresh AES key, encrypts it with RSA-OAEP, and returns it
 - `827` supports relogin for an existing user with a stored valid public key
@@ -127,7 +143,9 @@ A notable design choice is that upload handling is stateful and split across the
 
 ### 3.6 Response Builder
 
-The `answers` module is the binary response builder. It constructs response frames with the protocol response header format and sends response codes 1600 through 1607 with the expected payload structure. It also updates `last_seen` where appropriate and logs recent activity per client. This keeps response formatting out of the handlers and reduces repeated frame-building code.
+The `answers` module is the binary response builder. It constructs response frames with the protocol response header format and sends response codes 1600 through 1608 with the expected payload structure. It also updates `last_seen` where appropriate and logs recent activity per client.
+
+`1608 SERVER_HELLO` carries the server nonce, server public identity key, and RSA signature needed for client-side server identity verification.
 
 ### 3.7 Persistence Layer
 
@@ -153,19 +171,39 @@ Logging is structured around a base server logger and a session-aware logger ada
 
 ## 4. Request and Data Flows
 
-### 4.1 Registration Flow
+### 4.1 Stage 7 Server-Identity Handshake
+
+Before registration, relogin, key exchange, upload, or CRC completion, the server requires the Stage 7 handshake.
+
+The flow is:
+
+1. Client sends `829 CLIENT_HELLO`
+2. Server validates the payload
+3. Server generates a fresh `server_nonce`
+4. Server sends `1608 SERVER_HELLO` containing:
+   - security version
+   - server nonce
+   - server public identity key
+   - signature over the handshake transcript
+5. Client verifies the signature and trust model
+6. Client sends `830 CLIENT_HANDSHAKE_ACK`
+7. Server marks `handshake_verified = true`
+
+Only after this point does the router allow application-level requests such as `825`, `826`, `827`, `828`, `900`, `901`, and `902`.
+
+### 4.2 Registration Flow
 
 A new client sends `request 825` with a null-terminated username. The handler strips and validates the username, checks whether it already exists in the store, creates a new client record if not, and returns `response 1600` containing the persistent 16-byte client ID. If the username already exists, the handler returns 1601. The client ID is therefore server-issued and stable across future sessions.
 
-### 4.2 Public Key Submission and AES Bootstrap
+### 4.3 Public Key Submission and AES Bootstrap
 
 After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid. The server then stores the public key, generates a fresh 32-byte AES key, stores that AES key in Base64 form, encrypts it with RSA-OAEP, and returns it in `response 1602` together with the client ID.
 
-### 4.3 Relogin Flow
+### 4.4 Relogin Flow
 
 A returning client can use `request 827` with its client ID and username. The server verifies that the username exists, that it maps to the same stored client ID, and that a valid stored RSA public key is present. If so, it generates a new AES key, stores it, encrypts it with the stored public key, and returns it in `response 1605`. If the user does not exist or the stored key is invalid, the server responds with 1606. This preserves the stable client identity while rotating the session AES key.
 
-### 4.4 Upload Flow
+### 4.5 Upload Flow
 
 The upload flow is the most stateful part of the server.
 
@@ -177,7 +215,7 @@ For each following packet, the server validates that the client identity has not
 
 On the last packet, the server confirms that the total accumulated ciphertext size matches the expected content size, creates the user upload directory under `data/uploads/<username>`, and offloads finalization to the bounded executor. Finalization decrypts using AES-256-CBC with the session IV, removes PKCS#7 padding when possible, trims plaintext to the declared original size, writes the plaintext file to disk, computes CRC32 over the plaintext, and returns the CRC to the handler. The handler stores the output path and CRC in the session and sends `response 1603` back to the client.
 
-### 4.5 CRC Outcome Flows
+### 4.6 CRC Outcome Flows
 
 After receiving 1603, the client responds with one of three outcomes.
 

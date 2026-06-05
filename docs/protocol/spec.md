@@ -1,8 +1,8 @@
-# Secure File Transfer Protocol - Specification (v0.7.0-draft)
+# Secure File Transfer Protocol - Specification (v0.7.0)
 
-This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, CRC validation, and the Stage 7 draft server-identity handshake.
+This document defines the binary protocol used between the C++ client and the Python server. The protocol provides encrypted file transfer, registration/login flow, CRC validation, and the Stage 7 server-identity handshake.
 
-Status: draft for Stage 7. The v0.6.0 protocol is implemented by the current stable system. The Stage 7 security handshake described in this document is a planned protocol evolution and should be treated as draft until the implementation and tests are complete.
+Status: Stage 7 implemented. This version extends the v0.6.0 protocol with a mandatory server-identity handshake before registration, relogin, key exchange, upload, or CRC completion requests.
 
 ---
 
@@ -38,9 +38,9 @@ The protocol uses different frame formats for requests and responses.
 
 ---
 
-## 2. Security Handshake (Stage 7 Draft)
+## 2. Security Handshake (Stage 7)
 
-In the Stage 7 draft, before any application-level request (825–902), the client MUST complete a security handshake with the server.
+Before any application-level request (825–902), the client MUST complete the Stage 7 security handshake with the server.
 
 If the handshake is not completed, the server MUST reject all requests with response `1607`.
 
@@ -138,6 +138,21 @@ The protocol supports two trust modes:
 
 - Client is pre-configured with expected server fingerprint
 - Mismatch → connection rejected
+
+#### Client Persistence Files
+
+The client uses two local trust files:
+
+```text
+server.fingerprint
+server.pin
+```
+
+If `server.pin` exists, pinned mode is used and the fingerprint must match exactly.
+
+If `server.pin` does not exist, TOFU mode is used. On first successful verification, the client stores the server fingerprint in `server.fingerprint`. On later connections, the stored fingerprint must match.
+
+The client does not create `server.pin` automatically. A pin must be provisioned out-of-band from a trusted source.
 
 ### 2.7 Server Fingerprint
 ```text
@@ -449,7 +464,7 @@ error_message (UTF-8 string)
 
 ## 6. Security Guarantees
 
-If Stage 7 is implemented as designed:
+With the Stage 7 server-identity handshake implemented:
 
 * Server identity is verified by the client before handshake completion and AES key establishment
 * In pinned mode, MITM is prevented from the first connection
@@ -461,7 +476,7 @@ If Stage 7 is implemented as designed:
 
 ---
 
-## 7. Known Limitations (v0.7.0-draft)
+## 7. Known Limitations (v0.7.0)
 
 * TOFU mode is vulnerable to MITM on the first connection
 * No certificate-based trust or external CA

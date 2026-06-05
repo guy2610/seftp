@@ -16,6 +16,8 @@ The current scope includes:
 - server-side SQLite persistence
 - local client identity and key persistence
 - observability and benchmarking tooling
+- authenticated server identity handshake before application-level protocol flows
+- TOFU and optional pinned server fingerprint trust modes
 
 The current scope does not include:
 - distributed deployment
@@ -28,6 +30,8 @@ The current scope does not include:
 ## 2. System Overview
 
 At a high level, the client loads runtime configuration and local identity material, connects to the server, and executes either registration or relogin. The server validates the request, establishes or restores client identity, and delivers a server-generated AES key encrypted under the client's RSA public key. The client decrypts that AES key locally, encrypts files before transport, and uploads ciphertext in protocol-compliant chunks. The server reassembles and decrypts the upload, writes the plaintext file to disk, computes CRC32, and uses a final CRC exchange to conclude the upload lifecycle.
+
+Before registration, relogin, AES key bootstrap, or upload requests, the client and server now execute a Stage 7 server-identity handshake. The server proves ownership of a persistent RSA identity key by signing a transcript containing both client and server nonces. The client verifies the signature and then validates the server fingerprint using either TOFU or an optional pinned fingerprint.
 
 This creates a clear end-to-end separation:
 - the client owns local identity, local encryption, and upload initiation
@@ -220,6 +224,10 @@ The system's security model is based on a split responsibility design:
 - each file uses a fresh IV
 - CRC32 is used to confirm end-to-end transfer integrity
 - strict protocol validation is used to reject malformed or inconsistent input
+- server identity is authenticated before AES key establishment
+- the server signs the Stage 7 handshake transcript with a persistent RSA identity key
+- the client validates the server fingerprint using TOFU or optional pinned mode
+- application-level requests are rejected until the handshake completes
 
 This model keeps plaintext file contents off the wire and avoids sharing private key material with the server.
 
@@ -261,7 +269,14 @@ The main architectural takeaway is that upload handling is the dominant cost pat
 ## 11. Limitations and Future Work
 
 Several future directions remain open:
-- Stage 7 security handshake implementation and validation
+- no certificate-based trust authority or external CA
+- TOFU remains vulnerable to MITM on the first connection
+- no mutual cryptographic client authentication beyond the existing client key bootstrap flow
+- stronger binding between server identity and later key lifecycle decisions
+- key lifecycle improvements such as rotation, overwrite, and invalidation
+- stronger local storage for `priv.key` and `aes.key`
+- upload streaming pipeline evolution instead of full-file pre-encryption
+- additional abuse protection such as connection rate limiting and burst control
 - deeper observability and per-phase timing
 - runtime metrics for active connections, active uploads, and executor saturation
 - more secure local key storage

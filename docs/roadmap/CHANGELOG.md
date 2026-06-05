@@ -2,9 +2,27 @@
 
 This file tracks major project milestones by version.
 
-Stage 7 is currently active and will become v0.7.0 once the server-identity handshake is implemented and tested.
+Stage 7 is currently active. The core server-identity handshake has been implemented as v0.7.0, while broader Stage 7 hardening items remain in progress.
 
 ---
+
+**v0.7.0 - Stage 7 core handshake (Server Identity & Trust Model)**
+
+* Added mandatory Stage 7 handshake before application-level protocol requests
+* Added `829 CLIENT_HELLO`
+* Added `1608 SERVER_HELLO`
+* Added `830 CLIENT_HANDSHAKE_ACK`
+* Added persistent server RSA-2048 identity key generation/loading
+* Added signed server handshake transcript using SHA-256 and RSA PKCS#1 v1.5 signatures
+* Added client-side server signature verification
+* Added SHA-256 server fingerprint calculation over `server_public_key_der`
+* Added TOFU trust mode with `server.fingerprint`
+* Added optional pinned trust mode with `server.pin`
+* Added router gating so application requests are rejected before handshake completion
+* Added hard-fail behavior for fingerprint mismatch, signature failure, malformed `SERVER_HELLO`, and unsupported security version
+* Added server, client, and E2E tests for Stage 7 handshake behavior
+
+Remaining Stage 7 work includes stronger key lifecycle handling, improved local key storage, upload streaming pipeline evolution, and additional abuse protection.
 
 **v0.6.0 - Stage 6 complete (Performance Analysis, Observability & Design Documentation)**
 

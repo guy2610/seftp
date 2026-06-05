@@ -1,6 +1,6 @@
 ## Protocol Extension Design (Aligned with Existing Architecture)
 
-Status: Stage 7 design document. This document describes the intended server-identity handshake extension before it is treated as part of the stable protocol specification.
+Status: Stage 7 core handshake implemented. This document explains the server-identity handshake extension that was added to the protocol in v0.7.0. Broader Stage 7 hardening items remain tracked in the roadmap.
 
 ### Goal
 
@@ -27,15 +27,17 @@ The handshake is integrated into:
 
 Updated flow:
 
-1. TCP connect  
+1. TCP connect
 2. Stage 7 handshake:
-   - send CLIENT_HELLO  
-   - receive SERVER_HELLO  
-   - verify server identity  
-3. Only if verified:
+   - send `829 CLIENT_HELLO`
+   - receive `1608 SERVER_HELLO`
+   - verify server signature
+   - verify server fingerprint using TOFU or pinned mode
+   - send `830 CLIENT_HANDSHAKE_ACK`
+3. Only after the server receives `830`:
    - continue to existing flow:
-     - 825 / 827 / 826  
-4. proceed with upload  
+     - 825 / 827 / 826
+4. Proceed with upload
 
 Important:
 
@@ -102,6 +104,26 @@ Payload:
 | server_public_key | variable (DER) |
 | signature_len | 2 bytes |
 | signature | variable |
+
+#### 830 CLIENT_HANDSHAKE_ACK
+
+client → server
+
+Payload:
+
+```text
+empty
+```
+
+Purpose:
+
+Confirms that the client accepted the server identity after verifying the signature and trust model.
+
+Notes:
+
+- Sent only after successful `SERVER_HELLO` verification
+- Completes the Stage 7 handshake
+- The server does not process application-level requests before this ACK
 
 ### Handshake Signing
 
@@ -223,20 +245,30 @@ Rationale:
 No changes to:
 
  * upload pipeline
- * AES model
+ * AES file encryption model
  * CRC flow
- * persistence schema
+ * server database schema
 
-### Implementation Order
-1. add protocol definitions (829 / 1608)
-2. implement server identity key
-3. implement server handshake handler
-4. add session state
-5. enforce handler gating
-6. implement client handshake
-7. add TOFU storage
-8. add pinned mode
-9. tests
+Added persistence files:
+
+ * `data/server_identity.pem` on the server
+ * `server.fingerprint` on the client for TOFU
+ * optional `server.pin` on the client for pinned mode
+
+### Implementation Summary
+Implemented in the Stage 7 core handshake:
+
+1. Protocol definitions for `829`, `1608`, and `830`
+2. Persistent server identity key generation/loading
+3. Signed `SERVER_HELLO`
+4. Server-side handshake session state
+5. Router gating before handshake completion
+6. Client-side handshake flow before registration/relogin
+7. RSA signature verification
+8. SHA-256 server fingerprint calculation
+9. TOFU persistence through `server.fingerprint`
+10. Optional pinned mode through `server.pin`
+11. Unit and integration test coverage for handshake edge cases
 
 ---
 

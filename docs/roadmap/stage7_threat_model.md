@@ -281,3 +281,30 @@ Pinned server key does.
 Therefore Stage 7 should claim:
 
 "SEFTP adds authenticated server identity with TOFU and optional pre-configured pinning. TOFU protects subsequent connections after first trust, while pinned mode protects from the first connection."
+
+## Implementation Status
+
+The Stage 7 core server-identity handshake has been implemented in `v0.7.0`.
+
+Implemented:
+
+- server identity keypair
+- `829 CLIENT_HELLO`
+- `1608 SERVER_HELLO`
+- `830 CLIENT_HANDSHAKE_ACK`
+- signed handshake transcript
+- client-side signature verification
+- TOFU mode using `server.fingerprint`
+- pinned fingerprint mode using `server.pin`
+- router gating before handshake completion
+- tests for malformed and repeated handshake paths
+
+Still deferred:
+
+- certificate-based trust
+- mutual client authentication
+- authenticated encryption / AEAD
+- forward secrecy
+- stronger local key storage
+- upload streaming encryption
+- broader connection-rate limiting and burst control

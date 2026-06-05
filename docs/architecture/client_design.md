@@ -17,6 +17,9 @@ The current scope includes:
 - CRC-based completion, retry, and failure signaling
 - interactive console UI and headless multi-file execution
 - structured client-side logging
+- Stage 7 server-identity handshake before registration, relogin, and upload flows
+- server signature verification over the handshake transcript
+- TOFU and optional pinned server fingerprint validation
 
 The current scope does not include:
 - GUI-based client interaction
@@ -133,15 +136,17 @@ It owns three high-level responsibilities:
 
 The key design point here is that flow does not redefine protocol or crypto primitives. Instead, it composes them into end-to-end client behavior.
 
+Before the registration or relogin flow begins, the flow layer executes the Stage 7 server-identity handshake. This sends `829 CLIENT_HELLO`, receives and validates `1608 SERVER_HELLO`, verifies the server signature and trust model, sends `830 CLIENT_HANDSHAKE_ACK`, and only then continues to the existing 825/827/826 flow.
+
 ### 3.4 Protocol Layer
 
 `protocol.hpp` defines the wire-level protocol model. It contains:
 
 - request and response code enums
 - little-endian helpers
-- request frame builders for `825`, `826`, `827`, `828`, `900`, `901`, and `902`
-- payload layout helpers for `packet 0`, chunk packets, and CRC result messages
-- typed response parsers for `1600`, `1602`, and `1603`
+- request frame builders for `825`, `826`, `827`, `828`, `829`, `830`, `900`, `901`, and `902`
+- payload layout helpers for `packet 0`, chunk packets, CRC result messages, and Stage 7 handshake messages
+- typed response parsers for `1600`, `1602`, `1603`, and `1608`
 
 This is a strong design choice because it keeps binary framing logic out of the UI, flow, and crypto code. The client therefore has a single protocol definition point for request construction and response interpretation.
 
@@ -161,6 +166,8 @@ This keeps socket IO and frame-boundary correctness separate from higher-level h
 - AES-256-CBC file encryption and decryption
 - CRC32 computation
 - RSA-OAEP decryption of the server-sent AES key
+- SHA-256 server fingerprint calculation
+- RSA signature verification for Stage 7 `SERVER_HELLO`
 
 This layer is used in two different phases:
 
@@ -297,16 +304,29 @@ The following information is persisted across runs:
 - logical identity in `me.info`
 - current AES key in `aes.key`
 - RSA private key in `priv.key`
+- trusted server fingerprint in `server.fingerprint`
+- optional pinned server fingerprint in `server.pin`
 
 This lets the client preserve a stable identity, reuse its private key, and perform relogin instead of repeating full registration on every run.
 
-### 5.2 Atomic File Updates
+### 5.2 Server Trust Persistence
 
-`files.cpp` uses atomic write behavior for identity and AES-key writes by writing to a temporary file and then renaming it into place. This reduces the risk of partially written persistence files after interruption or crash.
+Stage 7 adds two local trust files:
+
+- `server.fingerprint`
+- `server.pin`
+
+If `server.pin` exists, the client uses pinned mode and requires the server fingerprint to match the pinned value exactly. The client never creates `server.pin` automatically because a pin must come from an external trusted source.
+
+If `server.pin` does not exist, the client uses TOFU. On first successful server signature verification, the client stores `SHA-256(server_public_key_der)` in `server.fingerprint`. On later connections, the fingerprint must match or the connection fails closed.
+
+### 5.3 Atomic File Updates
+
+`files.cpp` uses atomic write behavior for identity, AES-key, and server-fingerprint writes by writing to a temporary file and then renaming it into place.
 
 This is a small but mature design choice. Even though the client is local and simple, persistence is not treated as "best effort".
 
-### 5.3 Separation Between Raw Files and Semantic Persistence
+### 5.4 Separation Between Raw Files and Semantic Persistence
 
 Low-level file mechanics live in `files.*`, while `client_persistence.*` exposes higher-level persistence concepts such as:
 

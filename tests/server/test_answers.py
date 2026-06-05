@@ -345,3 +345,97 @@ async def test_answer_1607_updates_last_seen_when_client_known(tmp_path):
     client_record = s.get_client_by_id(client_id.hex())
     assert client_record is not None
     assert client_record.client_id_hex == client_id.hex()
+
+@pytest.mark.asyncio
+async def test_answer_1608_builds_server_hello_frame():
+    fake = FakeSession(store.Store())
+    version = b"\x03"
+    security_version = 1
+    server_nonce = b"\xAA" * 32
+    server_public_key_der = b"public-key-der"
+    signature = b"\xBB" * 256
+
+    await answers.answer_1608(
+        version,
+        security_version,
+        server_nonce,
+        server_public_key_der,
+        signature,
+        fake,
+    )
+
+    assert len(fake.sent) == 1
+    msg = fake.sent[0]
+
+    assert msg[0:1] == version
+    assert int.from_bytes(msg[1:3], "little") == 1608
+
+    payload_size = int.from_bytes(msg[3:7], "little")
+    payload = msg[7:]
+    assert payload_size == len(payload)
+
+    off = 0
+    assert payload[off] == security_version
+    off += 1
+
+    assert payload[off:off + 32] == server_nonce
+    off += 32
+
+    public_key_len = int.from_bytes(payload[off:off + 2], "little")
+    off += 2
+    assert public_key_len == len(server_public_key_der)
+    assert payload[off:off + public_key_len] == server_public_key_der
+    off += public_key_len
+
+    signature_len = int.from_bytes(payload[off:off + 2], "little")
+    off += 2
+    assert signature_len == len(signature)
+    assert payload[off:off + signature_len] == signature
+    off += signature_len
+
+    assert off == len(payload)
+
+
+@pytest.mark.asyncio
+async def test_answer_1608_rejects_bad_server_nonce_length():
+    fake = FakeSession(store.Store())
+
+    with pytest.raises(ValueError, match="server_nonce"):
+        await answers.answer_1608(
+            b"\x03",
+            1,
+            b"\xAA" * 31,
+            b"public-key-der",
+            b"\xBB" * 256,
+            fake,
+        )
+
+
+@pytest.mark.asyncio
+async def test_answer_1608_rejects_public_key_too_large():
+    fake = FakeSession(store.Store())
+
+    with pytest.raises(ValueError, match="server_public_key_der too large"):
+        await answers.answer_1608(
+            b"\x03",
+            1,
+            b"\xAA" * 32,
+            b"A" * 65536,
+            b"\xBB" * 256,
+            fake,
+        )
+
+
+@pytest.mark.asyncio
+async def test_answer_1608_rejects_signature_too_large():
+    fake = FakeSession(store.Store())
+
+    with pytest.raises(ValueError, match="signature too large"):
+        await answers.answer_1608(
+            b"\x03",
+            1,
+            b"\xAA" * 32,
+            b"public-key-der",
+            b"B" * 65536,
+            fake,
+        )

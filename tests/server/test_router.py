@@ -418,3 +418,70 @@ async def test_router_rejects_handshake_code_after_completion(monkeypatch):
 
     assert len(calls) == 1
     assert "already completed" in calls[0][2]
+
+@pytest.mark.asyncio
+async def test_router_allows_830_before_stage7_handshake(monkeypatch):
+    s = FakeSession()
+    s.handshake_verified = False
+
+    calls = []
+
+    async def fake_830(payload_info, version, client_id, session):
+        calls.append((payload_info, version, client_id, session))
+
+    async def fake_1607(client_id, version, text, session):
+        raise AssertionError("1607 should not be called for 830 before handshake completion")
+
+    monkeypatch.setattr("src.router.handlers.request_830", fake_830)
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+
+    client_id = b"\x00" * 16
+    version = b"\x03"
+    payload = b""
+    frame = (
+        client_id
+        + version
+        + (830).to_bytes(2, "little")
+        + len(payload).to_bytes(4, "little")
+        + payload
+    )
+
+    await router.handle_frame(frame, s)
+
+    assert len(calls) == 1
+    assert calls[0][0] == payload
+    assert calls[0][1] == version
+    assert calls[0][2] == client_id
+
+
+@pytest.mark.asyncio
+async def test_router_rejects_830_after_handshake_completion(monkeypatch):
+    s = FakeSession()
+    s.handshake_verified = True
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_830(payload_info, version, client_id, session):
+        raise AssertionError("830 should not be called after handshake completion")
+
+    monkeypatch.setattr("src.router.answers.answer_1607", fake_1607)
+    monkeypatch.setattr("src.router.handlers.request_830", fake_830)
+
+    client_id = b"\x00" * 16
+    version = b"\x03"
+    payload = b""
+    frame = (
+        client_id
+        + version
+        + (830).to_bytes(2, "little")
+        + len(payload).to_bytes(4, "little")
+        + payload
+    )
+
+    await router.handle_frame(frame, s)
+
+    assert len(calls) == 1
+    assert "already completed" in calls[0][2]

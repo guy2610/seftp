@@ -1654,3 +1654,131 @@ async def test_830_rejects_ack_before_server_hello(monkeypatch, tmp_path):
     assert len(calls) == 1
     assert "server hello not completed" in calls[0][2]
     assert fake_session.handshake_verified is False
+
+@pytest.mark.asyncio
+async def test_829_rejects_repeated_client_hello(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    fake_session.client_nonce = b"\xAA" * 32
+    fake_session.server_nonce = b"\xBB" * 32
+    fake_session.security_version = 1
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_1608(*args, **kwargs):
+        raise AssertionError("1608 should not be called for repeated 829")
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers.answers, "answer_1608", fake_1608)
+
+    payload = b"\x01" + (b"\xCC" * 32) + b"\x00"
+
+    await handlers.request_829(payload, b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "handshake already started" in calls[0][2]
+    assert fake_session.client_nonce == b"\xAA" * 32
+    assert fake_session.server_nonce == b"\xBB" * 32
+
+
+@pytest.mark.asyncio
+async def test_829_rejects_unsupported_security_version(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_1608(*args, **kwargs):
+        raise AssertionError("1608 should not be called for unsupported version")
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers.answers, "answer_1608", fake_1608)
+
+    payload = b"\x02" + (b"\xAA" * 32) + b"\x00"
+
+    await handlers.request_829(payload, b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "unsupported security version" in calls[0][2]
+    assert fake_session.client_nonce is None
+    assert fake_session.server_nonce is None
+
+
+@pytest.mark.asyncio
+async def test_829_rejects_unsupported_flags(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    async def fake_1608(*args, **kwargs):
+        raise AssertionError("1608 should not be called for unsupported flags")
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers.answers, "answer_1608", fake_1608)
+
+    payload = b"\x01" + (b"\xAA" * 32) + b"\x01"
+
+    await handlers.request_829(payload, b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "unsupported flags" in calls[0][2]
+    assert fake_session.client_nonce is None
+    assert fake_session.server_nonce is None
+
+
+@pytest.mark.asyncio
+async def test_830_rejects_non_empty_payload(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    fake_session.client_nonce = b"\xAA" * 32
+    fake_session.server_nonce = b"\xBB" * 32
+    fake_session.security_version = 1
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    await handlers.request_830(b"\x01", b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "expected empty payload" in calls[0][2]
+    assert fake_session.handshake_verified is False
+
+
+@pytest.mark.asyncio
+async def test_830_rejects_duplicate_ack(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    fake_session.client_nonce = b"\xAA" * 32
+    fake_session.server_nonce = b"\xBB" * 32
+    fake_session.security_version = 1
+    fake_session.handshake_verified = True
+
+    calls = []
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append((client_id, version, text, session))
+
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+
+    await handlers.request_830(b"", b"\x03", b"\x00" * 16, fake_session)
+
+    assert len(calls) == 1
+    assert "already completed" in calls[0][2]
+    assert fake_session.handshake_verified is True

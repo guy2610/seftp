@@ -527,7 +527,7 @@ void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::s
 	client_history.push_back({ "making_RSAkeys",timestamp() });
 	g_logger.debug("inside making_RSAkeys");
 	seftp::crypto::PublicKeyFormat key_pair;
-	try { 
+	try {
 		key_pair = seftp::crypto::generate_rsa2048_keypair_der(key);
 	}
 	catch (const std::exception& e) {
@@ -535,8 +535,17 @@ void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::s
 	}
 	g_logger.debug("DER len: " + std::to_string(key_pair.publicKeyDer.size()));
 	g_logger.debug("publicKeyB64 length: " + std::to_string(key_pair.publicKeyB64.size()));
-	// approx 392 chars
 	std::string persist_error;
+
+	if (key.empty()) {
+		if (key_pair.privateKeyDer.empty()) {
+			throw std::runtime_error("generated private key DER is empty");
+		}
+		if (!seftp::persistence::save_private_key(key_pair.privateKeyDer, persist_error)) {
+			throw std::runtime_error(persist_error);
+		}
+	}
+
 	if (!seftp::persistence::save_public_key(key_pair.publicKeyB64, persist_error)) {
 		throw std::runtime_error(persist_error);
 	}

@@ -2,6 +2,16 @@
 #include <fstream>
 #include "../../client/src/util/files.hpp"
 
+#ifndef _WIN32
+#include <sys/stat.h>
+
+static mode_t file_mode(const std::string& path) {
+    struct stat st {};
+    EXPECT_EQ(stat(path.c_str(), &st), 0);
+    return st.st_mode & 0777;
+}
+#endif
+
 using namespace seftp::util::files;
 TEST(FileFunc, WriteMeIdentity) {
     const std::string testFile = "test_write_me.info";
@@ -315,5 +325,51 @@ TEST(FileFunc, ReadServerPin) {
     std::remove(testFile.c_str());
 }
 
+#ifndef _WIN32
 
+TEST(FileFunc, SensitiveFilesAreOwnerReadWriteOnly) {
+    {
+        const std::string testFile = "test_secure_priv.key";
+        std::remove(testFile.c_str());
+
+        std::string key;
+        key.push_back('A');
+        key.push_back('\0');
+        key.push_back('B');
+
+        ASSERT_TRUE(seftp::util::files::write_private_key(key, testFile));
+        EXPECT_EQ(file_mode(testFile), 0600);
+
+        std::string out;
+        ASSERT_TRUE(seftp::util::files::read_private_key(out, testFile));
+        EXPECT_EQ(out, key);
+
+        std::remove(testFile.c_str());
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
+    }
+
+    {
+        const std::string testFile = "test_secure_aes.key";
+        std::remove(testFile.c_str());
+
+        ASSERT_TRUE(seftp::util::files::write_aes_key("abc123", testFile));
+        EXPECT_EQ(file_mode(testFile), 0600);
+
+        std::remove(testFile.c_str());
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
+    }
+
+    {
+        const std::string testFile = "test_secure_server.fingerprint";
+        std::remove(testFile.c_str());
+
+        ASSERT_TRUE(seftp::util::files::write_fingerprint("abcdef", testFile));
+        EXPECT_EQ(file_mode(testFile), 0600);
+
+        std::remove(testFile.c_str());
+        EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
+    }
+}
+
+#endif
 

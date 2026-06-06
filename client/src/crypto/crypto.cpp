@@ -1,4 +1,5 @@
 #include "crypto.hpp"
+
 namespace seftp::crypto {
 
 	std::string encode_base64(const std::string& raw_key) {
@@ -25,7 +26,7 @@ namespace seftp::crypto {
 
 		return iv;
 	}
-	PublicKeyFormat generate_rsa2048_keypair_der(std::string key, std::string priv_key_file_name) {
+	PublicKeyFormat generate_rsa2048_keypair_der(std::string key) {
 		PublicKeyFormat key_pair;
 		CryptoPP::RSA::PrivateKey privateKey;
 		CryptoPP::RSA::PublicKey publicKey;
@@ -49,15 +50,16 @@ namespace seftp::crypto {
 				throw e;
 			}
 		}
+		if (key.empty()) {
+			privateKey.Save(CryptoPP::StringSink(key_pair.privateKeyDer).Ref());
+		}
+
 		publicKey.Save(CryptoPP::StringSink(key_pair.publicKeyDer).Ref());
 
 		CryptoPP::StringSource(key_pair.publicKeyDer, true,
 			new CryptoPP::Base64Encoder(new CryptoPP::StringSink(key_pair.publicKeyB64), false)
 		);
-		// keep private key
-		if (key.empty()) {
-			privateKey.Save(CryptoPP::FileSink(priv_key_file_name.c_str()).Ref());
-		}
+
 		return key_pair;
 	}
 	uint32_t crc32(std::string_view data) {

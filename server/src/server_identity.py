@@ -4,9 +4,14 @@ from Crypto.Signature import pkcs1_15
 from Crypto.Hash import SHA256
 
 TRANSCRIPT_CONTEXT = b"SEFTP_STAGE7_SERVER_HELLO"
+PRIVATE_KEY_MODE = 0o600
+
+def _set_owner_only_permissions(path: str):
+    os.chmod(path, PRIVATE_KEY_MODE)
 
 def load_or_create_server_identity(path: str):
     if os.path.exists(path):
+        _set_owner_only_permissions(path)
         with open(path, "rb") as f:
             return RSA.import_key(f.read())
 
@@ -17,6 +22,8 @@ def load_or_create_server_identity(path: str):
 
     with open(path, "wb") as f:
         f.write(private_key.export_key(format="PEM"))
+
+    _set_owner_only_permissions(path)
 
     return private_key
 

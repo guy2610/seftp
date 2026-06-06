@@ -1,7 +1,7 @@
 #include "files.hpp"
 #include <fstream>
 namespace seftp::util::files {
-	static bool atomic_write(const std::string& file_name, const std::string& content);
+	static bool atomic_write(const std::string& file_name, const std::string& content, bool owner_only = false, bool binary = false);
 
 	bool write_me_identity(const std::string& username, const std::string& client_id_hex, const std::string& file_name) {
 		std::string content = username + "\n" + client_id_hex + "\n";
@@ -15,21 +15,41 @@ namespace seftp::util::files {
 		std::string content = username + "\n" + cid + "\n" + public_key_b64 + "\n";
 		return atomic_write(file_name, content);
 	}
+	bool write_private_key(const std::string& private_key_der, const std::string& file_name) {
+		return atomic_write(file_name, private_key_der, true, true);
+
+	}
 	bool write_aes_key(const std::string& aes_key_b64, const std::string& file_name) {
 		std::string content = aes_key_b64 + "\n";
-		return atomic_write(file_name, content);
+		return atomic_write(file_name, content, true);
 	}
-	static bool atomic_write(const std::string& file_name, const std::string& content) {
+	static bool set_owner_only_permissions(const std::string& file_name) {
+		namespace fs = std::filesystem;
+		std::error_code ec;
+
+		fs::permissions(file_name, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace, ec);
+
+		return !ec;
+	}
+	static bool atomic_write(const std::string& file_name, const std::string& content,bool owner_only, bool binary) {
 		const std::string tmp = file_name + ".tmp";
+		auto mode = std::ios::trunc;
+		if (binary) {
+			mode |= std::ios::binary;
+		}
 		{
-			std::ofstream out(tmp, std::ios::trunc);
+			std::ofstream out(tmp, mode);
 			if (!out) return false;
-			out << content;
+			out.write(content.data(), static_cast<std::streamsize>(content.size()));
 			out.close();
 			if (!out) {
 				std::filesystem::remove(tmp);
 				return false;
 			}
+		}
+		if (owner_only && !set_owner_only_permissions(tmp)) {
+			std::filesystem::remove(tmp);
+			return false;
 		}
 		std::error_code ec;
 		std::filesystem::remove(file_name, ec);
@@ -79,7 +99,7 @@ namespace seftp::util::files {
 	}
 	bool write_fingerprint(const std::string& fingerprint, const std::string& file_name) {
 		std::string content = fingerprint + "\n";
-		return atomic_write(file_name, content);
+		return atomic_write(file_name, content, true);
 	}
 	bool read_server_pin(std::string& fingerprint, const std::string& file_name) {
 		std::ifstream f(file_name);

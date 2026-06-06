@@ -18,6 +18,7 @@ namespace seftp::persistence {
     bool save_aes_key(const std::string& aes_key_b64, std::string& error);
 
     bool load_private_key(std::string& out, std::string& error);
+    bool save_private_key(const std::string& private_key_der, std::string& error);
 
     bool load_server_fingerprint(std::string& fingerprint, std::string& error);
     bool save_server_fingerprint(const std::string& fingerprint, std::string& error);

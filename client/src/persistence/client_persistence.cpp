@@ -51,6 +51,14 @@ namespace seftp::persistence {
 		}
 		return true;
 	}
+	bool save_private_key(const std::string& private_key_der, std::string& error) {
+		error.clear();
+		if (!seftp::util::files::write_private_key(private_key_der)) {
+			error = "failed to save private key";
+			return false;
+		}
+		return true;
+	}
 	bool load_server_fingerprint(std::string& fingerprint, std::string& error) {
 		error.clear();
 		if (!seftp::util::files::read_fingerprint(fingerprint)) {

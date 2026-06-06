@@ -114,21 +114,14 @@ TEST(CryptoTests, RSA_GenerateKeypair_ReturnsValidPublicKeyDerAndB64) {
 }
 
 TEST(CryptoTests, RSA_LoadingSamePrivateKey_ReturnsSamePublicDer) {
-    const std::string fname = "test_priv.key";
-    
-    //Produce test_priv.key
-    auto pk1 = seftp::crypto::generate_rsa2048_keypair_der("", fname);
+    auto pk1 = seftp::crypto::generate_rsa2048_keypair_der("");
     ASSERT_FALSE(pk1.publicKeyDer.empty());
+    ASSERT_FALSE(pk1.privateKeyDer.empty());
 
-    const auto priv_bytes = read_file_bin(fname);
-    ASSERT_FALSE(priv_bytes.empty());
-    
-    //Read buffer from test_priv.key
-    auto pk2 = seftp::crypto::generate_rsa2048_keypair_der(priv_bytes, fname);
+    auto pk2 = seftp::crypto::generate_rsa2048_keypair_der(pk1.privateKeyDer);
 
     EXPECT_EQ(pk2.publicKeyDer, pk1.publicKeyDer);
     EXPECT_EQ(pk2.publicKeyB64, pk1.publicKeyB64);
-    std::remove(fname.c_str());
 }
 TEST(CryptoTests, SHA256HexKnownVectorEmpty) {
     std::vector<uint8_t> data;

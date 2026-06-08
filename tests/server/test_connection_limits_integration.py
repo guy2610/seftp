@@ -32,6 +32,7 @@ def _start_server(
     tmp_path: Path,
     max_connections: int,
     max_connections_per_ip: int,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.Popen, int, Path]:
     repo_root = Path(__file__).resolve().parents[2]
     server_dir = repo_root / "server"
@@ -44,6 +45,8 @@ def _start_server(
     env["PYTHONPATH"] = str(server_dir)
     env["SEFTP_MAX_CONNECTIONS"] = str(max_connections)
     env["SEFTP_MAX_CONNECTIONS_PER_IP"] = str(max_connections_per_ip)
+    if extra_env:
+        env.update(extra_env)
 
     log_path = tmp_path / "server.log"
     log_file = open(log_path, "w", encoding="utf-8")
@@ -185,3 +188,29 @@ def test_per_ip_connection_limit_enforced(tmp_path: Path):
 
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
     assert "connection rejected" in log_text
+def test_handshake_timeout_closes_idle_pre_handshake_connection(tmp_path: Path):
+    proc, port, log_path = _start_server(
+        tmp_path=tmp_path,
+        max_connections=2,
+        max_connections_per_ip=2,
+        extra_env={
+            "SEFTP_HANDSHAKE_TIMEOUT_S": "0.5",
+            "SEFTP_READ_TIMEOUT_S": "0.1",
+            "SEFTP_IDLE_TIMEOUT_S": "30",
+        },
+    )
+
+    s = None
+    try:
+        s = _open_client(port)
+        _assert_socket_closed_soon(s)
+    finally:
+        try:
+            if s is not None:
+                s.close()
+        except Exception:
+            pass
+        _stop_server(proc)
+
+    log_text = log_path.read_text(encoding="utf-8", errors="replace")
+    assert "handshake timeout" in log_text

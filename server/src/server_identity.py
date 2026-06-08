@@ -13,7 +13,11 @@ def load_or_create_server_identity(path: str):
     if os.path.exists(path):
         _set_owner_only_permissions(path)
         with open(path, "rb") as f:
-            return RSA.import_key(f.read())
+            key_data = f.read()
+        try:
+            return RSA.import_key(key_data)
+        except (ValueError, TypeError,IndexError) as exc:
+            raise RuntimeError(f"server identity key exists but is invalid: {path}") from exc
 
     private_key = RSA.generate(2048)
 
@@ -44,3 +48,19 @@ def sign_server_hello(private_key, security_version, client_nonce, server_nonce,
     digest = SHA256.new(transcript)
 
     return pkcs1_15.new(private_key).sign(digest)
+
+def test_server_identity_truncated_existing_file_fails_startup(tmp_path):
+    key_path = tmp_path / "server_identity.pem"
+
+    key = load_or_create_server_identity(str(key_path))
+    assert key is not None
+
+    data = key_path.read_bytes()
+    assert len(data) > 40
+
+    key_path.write_bytes(data[:40])
+
+    with pytest.raises(RuntimeError, match="server identity key exists but is invalid"):
+        load_or_create_server_identity(str(key_path))
+
+    assert key_path.read_bytes() == data[:40]

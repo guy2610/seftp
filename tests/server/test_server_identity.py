@@ -1,7 +1,14 @@
 import os
 import stat
+import pytest
 
 from src.server_identity import load_or_create_server_identity
+
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX file permission modes are not portable on Windows"
+)
 
 
 def _mode(path):

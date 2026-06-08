@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 	int rc = seftp::ui::run_console_ui(io_context, s, resolver, client_config, cc);
 	print_client_exit_summary();
 	return rc;
-		
+
 }
 
 namespace seftp::flow{
@@ -207,7 +207,7 @@ namespace seftp::flow{
 			// 2) Wait for 1605 (or 1606). client_id remains stable; only AES key is refreshed if needed
 			auto r = answer_manager(s, cc);
 			if (r.step == seftp::NextStep::NeedRegister) {
-				// 825 -> 1600	
+				// 825 -> 1600
 				g_logger.debug("making a new user with request_825");
 				request_825(s, cc.username);
 				auto r2 = answer_manager(s, cc);
@@ -235,11 +235,15 @@ namespace seftp::flow{
 				g_logger.info("has new client id, need to send 826 to get a key");
 				std::string keybin;
 				std::string persist_error;
-				if (seftp::persistence::load_private_key(keybin, persist_error)) {
-					g_logger.info("private key has been assigned");
+				if (!seftp::persistence::load_private_key(keybin, persist_error)) {
+					cc.last_error_text =
+						"local private key is missing or unreadable; manual identity reset required";
+					g_logger.error(cc.last_error_text);
+					return false;
 				}
+
 				try {
-					making_RSAkeys(s, cc);
+					making_RSAkeys(s, cc, keybin);
 				}
 				catch (const std::exception& e) {
 					cc.last_error_text = e.what();
@@ -379,7 +383,7 @@ bool validate_server_trust(seftp::ClientContext& cc, const std::string& fingerpr
 
 	if (seftp::persistence::load_server_fingerprint(stored, fingerprint_error)) {
 		stored = trim_copy(stored);
-		
+
 		if (stored != fingerprint) {
 			cc.last_error_text = "server fingerprint mismatch";
 			g_logger.error(cc.last_error_text);
@@ -617,7 +621,7 @@ void request_825(tcp::socket& s, const string& name) {
 		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
-		g_logger.error("Error in request_825: " + std::string(e.what()));	
+		g_logger.error("Error in request_825: " + std::string(e.what()));
 	}
 }
 void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid) {
@@ -625,15 +629,15 @@ void request_826(tcp::socket& s, const string& name, const string& publicKeyStr,
 	// Payload: username + '\0' + publicKeyB64.
 	// Response expected: 1602 with encrypted AES key.
 	try {
-		client_history.push_back({ "request_826", timestamp() });	
+		client_history.push_back({ "request_826", timestamp() });
 		g_logger.debug("in request_826");
 		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_826_public_key(cid, name, publicKeyStr);
-		g_logger.info("publicKeyB64 length: " + std::to_string(publicKeyStr.size()));	
+		g_logger.info("publicKeyB64 length: " + std::to_string(publicKeyStr.size()));
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));
 	}
-	catch (const std::exception& e) {	
+	catch (const std::exception& e) {
 		g_logger.error("Error in request_826: " + std::string(e.what()));
 	}
 }
@@ -649,7 +653,7 @@ void request_827(tcp::socket& s, const string& name, const string& uuid) {
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));;
 	}
-	catch (const std::exception& e) {	
+	catch (const std::exception& e) {
 		g_logger.error("Error in request_827: " + std::string(e.what()));
 	}
 
@@ -663,7 +667,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 	g_logger.debug("in request_828");
 	client_history.push_back({ "request_828", timestamp() });
 	try {
-		
+
 		if (components[4].size() != CryptoPP::AES::BLOCKSIZE)
 			throw std::runtime_error("IV size is not 16");
 		if (components.empty()) {
@@ -682,7 +686,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		const size_t total_packets = chunks.size();
 		g_logger.info("dynamic chunk_size=" + std::to_string(CHUNK_SIZE) +" cipher_size=" + std::to_string(cipher_size) +
 			" total_packets=" + std::to_string(total_packets));
-		
+
 		// Packet 0: send IV only (16 bytes). Packets 1..N: send ciphertext chunks.
 		CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
 		std::memcpy(iv, components[4].data(), CryptoPP::AES::BLOCKSIZE);
@@ -745,7 +749,7 @@ uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vec
 		return original_crc;// original CRC for this file
 	}
 	catch (const std::exception& e) {
-		g_logger.error("Error in request_828: " + std::string(e.what()));	
+		g_logger.error("Error in request_828: " + std::string(e.what()));
 		return 0;
 	}
 }
@@ -774,22 +778,22 @@ void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext&
 			// CRC mismatch -> retry or give up
 			retries++;
 			if (retries < MAX_RETRIES) {
-				g_logger.info("CRC mismatch, retry " + std::to_string(retries) + "/" + std::to_string(MAX_RETRIES));		
+				g_logger.info("CRC mismatch, retry " + std::to_string(retries) + "/" + std::to_string(MAX_RETRIES));
 				// Notify server: CRC invalid but we will resend (901)
 				request_901(s, protocol_file_name,cc.client_id);
 			}
 			else {
 				// 4th failure -> give up (902)
-				g_logger.info("CRC mismatch after 4 retries, sending 902");				
+				g_logger.info("CRC mismatch after 4 retries, sending 902");
 				request_902(s, protocol_file_name, cc.client_id);
 			}
 		}
 		else {
 			// CRC OK -> confirm success (900)
 			request_900(s, protocol_file_name, cc.client_id);
-		}	
+		}
 	}
-	
+
 }
 void request_829(tcp::socket& s, std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce) {
 	g_logger.debug("in request_829");
@@ -813,9 +817,9 @@ void request_830(tcp::socket& s) {
 }
 void request_900(tcp::socket& s, const string& name, const string& uuid) {
 	// Send request 900: notify server that CRC matched for the given file name.
-	g_logger.debug("in request_900");	
+	g_logger.debug("in request_900");
 	client_history.push_back({ "request_900", timestamp() });
-	g_logger.info("we got a match with the crc value, sending confirmation to the server");	
+	g_logger.info("we got a match with the crc value, sending confirmation to the server");
 	try {
 		auto cid = seftp::util::parse_client_id_hex32(uuid);
 		auto msg = seftp::proto::build_900_crc_ok(cid, name);
@@ -823,12 +827,12 @@ void request_900(tcp::socket& s, const string& name, const string& uuid) {
 		boost::asio::write(s, boost::asio::buffer(msg));
 	}
 	catch (const std::exception& e) {
-		g_logger.error("Error in request_900: " + std::string(e.what()));		
+		g_logger.error("Error in request_900: " + std::string(e.what()));
 	}
 
 }
 void request_901(tcp::socket& s, const string& name, const string& uuid) {
-	// Send request 901: notify server that CRC mismatched (client will retry sending file).	
+	// Send request 901: notify server that CRC mismatched (client will retry sending file).
 	g_logger.debug("in request_901");
 	client_history.push_back({ "request_901", timestamp() });
 	try {
@@ -837,13 +841,13 @@ void request_901(tcp::socket& s, const string& name, const string& uuid) {
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));
 	}
-	catch (const std::exception& e) {		
+	catch (const std::exception& e) {
 		g_logger.error("Error in request_901: " + std::string(e.what()));
 	}
 
 }
 void request_902(tcp::socket& s, const string& name, const string& uuid) {
-	// Send request 902: notify server that CRC mismatched after max retries (give up).	
+	// Send request 902: notify server that CRC mismatched after max retries (give up).
 	g_logger.debug("in request_902");
 	client_history.push_back({ "request_902", timestamp() });
 	try {
@@ -852,12 +856,12 @@ void request_902(tcp::socket& s, const string& name, const string& uuid) {
 		// send
 		boost::asio::write(s, boost::asio::buffer(msg));
 	}
-	catch (const std::exception& e) {		
+	catch (const std::exception& e) {
 		g_logger.error("Error in request_902: " + std::string(e.what()));
 	}
 
 }
-std::vector<uint8_t> parse_uuid(const std::string& uuid_str) {	
+std::vector<uint8_t> parse_uuid(const std::string& uuid_str) {
 	if (uuid_str.length() != 32)
 		throw std::invalid_argument("UUID string must be exactly 32 hex characters (no dashes)");
 
@@ -889,7 +893,7 @@ std::vector<string> encrypt_file(const std::string& key, const std::string& file
 	//   res[2] = ciphertext (binary, includes PKCS#7 padding, WITHOUT the IV)
 	//   res[3] = CRC32 of plaintext as a decimal string
 	//   res[4] = IV (16 bytes, binary) for this file
-	client_history.push_back({ "encrypt_file", timestamp() });	
+	client_history.push_back({ "encrypt_file", timestamp() });
 	g_logger.debug("in encrypt_file");
 	std::ifstream file;
 	g_logger.info("reading file ");
@@ -905,8 +909,8 @@ std::vector<string> encrypt_file(const std::string& key, const std::string& file
 	uint32_t crc_val = seftp::crypto::crc32(plain_text);
 	std::stringstream ss;
 	ss << "CRC (dec): " << crc_val << " (hex): 0x" << std::hex << crc_val;
-	g_logger.info(ss.str());	
-	g_logger.debug("Plaintext size: " + std::to_string(plain_text.size()));	
+	g_logger.info(ss.str());
+	g_logger.debug("Plaintext size: " + std::to_string(plain_text.size()));
 	// Decode AES key from Base64 string
 	std::string raw_key = seftp::crypto::decode_base64(key);
 	auto iv_arr = seftp::crypto::make_iv();
@@ -940,7 +944,7 @@ std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkS
 string answer_1600(vector<uint8_t>& payload, string name) {
 	// Handle response 1600: registration succeeded.
 	// Payload: 16-byte client_id.
-	// Writes name and client_id hex into me.info.	
+	// Writes name and client_id hex into me.info.
 	g_logger.debug("in answer_1600");
 	client_history.push_back({ "answer_1600" ,timestamp()});
 	std::ostringstream oss;
@@ -959,7 +963,7 @@ string answer_1600(vector<uint8_t>& payload, string name) {
 		return "";
 	}
 
-	g_logger.info("register for the client id: " + client_id_hex + " succeed");	
+	g_logger.info("register for the client id: " + client_id_hex + " succeed");
 	return client_id_hex;
 }
 
@@ -972,24 +976,26 @@ static std::string handle_1600(const seftp::proto::Res1600& r, const std::string
 void answer_1601() {
 	// Handle response 1601: registration failed (username already exists or other error).
 	// Exits the client.
-	g_logger.debug("in answer_1601");	
+	g_logger.debug("in answer_1601");
 	client_history.push_back({ "answer_1601" ,timestamp()});
 	g_logger.warn("register failed");
 }
 std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>& ciphertext, const std::string& privkey_filename) {
 	// Handle response 1602: AES key encrypted with RSA public key for this client.
 	// Decrypts AES key using priv.key and stores it as Base64 in aes.key.
-	g_logger.debug("in answer_1602");	
+	g_logger.debug("in answer_1602");
 	client_history.push_back({ "answer_1602" ,timestamp() });
-	g_logger.info("client " + client_id + " received encrypted AES key");	
+	g_logger.info("client " + client_id + " received encrypted AES key");
 	std::string decrypted;
 	try {
 		decrypted = seftp::crypto::rsa_oaep_sha1_decrypt_from_file(privkey_filename, ciphertext);
 		g_logger.debug("Decrypted AES key len=" + std::to_string(decrypted.size()));
 	}
 	catch (const std::exception& e) {
-		g_logger.error("Decryption error: " + std::string(e.what()));		
-		decrypted.clear();
+		throw std::runtime_error(
+			"failed to decrypt AES key with local private key; manual identity reset required: " +
+			std::string(e.what())
+		);
 	}
 
 	std::string aes_key_b64 = seftp::crypto::encode_base64(decrypted);
@@ -997,7 +1003,7 @@ std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>
 	if (!seftp::persistence::save_aes_key(aes_key_b64, persist_error)) {
 		g_logger.error(persist_error);
 	}
-	else {		
+	else {
 		g_logger.info("AES key saved to aes.key (Base64, len=" + std::to_string(aes_key_b64.size()) + ") <only for demonstrating>: " + aes_key_b64);
 	}
 
@@ -1007,15 +1013,15 @@ string answer_1605(const std::string& client_id, const std::vector<uint8_t>& cip
 	// Handle response 1605: re-login approved.
 	// Same format as 1602 (delegates to answer_1602).
 	client_history.push_back({ "answer_1605" ,timestamp() });
-	g_logger.debug("in answer_1605 the next will be answer_1602 (SAME FUNCTION)");	
-	g_logger.info("request to re-register approved, gets aes encrypted key");	
+	g_logger.debug("in answer_1605 the next will be answer_1602 (SAME FUNCTION)");
+	g_logger.info("request to re-register approved, gets aes encrypted key");
 	return answer_1602(client_id, ciphertext, privkey_filename);
 }
 
 static seftp::DispatchResult handle_1606(const std::vector<uint8_t>& payload, seftp::ClientContext& cc) {
 	// Handle response 1606: server indicates that re-login failed or public key is invalid.
 	// If client_id is all zeros -> client must register again (825 + 826).
-	// Otherwise -> generate new RSA keys and send again.	
+	// Otherwise -> generate new RSA keys and send again.
 	g_logger.debug("in handle_1606");
 	client_history.push_back({ "handle_1606" ,timestamp() });
 	seftp::DispatchResult out{};
@@ -1030,7 +1036,7 @@ static seftp::DispatchResult handle_1606(const std::vector<uint8_t>& payload, se
 	if (client_id_hex == std::string(32, '0')) {
 		cc.need_register = true;
 		out.step = seftp::NextStep::NeedRegister;
-		g_logger.info("request to re-register disapproved, the client id is: " + client_id_hex + ". is not register");		
+		g_logger.info("request to re-register disapproved, the client id is: " + client_id_hex + ". is not register");
 		g_logger.info("need to sign up, making a new client id");
 		return out;
 	}
@@ -1044,11 +1050,16 @@ static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::
 	std::string client_id_hex = seftp::util::client_id_to_hex(r.client_id);
 	if (code == seftp::proto::ResCode::AesKey)
 	{
-		answer_1602(client_id_hex, r.encrypted_key, "priv.key");
-		g_logger.debug("after 1602");		
+		try {
+			answer_1602(client_id_hex, r.encrypted_key, "priv.key");
+		}
+		catch (const std::exception& e) {
+			throw;
+		}
+		g_logger.debug("after 1602");
 	}
 	else { // 1605
-		cout << answer_1605(client_id_hex, r.encrypted_key, "priv.key") << endl;		
+		cout << answer_1605(client_id_hex, r.encrypted_key, "priv.key") << endl;
 		g_logger.debug("after 1605");
 	}
 
@@ -1058,7 +1069,7 @@ static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::
 bool answer_1603(tcp::socket& s, vector<uint8_t>payload, uint32_t original_crc) {
 	// Handle response 1603: server sends its computed CRC for the received file.
 	// Compares server CRC to original_crc and returns true on match.
-	// Used by request_828_retry() to decide whether to retry or send 900/902.	
+	// Used by request_828_retry() to decide whether to retry or send 900/902.
 	g_logger.debug("after 1603");
 	client_history.push_back({ "answer_1603" ,timestamp() });
 	size_t offset = 0;
@@ -1083,40 +1094,40 @@ bool answer_1603(tcp::socket& s, vector<uint8_t>payload, uint32_t original_crc) 
 		(static_cast<uint32_t>(payload[offset+2]) << 16) |
 		(static_cast<uint32_t>(payload[offset+3]) << 24);
 
-	
+
 	g_logger.info("Server CRC: " + std::to_string(server_crc) + ", original CRC: " + std::to_string(original_crc));
 
 	if (server_crc == original_crc) {
-		g_logger.info("Checksum verified successfully!");		
+		g_logger.info("Checksum verified successfully!");
 		return true;
 	}
 	else {
-		g_logger.warn("Checksum mismatch!");		
+		g_logger.warn("Checksum mismatch!");
 		return false;
 	}
 }
 static void handle_1603(const seftp::proto::Res1603& r, uint32_t original_crc, bool* crc_ok)
 {
 	if (!crc_ok) return;
-	
+
 	g_logger.info("Server CRC: " + std::to_string(r.server_crc) + ", original CRC: " + std::to_string(original_crc));
 
-	if (r.server_crc == original_crc) {		
+	if (r.server_crc == original_crc) {
 		g_logger.info("Checksum verified successfully!");
 		*crc_ok = true;
 	}
-	else {		
+	else {
 		g_logger.warn("Checksum mismatch!");
 		*crc_ok = false;
 	}
 }
 void answer_1604() {
-	client_history.push_back({ "answer_1604" ,timestamp() });	
+	client_history.push_back({ "answer_1604" ,timestamp() });
 	g_logger.debug("in answer_1604");
-	g_logger.info("finish transfering");	
+	g_logger.info("finish transfering");
 }
 void answer_1607(string& text) {
-	client_history.push_back({ "answer_1607" ,timestamp() });	
+	client_history.push_back({ "answer_1607" ,timestamp() });
 	g_logger.debug("in answer_1607");
 	g_logger.warn("server error: " + text);
 }
@@ -1129,7 +1140,7 @@ seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, u
 	//   - print status / errors for 1604/1607
 	// Returns:
 	//   - client_id as a hex string when relevant (1600/1602/1605/1606)
-	//   - empty string otherwise.	
+	//   - empty string otherwise.
 	g_logger.debug("in answer_manager");
 	client_history.push_back({ "answer_manager" ,timestamp() });
 	const int max_Length = 1024;
@@ -1154,12 +1165,19 @@ seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, u
 		answer_1601();
 		return { seftp::NextStep::Fatal,false };
 	}
-	case seftp::proto::ResCode::AesKey:
-	case seftp::proto::ResCode::ReloginOk: {
-		auto r1602_1605 = seftp::proto::parse_1602(pv);
-		cc.client_id = handle_1602_or_1605(frame.code, r1602_1605);
-		return {};
-	}
+		case seftp::proto::ResCode::AesKey:
+		case seftp::proto::ResCode::ReloginOk: {
+		try {
+			auto r1602_1605 = seftp::proto::parse_1602(pv);
+			cc.client_id = handle_1602_or_1605(frame.code, r1602_1605);
+			return {};
+		}
+		catch (const std::exception& e) {
+			cc.last_error_text = e.what();
+			g_logger.error(cc.last_error_text);
+			return { seftp::NextStep::Fatal, false };
+			}
+		}
 	case seftp::proto::ResCode::ReloginFail: {
 		return handle_1606(frame.payload, cc);
 	}
@@ -1176,7 +1194,7 @@ seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, u
 		seftp::DispatchResult out{};
 		out.step = seftp::NextStep::Fatal;
 		if (frame.payload.size() < seftp::proto::kClientIdLen) {
-			g_logger.warn("payload for 1607 too short");			
+			g_logger.warn("payload for 1607 too short");
 			cc.last_error_text = "payload for 1607 too short";
 			return out;
 		}
@@ -1189,11 +1207,11 @@ seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, u
 		if (pos != std::string::npos) text.resize(pos);
 		cc.last_error_text = text.empty() ? "1607 error (empty text)" : text;
 		answer_1607(cc.last_error_text);
-		g_logger.debug("this is the uuid in answer manager after 1607: [" + client_id_hex + "]");		
+		g_logger.debug("this is the uuid in answer manager after 1607: [" + client_id_hex + "]");
 		return { seftp::NextStep::Fatal };
 	}
 	default:
-		g_logger.warn("the code: " + std::to_string(static_cast<uint16_t>(frame.code)) + " is not a valid code for a response");		
+		g_logger.warn("the code: " + std::to_string(static_cast<uint16_t>(frame.code)) + " is not a valid code for a response");
 		cc.last_error_text = "Unknown response code: " + std::to_string((uint16_t)frame.code);
 		return { seftp::NextStep::Fatal,false };
 

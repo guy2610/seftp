@@ -542,6 +542,11 @@ void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::s
 	std::string persist_error;
 
 	if (key.empty()) {
+		if (std::filesystem::exists(seftp::util::files::kPrivKey)) {
+			throw std::runtime_error(
+				"refusing to overwrite existing priv.key; manual identity reset required"
+			);
+		}
 		if (key_pair.privateKeyDer.empty()) {
 			throw std::runtime_error("generated private key DER is empty");
 		}

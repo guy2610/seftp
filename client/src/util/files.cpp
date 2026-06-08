@@ -16,8 +16,10 @@ namespace seftp::util::files {
 		return atomic_write(file_name, content);
 	}
 	bool write_private_key(const std::string& private_key_der, const std::string& file_name) {
+		if (std::filesystem::exists(file_name)) {
+			return false;
+		}
 		return atomic_write(file_name, private_key_der, true, true);
-
 	}
 	bool write_aes_key(const std::string& aes_key_b64, const std::string& file_name) {
 		std::string content = aes_key_b64 + "\n";

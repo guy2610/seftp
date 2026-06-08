@@ -324,6 +324,23 @@ TEST(FileFunc, ReadServerPin) {
 
     std::remove(testFile.c_str());
 }
+TEST(FileFunc, WritePrivateKeyDoesNotOverwriteExistingFile) {
+    const std::string testFile = "test_no_overwrite_priv.key";
+    std::remove(testFile.c_str());
+
+    const std::string original = "original-private-key";
+    const std::string replacement = "replacement-private-key";
+
+    ASSERT_TRUE(seftp::util::files::write_private_key(original, testFile));
+    ASSERT_FALSE(seftp::util::files::write_private_key(replacement, testFile));
+
+    std::string out;
+    ASSERT_TRUE(seftp::util::files::read_private_key(out, testFile));
+    EXPECT_EQ(out, original);
+
+    std::remove(testFile.c_str());
+    EXPECT_FALSE(std::filesystem::exists(testFile + ".tmp"));
+}
 
 #ifndef _WIN32
 

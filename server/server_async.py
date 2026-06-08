@@ -31,13 +31,14 @@ async def main():
 
     logger.info(
         "server config host=%s port=%s data_path=%s log_level=%s idle_timeout_s=%s "
-        "upload_inactivity_timeout_s=%s max_file_size=%s max_packets=%s max_chunk_size=%s max_payload_size=%s read_timeout_s=%s",
+        "upload_inactivity_timeout_s=%s handshake_timeout_s=%s  max_file_size=%s max_packets=%s max_chunk_size=%s max_payload_size=%s read_timeout_s=%s",
         config.host,
         config.port,
         config.data_path,
         config.log_level,
         config.idle_timeout_s,
         config.upload_inactivity_timeout_s,
+        config.handshake_timeout_s,
         config.max_file_size,
         config.max_packets,
         config.max_chunk_size,
@@ -60,6 +61,11 @@ async def main():
             connection_acquired = True
             session.log.info("Got connection from %s", addr)
             while True:
+                now = time.monotonic()
+                if not session.handshake_verified and (now - session.connected_at) >= config.handshake_timeout_s:
+                    session.disconnect_reason = "handshake_timeout"
+                    session.log.warning("handshake timeout before completion")
+                    break
                 try:
                     chunk = await asyncio.wait_for(reader.read(1024), timeout=config.read_timeout_s)
                 except asyncio.TimeoutError:

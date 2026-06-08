@@ -1,7 +1,7 @@
 import os
 
 class Config:
-    def __init__(self,host,port,data_path,log_level,idle_timeout_s=60, upload_inactivity_timeout_s=20,
+    def __init__(self,host,port,data_path,log_level,idle_timeout_s=60, upload_inactivity_timeout_s=20,handshake_timeout_s=5,
                  max_file_size=100* 1024 * 1024,max_packets=12000,max_chunk_size=64* 1024,
                  max_payload_size=10_000_000,read_timeout_s=10,max_concurrent_uploads=10, max_connections=10, max_connections_per_ip=10,
                  cpu_worker_threads=4, cpu_max_in_flight=8):
@@ -21,6 +21,7 @@ class Config:
         self.max_connections_per_ip = max_connections_per_ip
         self.cpu_max_in_flight = cpu_max_in_flight
         self.cpu_worker_threads = cpu_worker_threads
+        self.handshake_timeout_s = handshake_timeout_s
 
     @classmethod
     def load(cls):
@@ -55,6 +56,7 @@ class Config:
             log_level=os.getenv("SEFTP_LOG_LEVEL", log_level),
             idle_timeout_s=env_int("SEFTP_IDLE_TIMEOUT_S", 60),
             upload_inactivity_timeout_s=env_int("SEFTP_UPLOAD_INACTIVITY_TIMEOUT_S", 20),
+            handshake_timeout_s=env_float("SEFTP_HANDSHAKE_TIMEOUT_S", 5),
             max_file_size=env_int("SEFTP_MAX_FILE_SIZE", 100 * 1024 * 1024),
             max_packets=env_int("SEFTP_MAX_PACKETS", 12000),
             max_chunk_size=env_int("SEFTP_MAX_CHUNK_SIZE", 64 * 1024),

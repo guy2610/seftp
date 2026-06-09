@@ -209,7 +209,7 @@ Strengthen the cryptographic model and extend the protocol to provide authentica
   * Connection rate limiting (limit new connections per time window, per IP/global)
   * Basic DoS protection (burst control, early rejection under load, guarding expensive paths)
   * Hardening of edge-case protocol paths under adversarial input
-
+  * Document deployment-level abuse protection options (TCP proxy, firewall, OS limits) (FUTURE)
 ---
 
 ### **Stage 8 - Observability & Production Behavior**
@@ -236,6 +236,35 @@ Operational visibility, diagnostics, and runtime insight into system behavior un
 
 * Client experience improvements
   * Improved client-side progress and status reporting for uploads
+
+* Production Deployment Hardening
+  * Deployment-level abuse protection
+    * Add a TCP-aware reverse proxy deployment profile
+      * Example: Nginx `stream {}` or HAProxy in front of the SEFTP server
+      * Enforce connection limits before traffic reaches the Python server
+      * Support basic TCP health checks
+
+    * Add Docker Compose demo for protected deployment
+      * `seftp-server`
+      * `tcp-proxy`
+      * isolated network
+      * documented exposed port
+
+    * Document OS / kernel-level limits
+      * file descriptor limit (`ulimit -n`)
+      * listen backlog / socket queue tuning
+      * per-process resource limits
+
+    * Document host firewall recommendations
+      * allow only expected TCP port
+      * optionally restrict source IP ranges for private deployments
+      * reject all unrelated inbound traffic
+
+    * Distinguish application-level abuse protection from infrastructure-level DDoS mitigation
+      * application limits
+      * proxy limits
+      * firewall limits
+      * kernel limits
 
 ---
 

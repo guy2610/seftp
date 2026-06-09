@@ -333,7 +333,26 @@ This document does not implement:
 
 These may be considered in future stages.
 
-## 8. Summary
+## 8. Implementation Status
+
+Implemented:
+
+- owner-only permissions for `priv.key`, `aes.key`, `server.fingerprint`, and `server_identity.pem`
+- private key writes are routed through persistence/files instead of direct crypto-layer file writes
+- `priv.key` overwrite is refused by default
+- corrupted or unreadable `priv.key` causes fail-closed behavior during AES key recovery
+- corrupted `server_identity.pem` causes server startup failure instead of silent identity replacement
+- AES key material may still be refreshed through normal registration or relogin flows
+- `server.fingerprint` mismatch fails closed
+- `server.pin` mismatch fails closed
+
+Still future:
+
+- explicit local identity reset command
+- controlled server identity rotation
+- platform-native secure storage or local encryption-at-rest
+
+## 9. Summary
 
 Stage 7 has already implemented authenticated server identity and the first local-storage hardening layer.
 

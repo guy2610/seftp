@@ -164,7 +164,7 @@ Related documents:
 
 Current status:
 
-The core server-identity handshake is implemented and tested as protocol version `v0.7.0`.
+The core Stage 7 security hardening work is implemented and tested through protocol version `v0.7.1`.
 
 Completed:
 - mandatory `829 CLIENT_HELLO` / `1608 SERVER_HELLO` / `830 CLIENT_HANDSHAKE_ACK`
@@ -176,29 +176,31 @@ Completed:
 - optional pinned mode using `server.pin`
 - server-side router gating before handshake completion
 - server, client, and E2E test coverage for the core handshake
+- signed AES key responses (`1602` / `1605`) bound to the Stage 7 handshake transcript
+- client-side verification of AES key binding signatures before AES key decryption
+- owner-only permissions for sensitive local key material
+- key lifecycle hardening for private key overwrite, corruption, and server identity loading
+- application-level abuse protection: connection limits, per-IP limits, handshake timeout, upload inactivity timeout, upload slots, bounded executor, and request burst limiting
 
 Remaining Stage 7 work:
-- stronger key lifecycle handling
-- stronger local storage for client keys
 - upload pipeline evolution toward streaming encryption
-- additional abuse protection and rate limiting
 
 Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
 
 * Protocol security extension
   * Introduce authenticated server identity during the bootstrap phase (DONE)
-  * Extend the current protocol with a MITM-resistant key establishment flow (PARTIAL - server identity handshake implemented; broader key lifecycle work remains)
+  * Extend the current protocol with a MITM-resistant key establishment flow (DONE - server identity handshake and AES key response binding implemented)
   * Preserve the existing request/response model (`825`/`826`/`827`/`828`/...) while strengthening the handshake (DONE)
   * Define a trust model for first connection (TOFU and pinned mode implemented)
 
 * Cryptographic model improvements
-  * Strengthen session key establishment and binding between identity and AES key (PARTIAL - AES key exchange now occurs only after verified server identity; deeper key lifecycle binding remains)
-  * Evaluate replay resistance and handshake integrity guarantees (PARTIAL - nonce-bound signed handshake implemented)
-  * Improve key lifecycle handling (rotation, overwrite, invalidation) (FUTURE)
+  * Strengthen session key establishment and binding between identity and AES key (DONE - `1602` / `1605` AES key responses are signed and bound to the Stage 7 handshake transcript)
+  * Evaluate replay resistance and handshake integrity guarantees (DONE - nonce-bound signed handshake and AES key binding implemented)
+  * Improve key lifecycle handling (DONE for overwrite prevention, corruption fail-closed behavior, and server identity loading; future work may add explicit rotation/reset flows)
 
 * Client-side key security
-  * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence
-  * Evaluate stronger protection or platform-native secure storage
+  * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence (PARTIAL - owner-only permissions and overwrite protection implemented)
+  * Evaluate stronger protection or platform-native secure storage (FUTURE)
 
 * Upload pipeline evolution
   * Move from full-file pre-encryption to incremental streaming encryption and transmission
@@ -206,9 +208,9 @@ Strengthen the cryptographic model and extend the protocol to provide authentica
   * Keep AES-CBC state continuity across chunks or define a controlled protocol extension if chunk boundaries require explicit IV handling
 
 * Abuse protection
-  * Connection rate limiting (limit new connections per time window, per IP/global)
-  * Basic DoS protection (burst control, early rejection under load, guarding expensive paths)
-  * Hardening of edge-case protocol paths under adversarial input
+  * Connection rate limiting (limit new connections per time window, per IP/global) (DONE)
+  * Basic DoS protection (burst control, early rejection under load, guarding expensive paths) (DONE)
+  * Hardening of edge-case protocol paths under adversarial input (DONE)
   * Document deployment-level abuse protection options (TCP proxy, firewall, OS limits) (FUTURE)
 ---
 

@@ -2,9 +2,39 @@
 
 This file tracks major project milestones by version.
 
-Stage 7 is currently active. The core server-identity handshake has been implemented as v0.7.0, while broader Stage 7 hardening items remain in progress.
+Stage 7 is currently active. The core security hardening work is implemented through v0.7.1. The remaining Stage 7 item is upload pipeline evolution toward streaming encryption.
 
 ---
+
+**v0.7.1 - Stage 7 hardening completion checkpoint**
+
+* Added owner-only permissions for sensitive client-side files:
+  * `priv.key`
+  * `aes.key`
+  * `server.fingerprint`
+* Added owner-only permissions for server identity key storage:
+  * `server_identity.pem`
+* Refactored RSA private key persistence so crypto returns generated key material and persistence/files own disk writes
+* Added private key overwrite prevention for `priv.key`
+* Added fail-closed behavior for missing, unreadable, or corrupted client private keys during relogin/key recovery paths
+* Added fail-closed behavior for corrupted server identity key loading
+* Added Stage 7 key lifecycle policy documentation
+* Added handshake timeout enforcement before Stage 7 completion
+* Added request burst limiting using per-session sliding-window request tracking
+* Added tests for local key permissions, server identity loading, private key overwrite prevention, handshake timeout, and request burst limiting
+* Extended `1602` and `1605` AES key responses for `security_version = 1`
+* Added server-side AES key binding signatures over:
+  * security version
+  * client nonce
+  * server nonce
+  * client ID
+  * response code
+  * encrypted AES key
+* Added client-side AES key binding signature verification before decrypting and saving `aes.key`
+* Added parser and answer tests for the new bound AES key response format
+
+Remaining Stage 7 work:
+* Upload pipeline evolution toward streaming encryption and transmission
 
 **v0.7.0 - Stage 7 core handshake (Server Identity & Trust Model)**
 

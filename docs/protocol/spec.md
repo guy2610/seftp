@@ -391,12 +391,37 @@ See section 2 for full structure.
 
 No payload.
 
-### **1602 - AES Key Encrypted With RSA**
+### **1602 - Bound AES Key Response**
 
+Returned after request `826`.
+
+For `security_version = 1`, the payload is:
+
+```text
+client_id              16 bytes
+encrypted_key_len      uint16 little-endian
+encrypted_key          variable
+signature_len          uint16 little-endian
+signature              variable
 ```
-RSA_ciphertext (256 bytes for RSA-2048)
-client_id (16 bytes)
+
+The `encrypted_key` contains the server-generated AES key encrypted with the client's RSA public key.
+
+The `signature` is produced by the server identity key over the Stage 7 AES key binding transcript:
+
+```text
+"SEFTP_STAGE7_AES_KEY_BINDING" ||
+security_version ||
+client_nonce ||
+server_nonce ||
+client_id ||
+response_code ||
+encrypted_key
 ```
+
+For `1602`, `response_code = 1602`.
+
+The client MUST verify this signature using the verified Stage 7 server public key before decrypting or saving the AES key.
 
 ### **1603 - CRC Result**
 
@@ -416,6 +441,8 @@ client_id
 ### **1605 - Re-login Success**
 
 Same structure as `1602`.
+
+For `1605`, the AES key binding transcript uses `response_code = 1605`.
 
 ### **1606 - Re-login Rejected**
 
@@ -473,6 +500,8 @@ With the Stage 7 server-identity handshake implemented:
 * Downgrade attacks are mitigated via signed security_version
 * Unauthenticated requests are rejected early (1607)
 * File contents remain encrypted over the network using AES-256-CBC
+* AES key delivery responses (`1602` / `1605`) are signed by the verified server identity key and bound to the Stage 7 handshake nonces
+* The client verifies AES key binding before decrypting or persisting the AES key
 
 ---
 
@@ -492,7 +521,7 @@ With the Stage 7 server-identity handshake implemented:
 ## 8. Future Improvements
 
 * Authenticated encryption
-* Rate limiting / abuse protection
+* Deployment-level abuse protection beyond application-level limits
 * Resumable uploads
 * Stronger local key storage on the client
 * Deeper observability and protocol-level diagnostics

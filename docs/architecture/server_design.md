@@ -16,6 +16,7 @@ The current scope includes:
 - Stage 7 server-identity handshake using `829`, `1608`, and `830`
 - persistent server RSA identity key generation/loading
 - router gating that rejects application requests before handshake completion
+- signed AES key responses (`1602` / `1605`) bound to the Stage 7 handshake transcript
 
 The current scope does not include:
 - multi-node deployment
@@ -147,6 +148,8 @@ The `answers` module is the binary response builder. It constructs response fram
 
 `1608 SERVER_HELLO` carries the server nonce, server public identity key, and RSA signature needed for client-side server identity verification.
 
+For Stage 7 `security_version = 1`, `1602` and `1605` also include an AES key binding signature. The signature is produced by the server identity key and covers the security version, client nonce, server nonce, client ID, response code, and encrypted AES key.
+
 ### 3.7 Persistence Layer
 
 The `Store` wraps SQLite access and owns durable metadata for clients and uploads. It initializes the schema, enables WAL mode, keeps a `Clients` table and an `Uploads` table, and exposes operations for client registration, public key storage, AES key updates, last-seen timestamps, upload record creation, upload completion, and upload failure transitions.
@@ -198,6 +201,8 @@ A new client sends `request 825` with a null-terminated username. The handler st
 ### 4.3 Public Key Submission and AES Bootstrap
 
 After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid. The server then stores the public key, generates a fresh 32-byte AES key, stores that AES key in Base64 form, encrypts it with RSA-OAEP, and returns it in `response 1602` together with the client ID.
+
+For Stage 7 connections, the encrypted AES key is returned in a bound response format. The response includes the client ID, encrypted AES key length, encrypted AES key, signature length, and signature. The signature binds AES key delivery to the completed Stage 7 handshake.
 
 ### 4.4 Relogin Flow
 

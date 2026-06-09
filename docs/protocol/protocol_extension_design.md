@@ -190,13 +190,24 @@ must abort if:
 No fallback allowed.
 
 ### Binding to Existing Protocol
- * 826 AES key exchange remains unchanged
- * but only allowed after handshake
+
+For `security_version = 1`, AES key delivery responses are extended and bound to the completed Stage 7 handshake.
+
+The existing request flow remains the same:
+
+- `826` still submits the client RSA public key
+- `827` still performs relogin
+- `1602` still delivers the encrypted AES key after public-key submission
+- `1605` still delivers the encrypted AES key after relogin
+
+However, the `1602` / `1605` payload format is extended to include an AES key binding signature.
 
 This ensures:
 
- * AES key is accepted only from a verified server
- * MITM cannot inject unverified key material
+- AES key delivery occurs only after verified server identity
+- AES key delivery is cryptographically bound to the current handshake nonces
+- replay of an AES key response from another connection fails signature verification
+- MITM cannot replace the encrypted AES key without invalidating the server signature
 
 ### Replay Protection
 
@@ -299,7 +310,7 @@ Given correct implementation, Stage 7 provides the following guarantees:
 - The client can verify that the server owns the corresponding private key for the presented server public key
 - In pinned mode, the client is protected against MITM from the first connection
 - In TOFU mode, the client is protected against MITM after the first trusted connection
-- The AES key exchange (826) occurs only after server identity verification
+- AES key delivery (`1602` / `1605`) occurs only after server identity verification and is signed over the Stage 7 AES key binding transcript
 - Replay of SERVER_HELLO messages is prevented through nonce binding
 - Downgrade attacks are mitigated by including security_version in the signed transcript
 - Unauthenticated or malformed connections are rejected early using existing strict validation (1607)

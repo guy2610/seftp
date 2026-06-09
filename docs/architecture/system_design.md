@@ -228,6 +228,7 @@ The system's security model is based on a split responsibility design:
 - the server signs the Stage 7 handshake transcript with a persistent RSA identity key
 - the client validates the server fingerprint using TOFU or optional pinned mode
 - application-level requests are rejected until the handshake completes
+- AES key responses are signed and bound to the Stage 7 handshake transcript before the client accepts them
 
 This model keeps plaintext file contents off the wire and avoids sharing private key material with the server.
 
@@ -272,14 +273,12 @@ Several future directions remain open:
 - no certificate-based trust authority or external CA
 - TOFU remains vulnerable to MITM on the first connection
 - no mutual cryptographic client authentication beyond the existing client key bootstrap flow
-- stronger binding between server identity and later key lifecycle decisions
-- key lifecycle improvements such as rotation, overwrite, and invalidation
-- stronger local storage for `priv.key` and `aes.key`
+- controlled server identity rotation and explicit local identity reset flows
+- stronger local storage beyond filesystem permissions for `priv.key` and `aes.key`
 - upload streaming pipeline evolution instead of full-file pre-encryption
-- additional abuse protection such as connection rate limiting and burst control
+- deployment-level abuse protection beyond application-level limits
 - deeper observability and per-phase timing
 - runtime metrics for active connections, active uploads, and executor saturation
-- more secure local key storage
 - isolated profiling of the server's in-memory client index
 - optional controlled parallel upload support if justified
 - optional GUI client

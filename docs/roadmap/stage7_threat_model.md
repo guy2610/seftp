@@ -131,6 +131,9 @@ Likelihood: medium
 Mitigation:
 
  * bind AES key establishment to verified server identity
+ * sign `1602` / `1605` AES key responses over the Stage 7 AES key binding transcript
+ * include client_nonce and server_nonce in the AES key binding transcript
+ * include response_code in the AES key binding transcript to prevent cross-response replay
  * include protocol/security version in signed handshake
  * reject unsupported or downgraded versions
 
@@ -193,11 +196,15 @@ Impact: medium/high
 Likelihood: high
 Current mitigation:
 
- * connection limits
+ * global connection limits
+ * per-IP connection limits
  * upload limits
  * bounded executor
  * request validation
  * early 1607 rejection
+ * handshake timeout
+ * upload inactivity timeout
+ * per-session request burst limiting
 
 Stage 7 mitigation:
 
@@ -298,6 +305,12 @@ Implemented:
 - pinned fingerprint mode using `server.pin`
 - router gating before handshake completion
 - tests for malformed and repeated handshake paths
+- signed AES key binding for `1602` and `1605`
+- client-side AES key binding verification before AES key decryption
+- owner-only permissions for sensitive local/server key files
+- key lifecycle hardening for private key overwrite and corruption handling
+- handshake timeout
+- request burst limiting
 
 Still deferred:
 
@@ -305,6 +318,6 @@ Still deferred:
 - mutual client authentication
 - authenticated encryption / AEAD
 - forward secrecy
-- stronger local key storage
 - upload streaming encryption
-- broader connection-rate limiting and burst control
+- platform-native secure key storage beyond filesystem permissions
+- deployment-level abuse protection beyond application-level limits

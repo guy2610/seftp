@@ -306,3 +306,24 @@ Given correct implementation, Stage 7 provides the following guarantees:
 - The existing upload encryption model (AES-256-CBC) continues to protect file confidentiality on the wire
 
 These guarantees strengthen the bootstrap phase without changing the core protocol or upload pipeline.
+
+
+### Stage 7 AES Key Binding
+
+1602 / 1605 payload for security_version=1:
+
+[16B client_id]
+[2B encrypted_key_len]
+[encrypted_key]
+[2B signature_len]
+[signature]
+
+Signature transcript:
+
+"SEFTP_STAGE7_AES_KEY_BINDING"
+|| security_version
+|| client_nonce
+|| server_nonce
+|| client_id
+|| response_code
+|| encrypted_key

@@ -1,6 +1,39 @@
 import datetime
 import base64
+from src.server_identity import sign_aes_key_binding
 import zlib
+
+def _build_bound_aes_key_payload(cipher_text_aes_encrypted: bytes, client_id: bytes, response_code: int, session) -> bytes:
+    if not session.handshake_verified:
+        raise RuntimeError("cannot send AES key before Stage 7 handshake completion")
+
+    if session.security_version is None or session.client_nonce is None or session.server_nonce is None:
+        raise RuntimeError("missing Stage 7 handshake state for AES key binding")
+
+    signature = sign_aes_key_binding(
+        session.server_identity_key,
+        session.security_version,
+        session.client_nonce,
+        session.server_nonce,
+        client_id,
+        response_code,
+        cipher_text_aes_encrypted,
+    )
+
+    if len(cipher_text_aes_encrypted) > 65535:
+        raise ValueError("encrypted AES key too large")
+
+    if len(signature) > 65535:
+        raise ValueError("AES key binding signature too large")
+
+    return (
+        client_id +
+        len(cipher_text_aes_encrypted).to_bytes(2, "little") +
+        cipher_text_aes_encrypted +
+        len(signature).to_bytes(2, "little") +
+        signature
+    )
+
 def message_answer(version:bytes,code_num:str,payload_size:str,payload:bytes,session):
     """
     Build a binary response frame to send to the client.
@@ -66,8 +99,8 @@ async def answer_1602(cipher_text_aes_encrypted,client_id,version,session):
     """
     session.log.debug("inside answer 1602")
     store = session.store
-    payload = cipher_text_aes_encrypted + client_id
-    message = message_answer(version, "1602", str(len(payload)), payload,session)
+    payload = _build_bound_aes_key_payload(cipher_text_aes_encrypted, client_id, 1602, session)
+    message = message_answer(version, "1602", str(len(payload)), payload, session)
     client_record = store.get_client_by_id(client_id.hex())
     client_name = client_record.username if client_record is not None else "<unknown>"
     session.log.info("sending encrypted AES key to %s", client_name)
@@ -106,7 +139,8 @@ async def answer_1605(cipher_text_aes_encrypted,client_id,version,session):
     """
     session.log.debug("inside answer 1605")
     store = session.store
-    message = message_answer(version, "1605", str(len(cipher_text_aes_encrypted+client_id)), cipher_text_aes_encrypted+client_id,session)
+    payload = _build_bound_aes_key_payload(cipher_text_aes_encrypted, client_id, 1605, session)
+    message = message_answer(version, "1605", str(len(payload)), payload, session)
     session.log.info(f"relogin approved for {base64.b64encode(client_id).decode('utf-8')}; sending encrypted AES key")
     store.touch_client_last_seen(client_id.hex())
     store.clients_recent_log[client_id].append(["answer_1605",str(datetime.datetime.now())])

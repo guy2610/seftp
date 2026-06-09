@@ -178,10 +178,10 @@ namespace seftp::proto {
 	{
 		ClientId client_id;
 	};
-	struct Res1602 
-	{
+	struct Res1602 {
 		ClientId client_id;
 		std::vector<uint8_t> encrypted_key;
+		std::vector<uint8_t> signature;
 	};
 	struct Res1603
 	{
@@ -208,12 +208,55 @@ namespace seftp::proto {
 		return r;
 	}
 	inline Res1602 parse_1602(ByteView payload) {
-		if (payload.size < 256 + kClientIdLen) throw std::runtime_error("1602 payload too short");
+		constexpr size_t kU16Len = 2;
+
+		if (payload.size < kClientIdLen + kU16Len) {
+			throw std::runtime_error("1602 payload too short");
+		}
+
 		Res1602 r{};
-		// ct first
-		r.encrypted_key.assign(payload.data, payload.data + 256);
-		// then client id
-		std::memcpy(r.client_id.data(), payload.data + 256, kClientIdLen);
+		size_t off = 0;
+
+		std::memcpy(r.client_id.data(), payload.data + off, kClientIdLen);
+		off += kClientIdLen;
+
+		uint16_t encrypted_key_len =
+			static_cast<uint16_t>(payload.data[off]) |
+			(static_cast<uint16_t>(payload.data[off + 1]) << 8);
+		off += kU16Len;
+
+		if (encrypted_key_len == 0) {
+			throw std::runtime_error("1602 encrypted key is empty");
+		}
+
+		if (payload.size < off + encrypted_key_len + kU16Len) {
+			throw std::runtime_error("1602 encrypted key truncated");
+		}
+
+		r.encrypted_key.assign(
+			payload.data + off,
+			payload.data + off + encrypted_key_len
+		);
+		off += encrypted_key_len;
+
+		uint16_t signature_len =
+			static_cast<uint16_t>(payload.data[off]) |
+			(static_cast<uint16_t>(payload.data[off + 1]) << 8);
+		off += kU16Len;
+
+		if (signature_len == 0) {
+			throw std::runtime_error("1602 signature is empty");
+		}
+
+		if (payload.size != off + signature_len) {
+			throw std::runtime_error("1602 signature length mismatch");
+		}
+
+		r.signature.assign(
+			payload.data + off,
+			payload.data + off + signature_len
+		);
+
 		return r;
 	}
 	inline Res1603 parse_1603(ByteView payload) {

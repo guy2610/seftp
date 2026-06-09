@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <boost/asio/ip/tcp.hpp>
+#include "protocol/protocol.hpp"
 
 namespace seftp {
 
@@ -15,6 +16,11 @@ namespace seftp {
         bool need_register = false;
         bool send_public_key = false;
         std::string last_error_text;
+        uint8_t security_version = 0;
+        std::array<uint8_t, seftp::proto::kStage7NonceLen> client_nonce{};
+        std::array<uint8_t, seftp::proto::kStage7NonceLen> server_nonce{};
+        bool stage7_handshake_complete = false;
+        std::vector<uint8_t> server_public_key_der;
     };
 
     struct ClientConfig {

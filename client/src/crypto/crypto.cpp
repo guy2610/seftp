@@ -1,7 +1,6 @@
 #include "crypto.hpp"
 
 namespace seftp::crypto {
-
 	std::string encode_base64(const std::string& raw_key) {
 		std::string encoded;
 		CryptoPP::StringSource(reinterpret_cast<const unsigned char*>(raw_key.data()), raw_key.size(), true,
@@ -221,6 +220,48 @@ namespace seftp::crypto {
 				);
 		}
 		catch (const CryptoPP::Exception& e) {
+			return false;
+		}
+	}
+	bool verify_aes_key_binding_signature(uint8_t security_version,const std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce,
+	const std::array<uint8_t, seftp::proto::kStage7NonceLen>& server_nonce, const seftp::proto::ClientId& client_id,
+	seftp::proto::ResCode response_code, const std::vector<uint8_t>& encrypted_key, const std::vector<uint8_t>& server_public_key_der,
+	const std::vector<uint8_t>& signature) {
+
+		std::vector<uint8_t> transcript;
+		const std::string context = "SEFTP_STAGE7_AES_KEY_BINDING";
+
+		transcript.insert(transcript.end(), context.begin(), context.end());
+		transcript.push_back(security_version);
+		transcript.insert(transcript.end(), client_nonce.begin(), client_nonce.end());
+		transcript.insert(transcript.end(), server_nonce.begin(), server_nonce.end());
+		transcript.insert(transcript.end(), client_id.begin(), client_id.end());
+
+		const uint16_t code = static_cast<uint16_t>(response_code);
+		transcript.push_back(static_cast<uint8_t>(code & 0xFF));
+		transcript.push_back(static_cast<uint8_t>((code >> 8) & 0xFF));
+
+		transcript.insert(transcript.end(), encrypted_key.begin(), encrypted_key.end());
+
+		try {
+			CryptoPP::RSA::PublicKey publicKey;
+			CryptoPP::ArraySource keySource(
+				server_public_key_der.data(),
+				server_public_key_der.size(),
+				true
+			);
+			publicKey.Load(keySource);
+
+			CryptoPP::RSASS<CryptoPP::PKCS1v15, CryptoPP::SHA256>::Verifier verifier(publicKey);
+
+			return verifier.VerifyMessage(
+				transcript.data(),
+				transcript.size(),
+				signature.data(),
+				signature.size()
+			);
+		}
+		catch (const CryptoPP::Exception&) {
 			return false;
 		}
 	}

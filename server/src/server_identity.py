@@ -5,6 +5,7 @@ from Crypto.Hash import SHA256
 
 TRANSCRIPT_CONTEXT = b"SEFTP_STAGE7_SERVER_HELLO"
 PRIVATE_KEY_MODE = 0o600
+AES_KEY_BINDING_CONTEXT = b"SEFTP_STAGE7_AES_KEY_BINDING"
 
 def _set_owner_only_permissions(path: str):
     os.chmod(path, PRIVATE_KEY_MODE)
@@ -64,3 +65,18 @@ def test_server_identity_truncated_existing_file_fails_startup(tmp_path):
         load_or_create_server_identity(str(key_path))
 
     assert key_path.read_bytes() == data[:40]
+
+def sign_aes_key_binding(private_key,security_version: int,client_nonce: bytes,server_nonce: bytes,
+    client_id: bytes,response_code: int,encrypted_key: bytes) -> bytes:
+    transcript = (
+        AES_KEY_BINDING_CONTEXT +
+        int(security_version).to_bytes(1, "little") +
+        client_nonce +
+        server_nonce +
+        client_id +
+        int(response_code).to_bytes(2, "little") +
+        encrypted_key
+    )
+
+    digest = SHA256.new(transcript)
+    return pkcs1_15.new(private_key).sign(digest)

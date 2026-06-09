@@ -38,4 +38,14 @@ namespace seftp::crypto {
 		const std::array<uint8_t, seftp::proto::kStage7NonceLen>& server_nonce,
 		const std::vector<uint8_t>& server_public_key_der,
 		const std::vector<uint8_t>& signature);
+	bool verify_aes_key_binding_signature(
+	uint8_t security_version,
+	const std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce,
+	const std::array<uint8_t, seftp::proto::kStage7NonceLen>& server_nonce,
+	const seftp::proto::ClientId& client_id,
+	seftp::proto::ResCode response_code,
+	const std::vector<uint8_t>& encrypted_key,
+	const std::vector<uint8_t>& server_public_key_der,
+	const std::vector<uint8_t>& signature
+);
 }

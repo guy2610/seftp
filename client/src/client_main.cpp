@@ -442,6 +442,12 @@ bool execute_server_identity_handshake(tcp::socket& s,seftp::ClientContext& cc) 
 			return false;
 		}
 		if (!validate_server_trust(cc, fingerprint)) return false;
+
+		cc.security_version = hello.security_version;
+		cc.client_nonce = client_nonce;
+		cc.server_nonce = hello.server_nonce;
+		cc.stage7_handshake_complete = true;
+		cc.server_public_key_der = hello.server_public_key_der;
 	}
 	catch (const std::exception& e) {
 		g_logger.error(std::string("server handshake failed: ") + e.what());
@@ -1051,8 +1057,27 @@ static seftp::DispatchResult handle_1606(const std::vector<uint8_t>& payload, se
 	out.updated_client_id = true;
 	return out;
 }
-static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::proto::Res1602& r) {
+static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::proto::Res1602& r, const seftp::ClientContext& cc) {
 	std::string client_id_hex = seftp::util::client_id_to_hex(r.client_id);
+	if (!cc.stage7_handshake_complete) {
+		throw std::runtime_error("AES key response received before completed Stage 7 handshake");
+	}
+
+	if (cc.server_public_key_der.empty()) {
+		throw std::runtime_error("missing server public key for AES key binding verification");
+	}
+	if (!seftp::crypto::verify_aes_key_binding_signature(
+			cc.security_version,
+			cc.client_nonce,
+			cc.server_nonce,
+			r.client_id,
+			code,
+			r.encrypted_key,
+			cc.server_public_key_der,
+			r.signature)) {
+		throw std::runtime_error("invalid AES key binding signature");
+			}
+	g_logger.info("AES key binding signature verified");
 	if (code == seftp::proto::ResCode::AesKey)
 	{
 		try {
@@ -1174,7 +1199,7 @@ seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, u
 		case seftp::proto::ResCode::ReloginOk: {
 		try {
 			auto r1602_1605 = seftp::proto::parse_1602(pv);
-			cc.client_id = handle_1602_or_1605(frame.code, r1602_1605);
+			cc.client_id = handle_1602_or_1605(frame.code, r1602_1605, cc);
 			return {};
 		}
 		catch (const std::exception& e) {

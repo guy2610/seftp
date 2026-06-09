@@ -1,6 +1,7 @@
 import pytest
 import src.store as store
 import src.answers as answers
+from Crypto.PublicKey import RSA
 import asyncio
 import base64
 
@@ -10,6 +11,24 @@ def make_sql_store(tmp_path):
     ok = s.initialize(str(db_path))
     assert ok
     return s
+
+def assert_bound_aes_payload(payload: bytes, client_id: bytes, cipher: bytes):
+    assert payload[:16] == client_id
+
+    off = 16
+    key_len = int.from_bytes(payload[off:off + 2], "little")
+    off += 2
+    assert key_len == len(cipher)
+    assert payload[off:off + key_len] == cipher
+    off += key_len
+
+    sig_len = int.from_bytes(payload[off:off + 2], "little")
+    off += 2
+    assert sig_len > 0
+    assert len(payload[off:off + sig_len]) == sig_len
+    off += sig_len
+
+    assert off == len(payload)
 
 
 def seed_client(
@@ -62,6 +81,11 @@ class FakeSession:
         self.log = FakeLogger()
         self.sent = []
         self.disconnect_reason = None
+        self.handshake_verified = True
+        self.security_version = 1
+        self.client_nonce = b"\x11" * 32
+        self.server_nonce = b"\x22" * 32
+        self.server_identity_key = RSA.generate(2048)
 
     async def send(self, data: bytes) -> None:
         self.sent.append(data)
@@ -159,13 +183,14 @@ async def test_answer_1602_correct_frame(tmp_path):
 
     assert len(fake.sent) == 1
     msg = fake.sent[0]
-    assert len(msg) == 1 + 2 + 4 + 16 + 30
     assert msg[0:1] == version
     assert int.from_bytes(msg[1:3], "little") == 1602
-    assert int.from_bytes(msg[3:7], "little") == len(cipher) + len(client_id)
+
+    payload_size = int.from_bytes(msg[3:7], "little")
     payload = msg[7:]
-    assert payload[: len(cipher)] == cipher
-    assert payload[len(cipher) :] == client_id
+
+    assert payload_size == len(payload)
+    assert_bound_aes_payload(payload, client_id, cipher)
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1602"
 
 
@@ -239,11 +264,14 @@ async def test_answer_1605_correct_frame_and_side_effects(tmp_path):
     assert len(fake.sent) == 1
     msg = fake.sent[0]
     assert msg[0:1] == version
+    assert msg[0:1] == version
     assert int.from_bytes(msg[1:3], "little") == 1605
-    assert int.from_bytes(msg[3:7], "little") == len(cipher) + len(client_id)
+
+    payload_size = int.from_bytes(msg[3:7], "little")
     payload = msg[7:]
-    assert payload[: len(cipher)] == cipher
-    assert payload[len(cipher) :] == client_id
+
+    assert payload_size == len(payload)
+    assert_bound_aes_payload(payload, client_id, cipher)
     assert fake.store.clients_recent_log[client_id][-1][0] == "answer_1605"
 
 

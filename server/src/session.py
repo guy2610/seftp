@@ -4,6 +4,7 @@ from src.logging_setup import make_session_logger
 import asyncio
 import time
 from typing import Optional
+from collections import deque
 
 class ClientSession:
     def __init__(self, writer, store, base_logger, config, upload_limiter, bounded_executor, server_identity_key=None):
@@ -48,6 +49,7 @@ class ClientSession:
         self.server_nonce = None
         self.security_version = None
         self.server_identity_key = server_identity_key
+        self.request_timestamps = deque()
 
     async def release_upload_slot(self):
         if self.has_upload_slot:
@@ -117,5 +119,17 @@ class ClientSession:
         self.upload_crc = None
         if reason:
             self.log.info("reset transfer state reason=%s",reason)
+
+    def allow_request_now(self, now: float) -> bool:
+        window_start = now - self.config.req_window_s
+
+        while self.request_timestamps and self.request_timestamps[0] < window_start:
+            self.request_timestamps.popleft()
+
+        if len(self.request_timestamps) >= self.config.max_req_per_window:
+            return False
+
+        self.request_timestamps.append(now)
+        return True
 
 

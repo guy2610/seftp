@@ -31,7 +31,7 @@ async def main():
 
     logger.info(
         "server config host=%s port=%s data_path=%s log_level=%s idle_timeout_s=%s "
-        "upload_inactivity_timeout_s=%s handshake_timeout_s=%s  max_file_size=%s max_packets=%s max_chunk_size=%s max_payload_size=%s read_timeout_s=%s",
+        "upload_inactivity_timeout_s=%s handshake_timeout_s=%s  max_file_size=%s max_packets=%s max_chunk_size=%s max_payload_size=%s read_timeout_s=%s max_req_per_window=%s req_window_s=%s",
         config.host,
         config.port,
         config.data_path,
@@ -44,6 +44,8 @@ async def main():
         config.max_chunk_size,
         config.max_payload_size,
         config.read_timeout_s,
+        config.max_req_per_window,
+        config.req_window_s,
     )
 
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -93,8 +95,26 @@ async def main():
                     break
                 session.on_frame_received(len(chunk))
                 frames = session.feed(chunk)
+                rate_limited = False
                 for frame in frames:
+                    now = time.monotonic()
+                    if not session.allow_request_now(now):
+                        session.disconnect_reason = "request_rate_limited"
+                        session.log.warning("request rate limit exceeded")
+                        if session.last_client_id is not None and session.last_version is not None:
+                            try:
+                                await answers.answer_1607(session.last_client_id,
+                                                          session.last_version,
+                                                          "request rate limit exceeded",
+                                                          session,
+                                                          )
+                            except Exception:
+                                pass
+                        rate_limited = True
+                        break
                     await router.handle_frame(frame, session)
+                if rate_limited:
+                    break
         except (ConnectionResetError, BrokenPipeError):
             session.disconnect_reason = "reset"
             session.log.warning("Client %s disconnected unexpectedly", addr)

@@ -120,6 +120,68 @@ def _assert_socket_closed_soon(sock: socket.socket) -> None:
             return
     raise AssertionError("socket did not close in time")
 
+def _build_dummy_frame(code: int = 829) -> bytes:
+    client_id = b"\x01" * 16
+    version = b"\x03"
+    code_b = int(code).to_bytes(2, "little")
+    payload = b""
+    payload_size = len(payload).to_bytes(4, "little")
+    return client_id + version + code_b + payload_size + payload
+
+def _drain_until_socket_closed(sock: socket.socket) -> bytes:
+    chunks = []
+    deadline = time.time() + 2.0
+
+    while time.time() < deadline:
+        try:
+            data = sock.recv(4096)
+            if data == b"":
+                return b"".join(chunks)
+            chunks.append(data)
+        except socket.timeout:
+            time.sleep(0.1)
+        except ConnectionResetError:
+            return b"".join(chunks)
+        except OSError:
+            return b"".join(chunks)
+
+    raise AssertionError("socket did not close in time")
+
+def test_request_burst_limit_closes_connection(tmp_path: Path):
+    proc, port, log_path = _start_server(
+        tmp_path=tmp_path,
+        max_connections=2,
+        max_connections_per_ip=2,
+        extra_env={
+            "SEFTP_MAX_REQUESTS_PER_WINDOW": "2",
+            "SEFTP_REQUEST_WINDOW_SECONDS": "10",
+            "SEFTP_HANDSHAKE_TIMEOUT_S": "30",
+        },
+    )
+
+    s = None
+    try:
+        s = _open_client(port)
+        frame = _build_dummy_frame(code=829)
+
+        s.sendall(frame)
+        s.sendall(frame)
+        s.sendall(frame)
+
+        data = _drain_until_socket_closed(s)
+        assert b"request rate limit exceeded" in data
+
+    finally:
+        try:
+            if s is not None:
+                s.close()
+        except Exception:
+            pass
+        _stop_server(proc)
+
+    log_text = log_path.read_text(encoding="utf-8", errors="replace")
+    assert "request rate limit exceeded" in log_text
+
 
 def test_total_connection_limit_enforced_and_recovery_works(tmp_path: Path):
     proc, port, log_path = _start_server(

@@ -4,7 +4,7 @@ class Config:
     def __init__(self,host,port,data_path,log_level,idle_timeout_s=60, upload_inactivity_timeout_s=20,handshake_timeout_s=5,
                  max_file_size=100* 1024 * 1024,max_packets=12000,max_chunk_size=64* 1024,
                  max_payload_size=10_000_000,read_timeout_s=10,max_concurrent_uploads=10, max_connections=10, max_connections_per_ip=10,
-                 cpu_worker_threads=4, cpu_max_in_flight=8):
+                 cpu_worker_threads=4, cpu_max_in_flight=8,max_req_per_window=50,req_window_s=5):
         self.host=host
         self.port=port
         self.data_path=data_path
@@ -22,6 +22,8 @@ class Config:
         self.cpu_max_in_flight = cpu_max_in_flight
         self.cpu_worker_threads = cpu_worker_threads
         self.handshake_timeout_s = handshake_timeout_s
+        self.max_req_per_window = max_req_per_window
+        self.req_window_s = req_window_s
 
     @classmethod
     def load(cls):
@@ -66,5 +68,7 @@ class Config:
             max_connections=env_int("SEFTP_MAX_CONNECTIONS",10),
             max_connections_per_ip=env_int("SEFTP_MAX_CONNECTIONS_PER_IP", 10),
             cpu_worker_threads=env_int("SEFTP_CPU_WORKER_THREADS",4),
-            cpu_max_in_flight=env_int("SEFTP_CPU_MAX_IN_FLIGHT",8)
+            cpu_max_in_flight=env_int("SEFTP_CPU_MAX_IN_FLIGHT",8),
+            max_req_per_window=env_int("SEFTP_MAX_REQUESTS_PER_WINDOW",50),
+            req_window_s=env_int("SEFTP_REQUEST_WINDOW_SECONDS",5)
         )

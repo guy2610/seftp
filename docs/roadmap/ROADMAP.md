@@ -183,7 +183,11 @@ Completed:
 - application-level abuse protection: connection limits, per-IP limits, handshake timeout, upload inactivity timeout, upload slots, bounded executor, and request burst limiting
 
 Remaining Stage 7 work:
-- upload pipeline evolution toward streaming encryption
+- end-to-end upload pipeline streaming for the existing AES-CBC upload model
+  - client-side incremental file read, encryption, and transmission
+  - server-side incremental receive, decryption, and disk write
+  - preserve existing upload protocol semantics
+  - avoid full-file plaintext or ciphertext buffering on either side
 
 Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
 
@@ -203,9 +207,13 @@ Strengthen the cryptographic model and extend the protocol to provide authentica
   * Evaluate stronger protection or platform-native secure storage (FUTURE)
 
 * Upload pipeline evolution
-  * Move from full-file pre-encryption to incremental streaming encryption and transmission
-    (read -> encrypt -> send in a pipeline, reducing peak memory usage and avoiding full-file buffering)
-  * Keep AES-CBC state continuity across chunks or define a controlled protocol extension if chunk boundaries require explicit IV handling
+  * Move from full-file buffering to end-to-end incremental upload processing
+    * Client: read plaintext chunk -> encrypt with continuous AES-CBC state -> send encrypted chunk
+    * Server: receive encrypted chunk -> decrypt with continuous AES-CBC state -> write plaintext chunk to disk
+  * Preserve current upload protocol semantics and AES-CBC file-level encryption model
+  * Apply CBC padding only at the file boundary, not independently per chunk
+  * Reduce peak memory usage by avoiding full-file plaintext or ciphertext buffering on both client and server
+    * Defer independent per-chunk encryption, retry, resume, and parallel upload semantics to a future AEAD-based upload protocol stage
 
 * Abuse protection
   * Connection rate limiting (limit new connections per time window, per IP/global) (DONE)
@@ -276,6 +284,12 @@ Future work and optional extensions.
 * Upload model extensions
   * Evaluate resumable uploads across reconnects (protocol and persistence implications)
   * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
+    * Design a future chunked AEAD upload protocol
+    * Independent authenticated encryption per chunk
+    * Per-upload nonce / key derivation strategy
+    * Chunk index and metadata bound as AEAD associated data
+    * Optional upload session lifecycle (`UPLOAD_BEGIN`, `UPLOAD_CHUNK`, `UPLOAD_FINISH`)
+    * Foundation for resumable uploads, retries, and controlled parallel chunk transmission
 
 * Storage and performance exploration
   * Evaluate additional caching / indexing strategies on the server (based on measured bottlenecks)

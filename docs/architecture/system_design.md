@@ -29,7 +29,7 @@ The current scope does not include:
 
 ## 2. System Overview
 
-At a high level, the client loads runtime configuration and local identity material, connects to the server, and executes either registration or relogin. The server validates the request, establishes or restores client identity, and delivers a server-generated AES key encrypted under the client's RSA public key. The client decrypts that AES key locally, encrypts files before transport, and uploads ciphertext in protocol-compliant chunks. The server reassembles and decrypts the upload, writes the plaintext file to disk, computes CRC32, and uses a final CRC exchange to conclude the upload lifecycle.
+At a high level, the client loads runtime configuration and local identity material, connects to the server, and executes either registration or relogin. The server validates the request, establishes or restores client identity, and delivers a server-generated AES key encrypted under the client's RSA public key. The client decrypts that AES key locally and uploads files through a streaming encryption pipeline. It reads plaintext incrementally, computes CRC32 incrementally, encrypts with continuous AES-256-CBC state, and sends ciphertext in protocol-compliant 828 chunks. The server decrypts those chunks incrementally, writes plaintext to a temporary file, computes CRC32 incrementally, atomically finalizes the output file, and uses a final CRC exchange to conclude the upload lifecycle.
 
 Before registration, relogin, AES key bootstrap, or upload requests, the client and server now execute a Stage 7 server-identity handshake. The server proves ownership of a persistent RSA identity key by signing a transcript containing both client and server nonces. The client verifies the signature and then validates the server fingerprint using either TOFU or an optional pinned fingerprint.
 
@@ -123,14 +123,15 @@ sequenceDiagram
     Server-->>Client: 1602 AES key encrypted with RSA
 
     Client->>Client: decrypt AES key locally
-    Client->>Client: encrypt file with AES-256-CBC + fresh IV
+    Client->>Client: stream read + CRC + AES-256-CBC encrypt
 
     Client->>Server: 828 packet 0 (metadata + IV)
     Client->>Server: 828 packet 1..N (ciphertext chunks)
 
     Server->>Store: create upload record (in_progress)
     Server->>Server: validate order / sizes / state
-    Server->>Disk: write finalized plaintext file
+    Server->>Disk: stream decrypted plaintext to temp file
+    Server->>Disk: atomic replace final file
     Server->>Store: update upload metadata
     Server-->>Client: 1603 CRC result
 
@@ -141,11 +142,13 @@ sequenceDiagram
 
 ### 4.3 Secure File Upload Flow
 
-Once handshake is complete, the client reads a file from disk, generates a fresh IV, encrypts the plaintext with AES-256-CBC, splits the ciphertext into chunks, and sends request `828` packet `0` followed by chunk packets.
+Once handshake is complete and the client holds an AES key, upload uses the existing 828 wire protocol with a streaming implementation.
 
-The server validates packet ordering, size constraints, and upload state, acquires upload capacity, accumulates ciphertext, decrypts the final upload, writes the file to disk, computes CRC32, and returns response `1603`.
+The client sends packet `0` with metadata and a fresh per-file IV. It then reads plaintext incrementally from disk, updates CRC32 incrementally, encrypts with continuous AES-256-CBC state, applies PKCS#7 padding only at end-of-file, packetizes ciphertext, and sends packets `1..N`.
 
-The key architectural point is that the file is encrypted client-side before transport.
+The server validates the upload metadata, packet order, and size limits. It decrypts ciphertext chunks incrementally with continuous AES-CBC state, writes plaintext to a temporary file, updates CRC32 incrementally, validates final padding and plaintext size on the last packet, and atomically replaces the final uploaded file path.
+
+The key architectural point is that plaintext is never sent over the wire, and neither side needs to hold the full plaintext or full ciphertext in memory.
 
 ### 4.4 CRC Validation and Completion
 
@@ -267,6 +270,8 @@ The project includes dedicated benchmarking and plotting tooling focused primari
 
 The main architectural takeaway is that upload handling is the dominant cost path. Registration and relogin behave more like control-plane operations, while upload traffic drives the main resource and capacity constraints. This validates the decision to treat upload handling as a separately controlled resource domain on the server.
 
+Stage 7 upload streaming directly addresses the earlier upload memory-pressure concern by avoiding full-file plaintext and ciphertext buffering on both the client and server. Upload remains the dominant resource-sensitive path, but the implementation now processes upload data incrementally.
+
 ## 11. Limitations and Future Work
 
 Several future directions remain open:
@@ -275,7 +280,7 @@ Several future directions remain open:
 - no mutual cryptographic client authentication beyond the existing client key bootstrap flow
 - controlled server identity rotation and explicit local identity reset flows
 - stronger local storage beyond filesystem permissions for `priv.key` and `aes.key`
-- upload streaming pipeline evolution instead of full-file pre-encryption
+- future AEAD-based chunk upload protocol for authenticated chunks, resumability, and controlled per-chunk retry
 - deployment-level abuse protection beyond application-level limits
 - deeper observability and per-phase timing
 - runtime metrics for active connections, active uploads, and executor saturation

@@ -1,6 +1,6 @@
 ## Protocol Extension Design (Aligned with Existing Architecture)
 
-Status: Stage 7 core handshake implemented. This document explains the server-identity handshake extension that was added to the protocol in v0.7.0. Broader Stage 7 hardening items remain tracked in the roadmap.
+Status: Stage 7 core handshake and AES key binding implemented. This document explains the server-identity handshake extension that was added to the protocol in v0.7.0. Later Stage 7 upload pipeline work changed the internal upload implementation to streaming while preserving the same 828 wire protocol semantics.
 
 ### Goal
 
@@ -253,12 +253,14 @@ Rationale:
 
 #### System
 
-No changes to:
+No protocol-level changes to:
 
- * upload pipeline
+ * 828 upload wire semantics
  * AES file encryption model
  * CRC flow
  * server database schema
+
+Later Stage 7 upload pipeline work changed the internal implementation from full-file buffering to streaming processing. That implementation change preserves the same 828 packet layout and is documented in the protocol specification and architecture documents.
 
 Added persistence files:
 
@@ -315,8 +317,9 @@ Given correct implementation, Stage 7 provides the following guarantees:
 - Downgrade attacks are mitigated by including security_version in the signed transcript
 - Unauthenticated or malformed connections are rejected early using existing strict validation (1607)
 - The existing upload encryption model (AES-256-CBC) continues to protect file confidentiality on the wire
+- Stage 7 upload streaming preserves the same file-level AES-CBC security model while reducing peak memory usage by avoiding full-file plaintext or ciphertext buffering
 
-These guarantees strengthen the bootstrap phase without changing the core protocol or upload pipeline.
+These guarantees strengthen the bootstrap phase without changing the core request/response protocol model. Later Stage 7 upload streaming improves the internal upload implementation while preserving the existing 828 wire semantics.
 
 
 ### Stage 7 AES Key Binding

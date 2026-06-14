@@ -229,23 +229,6 @@ def _draw_progress(packet_num, total_packets, chunk_size):
     if packet_num == total_packets:
         sys.stderr.write("\n")
         sys.stderr.flush()
-def finalize_upload(file_path, cipher_bytes, iv, expected_size,aes_key):
-    # AES-256-CBC with random IV
-    decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=iv)
-    decrypted_all = decrypt_cipher.decrypt(cipher_bytes)
-    # Try to remove PKCS#7 padding
-    try:
-        plaintext = unpad(decrypted_all, AES.block_size)
-    except ValueError:
-        # In case padding is wrong, keep raw decrypted data
-        plaintext = decrypted_all
-    # Trim plaintext to the original size specified by client
-    plaintext = plaintext[:expected_size]
-    # Write plaintext to disk
-    with open(file_path, "wb") as f:
-        f.write(plaintext)
-    # Compute CRC32 over the decrypted plaintext
-    return  zlib.crc32(plaintext) & 0xFFFFFFFF , len(plaintext)
 
 async def _best_effort_fail_upload(session, failure_reason: str, status: str = "failed"):
     store = session.store
@@ -275,26 +258,57 @@ def validate_header(session, packet_num, total_packets, content_size, orig_file_
         return ("bad_828_limits", "bad 828: content_size too large")
     return None
 
+def _write_plain_stream(session, plain: bytes):
+    if not plain:
+        return
+
+    session.upload_tmp_file.write(plain)
+    session.upload_plain_bytes_written += len(plain)
+    session.upload_crc32_state = zlib.crc32(plain, session.upload_crc32_state) & 0xFFFFFFFF
+
+
+def _process_streaming_cipher_chunk(session, cipher_chunk: bytes, is_last: bool):
+    if len(cipher_chunk) == 0:
+        raise ValueError("empty ciphertext chunk")
+
+    if len(cipher_chunk) % AES.block_size != 0:
+        raise ValueError("ciphertext chunk is not block aligned")
+
+    plain = session.upload_decrypt_cipher.decrypt(cipher_chunk)
+
+    combined = bytes(session.upload_plain_tail) + plain
+
+    if is_last:
+        try:
+            final_plain = unpad(combined, AES.block_size)
+        except ValueError as e:
+            raise ValueError("invalid PKCS#7 padding") from e
+
+        _write_plain_stream(session, final_plain)
+        session.upload_plain_tail = bytearray()
+        return
+
+    if len(combined) <= AES.block_size:
+        session.upload_plain_tail = bytearray(combined)
+        return
+
+    writable = combined[:-AES.block_size]
+    tail = combined[-AES.block_size:]
+
+    _write_plain_stream(session, writable)
+    session.upload_plain_tail = bytearray(tail)
+
 async def request_828(payload_info,version,client_id,session):
     """
-        Handle request 828: receive encrypted file in chunks.
+    Handle request 828: receive encrypted file in chunks.
 
-        Payload:
-        - 4 bytes: total ciphertext size
-        - 4 bytes: original (plaintext) file size
-        - 2 bytes: packet number (1-based)
-        - 2 bytes: total packets
-        - filename (UTF-8, null-terminated)
-        - ciphertext chunk
-
-        Behavior:
-        - Accumulates ciphertext in a static buffer (session.transfer_cipher).
-        - On the last packet:
-            * Decrypts using AES-256-CBC with a per-file random IV provided by the client in packet 0. IV is never static or reused across files.
-            * Unpads (PKCS#7), trims to orig_file_size.
-            * Writes plaintext to disk.
-            * Calls answer_1603 to send CRC result back.
-        """
+    Behavior:
+    - Packet 0 initializes upload metadata and IV.
+    - Packets 1..N are decrypted incrementally using AES-256-CBC.
+    - Plaintext is streamed to a temporary file.
+    - CRC32 is updated incrementally.
+    - On the last packet, PKCS#7 padding is removed and the temp file is finalized.
+    """
     session.log.debug("inside request 828")
     store=session.store
     # Parse header fields from payload
@@ -448,18 +462,37 @@ async def request_828(payload_info,version,client_id,session):
             session.mark_upload_progress()
             sys.stderr.write("\n")
             sys.stderr.flush()
-            session.log.info(f"writing the file {file_name} ")
-            session.transfer_cipher = bytearray()
+            session.log.info(f"streaming upload for file {file_name}")
+
             store.touch_client_last_seen(client_id_hex)
-            session.upload_id = store.create_upload_record(client_id_hex, file_name, orig_file_size, session.expected_content_size)
+            session.upload_id = store.create_upload_record(
+                client_id_hex,
+                file_name,
+                orig_file_size,
+                session.expected_content_size
+            )
             if session.upload_id == None:
                 session.log.info("bad 828: upload id is None in db")
                 await answers.answer_1607(client_id, version, "bad 828: upload id is None in db", session)
                 await session.release_upload_slot()
                 session.reset_transfer_state("bad 828 upload id is None in db")
                 return
+            base_dir = "data/uploads"
+            user_dir = os.path.join(base_dir, username)
+            os.makedirs(user_dir, exist_ok=True)
+
+            out_path = os.path.normpath(os.path.join(user_dir, file_name))
+            tmp_path = out_path + f".tmp.{session.connection_id}"
+
+            session.upload_path = out_path
+            session.upload_tmp_path = tmp_path
+            session.upload_tmp_file = open(tmp_path, "wb")
+            session.upload_decrypt_cipher = AES.new(aes_key, AES.MODE_CBC, iv=session.transfer_iv)
+            session.upload_plain_tail = bytearray()
+            session.upload_plain_bytes_written = 0
+            session.upload_crc32_state = 0
             store.clients_recent_log[client_id].append(["request_828", str(datetime.datetime.now())])
-        # Append chunk to the accumulated ciphertext
+        # Decrypt and stream this ciphertext chunk to the temporary plaintext file.
         _draw_progress(packet_num, total_packets, len(cipher_chunk))
         if session.received_cipher_bytes + len(cipher_chunk) > session.expected_content_size:
             session.log.info("bad 828: content_size will overflow")
@@ -476,10 +509,25 @@ async def request_828(payload_info,version,client_id,session):
             session.reset_transfer_state("bad_828_out_of_order")
             return
         session.mark_upload_progress()
-        session.transfer_cipher.extend(cipher_chunk)
+        is_last_packet = packet_num == total_packets
+
+        try:
+            _process_streaming_cipher_chunk(session, cipher_chunk, is_last_packet)
+        except ValueError as e:
+            session.log.info("bad 828: streaming decrypt failed: %s", str(e))
+            await _best_effort_fail_upload(session, f"streaming decrypt failed: {e}", "failed")
+            await answers.answer_1607(client_id, version, "bad 828: streaming decrypt failed", session)
+            await session.release_upload_slot()
+            session.reset_transfer_state("bad_828_streaming_decrypt")
+            return
+
         session.expected_packet_num += 1
-        session.received_cipher_bytes+=len(cipher_chunk)
-        session.log.debug(f"[SERVER] accumulated cipher size={len(session.transfer_cipher)}")
+        session.received_cipher_bytes += len(cipher_chunk)
+        session.log.debug(
+            "[SERVER] streamed cipher bytes=%d plain bytes=%d",
+            session.received_cipher_bytes,
+            session.upload_plain_bytes_written,
+        )
         session.log.debug(f'packet number: {packet_num} of {total_packets}')
         # Once we have the last packet, decrypt and write file
         if packet_num == total_packets:
@@ -492,19 +540,40 @@ async def request_828(payload_info,version,client_id,session):
                 session.reset_transfer_state("bad_828 received_cipher_bytes != expected_content_size")
                 return
             store.touch_client_last_seen(client_id_hex)
-            cipher_total=bytes(session.transfer_cipher)
-            session.log.info(f"final cipher text total size={len(cipher_total)}, expected content size={content_size}")
-            # making directory if not exist for user
-            base_dir = "data/uploads"
-            user_dir = os.path.join(base_dir, username)
-            os.makedirs(user_dir, exist_ok=True)
-            out_path = os.path.join(user_dir, file_name)
-            out_path = os.path.normpath(out_path)
-            crc32_val, pt_len = await session.bounded_executor.run(finalize_upload,out_path,cipher_total,session.transfer_iv,orig_file_size,aes_key)
-            session.log.info("writing file to %s", out_path)
+
+            if session.upload_tmp_file is None or session.upload_tmp_path is None or session.upload_path is None:
+                session.log.info("bad 828: streaming upload file state is missing")
+                await _best_effort_fail_upload(session, "streaming upload file state is missing", "failed")
+                await answers.answer_1607(client_id, version, "bad 828: streaming upload state missing", session)
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad_828_streaming_state_missing")
+                return
+
+            session.upload_tmp_file.flush()
+            session.upload_tmp_file.close()
+            session.upload_tmp_file = None
+
+            pt_len = session.upload_plain_bytes_written
+            crc32_val = session.upload_crc32_state & 0xFFFFFFFF
+
+            if pt_len != orig_file_size:
+                session.log.info(
+                    "bad 828: plaintext size mismatch pt_len=%d expected=%d",
+                    pt_len,
+                    orig_file_size,
+                )
+                await _best_effort_fail_upload(session, "plaintext size mismatch", "failed")
+                await answers.answer_1607(client_id, version, "bad 828: plaintext size mismatch", session)
+                await session.release_upload_slot()
+                session.reset_transfer_state("bad_828_plaintext_size_mismatch")
+                return
+
+            os.replace(session.upload_tmp_path, session.upload_path)
+            session.upload_tmp_path = None
+
+            session.log.info("streamed file to %s", session.upload_path)
             session.log.info(f"length of the plaintext= {pt_len}, original file size={orig_file_size}")
 
-            session.upload_path = out_path
             session.upload_crc = crc32_val
 
             if session.log.isEnabledFor(logging.DEBUG):

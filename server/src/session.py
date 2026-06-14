@@ -5,6 +5,7 @@ import asyncio
 import time
 from typing import Optional
 from collections import deque
+import os
 
 class ClientSession:
     def __init__(self, writer, store, base_logger, config, upload_limiter, bounded_executor, server_identity_key=None):
@@ -16,7 +17,6 @@ class ClientSession:
         self.log = make_session_logger(base_logger,self.connection_id)
         self.framer=Framer(max_payload_size=config.max_payload_size)
         self.transfer_iv=None
-        self.transfer_cipher=bytearray()
         now = time.monotonic()
         self.connected_at = now
         self.last_activity = now
@@ -44,6 +44,12 @@ class ClientSession:
         self.upload_id = None
         self.upload_path = None
         self.upload_crc = None
+        self.upload_decrypt_cipher = None
+        self.upload_tmp_path = None
+        self.upload_tmp_file = None
+        self.upload_plain_tail = bytearray()
+        self.upload_plain_bytes_written = 0
+        self.upload_crc32_state = 0
         self.handshake_verified = False
         self.client_nonce = None
         self.server_nonce = None
@@ -100,8 +106,19 @@ class ClientSession:
         self.last_upload_progress_ts=time.monotonic()
         self.mark_activity()
     def reset_transfer_state(self,reason: Optional[str] = None):
+        if self.upload_tmp_file is not None:
+            try:
+                self.upload_tmp_file.close()
+            except Exception:
+                pass
+
+        if self.upload_tmp_path is not None:
+            try:
+                if os.path.exists(self.upload_tmp_path):
+                    os.remove(self.upload_tmp_path)
+            except Exception:
+                pass
         self.transfer_iv=None
-        self.transfer_cipher=bytearray()
         self.upload_active=False
         self.last_upload_progress_ts=None
         self.upload_filename=None
@@ -117,6 +134,12 @@ class ClientSession:
         self.upload_id = None
         self.upload_path = None
         self.upload_crc = None
+        self.upload_decrypt_cipher = None
+        self.upload_tmp_path = None
+        self.upload_tmp_file = None
+        self.upload_plain_tail = bytearray()
+        self.upload_plain_bytes_written = 0
+        self.upload_crc32_state = 0
         if reason:
             self.log.info("reset transfer state reason=%s",reason)
 

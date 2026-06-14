@@ -7,6 +7,10 @@ from collections import defaultdict
 from Crypto.PublicKey import RSA
 import base64
 from base64 import b64decode
+from types import SimpleNamespace
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+import zlib
 import src.store as store
 
 def make_sql_store(tmp_path):
@@ -107,7 +111,13 @@ class FakeSession:
         self.expected_content_size = None
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
-        self.transfer_cipher = bytearray()
+        self.connection_id = "test-connection"
+        self.upload_decrypt_cipher = None
+        self.upload_tmp_path = None
+        self.upload_tmp_file = None
+        self.upload_plain_tail = bytearray()
+        self.upload_plain_bytes_written = 0
+        self.upload_crc32_state = 0
 
         self.upload_filename = None
         self.upload_id = None
@@ -150,7 +160,6 @@ class FakeSession:
         self.expected_content_size = None
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
-        self.transfer_cipher = bytearray()
 
         self.upload_filename = None
         self.upload_id = None
@@ -160,6 +169,13 @@ class FakeSession:
         self.upload_client_id_hex = None
         self.upload_username = None
         self.upload_aes_key = None
+
+        self.upload_decrypt_cipher = None
+        self.upload_tmp_path = None
+        self.upload_tmp_file = None
+        self.upload_plain_tail = bytearray()
+        self.upload_plain_bytes_written = 0
+        self.upload_crc32_state = 0
 
     async def release_upload_slot(self):
         if self.has_upload_slot:
@@ -218,14 +234,30 @@ def patch_828_side_effects(monkeypatch):
     async def fake_1607(client_id, version, text, session):
         calls.append(("1607", client_id, version, text))
 
+    def fake_process_streaming_cipher_chunk(session, cipher_chunk, is_last):
+        if session.upload_tmp_file is None:
+            return
+
+        expected_size = session.expected_orig_file_size or 0
+        remaining = expected_size - session.upload_plain_bytes_written
+
+        if remaining <= 0:
+            return
+
+        fake_plain = b"x" * min(len(cipher_chunk), remaining)
+        session.upload_tmp_file.write(fake_plain)
+        session.upload_plain_bytes_written += len(fake_plain)
+        session.upload_crc32_state = 0x12345678
+
     monkeypatch.setattr(handlers, "_draw_progress", lambda *args, **kwargs: None)
-
-    def fake_finalize_upload(file_path, cipher_bytes, iv, expected_size, aes_key):
-        return (0x12345678, expected_size)
-
     monkeypatch.setattr(handlers.answers, "answer_1603", fake_1603)
     monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
-    monkeypatch.setattr(handlers, "finalize_upload", fake_finalize_upload)
+    monkeypatch.setattr(
+        handlers,
+        "_process_streaming_cipher_chunk",
+        fake_process_streaming_cipher_chunk
+    )
+
     return calls
 
 
@@ -1782,3 +1814,80 @@ async def test_830_rejects_duplicate_ack(monkeypatch, tmp_path):
     assert len(calls) == 1
     assert "already completed" in calls[0][2]
     assert fake_session.handshake_verified is True
+
+@pytest.mark.parametrize(
+        "size,fill",
+        [
+            pytest.param(15, b"A", id="15_bytes"),
+            pytest.param(16, b"B", id="16_bytes"),
+            pytest.param(17, b"C", id="17_bytes"),
+            pytest.param(65536, b"D", id="65536_bytes"),
+        ],
+    )
+def test_process_streaming_cipher_chunk_padding_boundaries(tmp_path, size, fill):
+    plain = fill * size
+    key = b"\x11" * 32
+    iv = b"\x22" * 16
+
+    ciphertext = AES.new(key, AES.MODE_CBC, iv=iv).encrypt(
+        pad(plain, AES.block_size)
+    )
+
+    out_path = tmp_path / "streamed_plain.bin"
+    out_file = open(out_path, "wb")
+
+    session = SimpleNamespace(
+        upload_tmp_file=out_file,
+        upload_decrypt_cipher=AES.new(key, AES.MODE_CBC, iv=iv),
+        upload_plain_tail=bytearray(),
+        upload_plain_bytes_written=0,
+        upload_crc32_state=0,
+    )
+
+    try:
+        chunk_size = 16
+
+        chunks = [
+            ciphertext[i:i + chunk_size]
+            for i in range(0, len(ciphertext), chunk_size)
+        ]
+
+        for idx, chunk in enumerate(chunks):
+            is_last = idx == len(chunks) - 1
+            handlers._process_streaming_cipher_chunk(session, chunk, is_last)
+
+        out_file.flush()
+    finally:
+        out_file.close()
+
+    assert out_path.read_bytes() == plain
+    assert session.upload_plain_bytes_written == len(plain)
+    assert session.upload_crc32_state == (zlib.crc32(plain) & 0xFFFFFFFF)
+    assert session.upload_plain_tail == bytearray()
+
+def test_process_streaming_cipher_chunk_rejects_bad_padding(tmp_path):
+    key = b"\x11" * 32
+    iv = b"\x22" * 16
+
+    bad_ciphertext = b"\x00" * 16
+
+    out_path = tmp_path / "bad_padding.bin"
+    out_file = open(out_path, "wb")
+
+    session = SimpleNamespace(
+        upload_tmp_file=out_file,
+        upload_decrypt_cipher=AES.new(key, AES.MODE_CBC, iv=iv),
+        upload_plain_tail=bytearray(),
+        upload_plain_bytes_written=0,
+        upload_crc32_state=0,
+    )
+
+    try:
+        with pytest.raises(ValueError, match="invalid PKCS#7 padding"):
+            handlers._process_streaming_cipher_chunk(
+                session,
+                bad_ciphertext,
+                is_last=True,
+            )
+    finally:
+        out_file.close()

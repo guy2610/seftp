@@ -33,7 +33,7 @@ The current scope does not include:
 
 ## 2. High-Level Architecture
 
-At a high level, The client loads runtime configuration from `transfer.info`, initializes a `ClientContext`, connects to the server through `Boost.Asio`, executes either a first-time registration flow or a relogin flow, loads or derives the AES key needed for uploads, encrypts a file locally, splits the encrypted payload into protocol-compliant chunks, sends those chunks to the server, and then finalizes the upload based on the CRC result returned by the server.
+At a high level, the client loads runtime configuration from `transfer.info`, initializes a `ClientContext`, connects to the server through `Boost.Asio`, executes the Stage 7 server-identity handshake, performs either first-time registration or relogin, loads the AES key needed for uploads, and sends files through a streaming upload pipeline. During upload, the client reads plaintext incrementally, updates CRC32 incrementally, encrypts with continuous AES-256-CBC state, packetizes ciphertext into 828 chunks, and then finalizes the upload based on the CRC result returned by the server.
 
 The client is split into a small set of clear layers:
 - `flow` orchestrates connection, handshake, and upload sequences
@@ -165,6 +165,7 @@ This keeps socket IO and frame-boundary correctness separate from higher-level h
 - Base64 encode/decode helpers
 - random IV generation per file
 - AES-256-CBC file encryption and decryption
+- incremental AES-256-CBC upload encryption with file-level PKCS#7 padding
 - CRC32 computation
 - RSA-OAEP decryption of the server-sent AES key
 - SHA-256 server fingerprint calculation
@@ -264,18 +265,25 @@ This means the client is responsible for key recovery and local key persistence,
 
 ### 4.5 File Upload Flow
 
-Once connected and holding an AES key, the client sends a file through a multi-step flow:
+Once connected and holding an AES key, the client sends a file through a streaming upload pipeline:
 
-- read the plaintext file from disk
+- determine the plaintext file size from disk
+- compute the expected AES-CBC ciphertext size after PKCS#7 padding
 - generate a fresh 16-byte IV for the file
-- encrypt the plaintext with AES-256-CBC
-- split the ciphertext into chunks
-- send request `828` `packet 0` containing metadata and the IV
-- send request `828` chunk packets for the ciphertext
+- send request `828` packet `0` containing metadata and the IV
+- read plaintext from disk incrementally
+- update CRC32 incrementally over plaintext
+- encrypt only full AES blocks using continuous AES-256-CBC state
+- keep a small pending plaintext tail until enough bytes exist to form full blocks
+- apply PKCS#7 padding only once at end-of-file
+- buffer produced ciphertext until protocol packet boundaries are reached
+- send request `828` packets `1..N` containing ciphertext chunks
 - receive response `1603` containing the server-side CRC result
 - compare and complete the CRC outcome flow
 
-This design is important because the client performs encryption before transmission. The server never receives plaintext over the wire.
+This is intentionally still a file-level AES-CBC model. Protocol chunks are transport chunks only. They are not independently encrypted, padded, authenticated, retried, or resumable units.
+
+This design keeps plaintext off the wire while avoiding full-file plaintext or full-file ciphertext buffering on the client.
 
 ### 4.6 CRC Completion Flow
 
@@ -408,9 +416,9 @@ The tradeoff is lower throughput if many files need to be uploaded.
 
 ### 8.6 Local Encryption Before Transport
 
-The client encrypts the file before upload rather than streaming plaintext to the server for server-side encryption. This is the right design for a secure transfer model because confidentiality is preserved on the wire.
+The client encrypts file contents before they cross the network rather than sending plaintext to the server for server-side encryption. In Stage 7, this is implemented as a streaming encryption pipeline instead of full-file pre-encryption. The client reads plaintext incrementally, updates CRC32, encrypts with continuous AES-CBC state, and sends ciphertext in protocol chunks.
 
-The tradeoff is that the client bears the encryption cost and must manage the IV and AES key correctly.
+The tradeoff is that the client still bears the encryption cost and must manage IVs, AES key material, CBC state, padding boundaries, and packetization correctly.
 
 ### 8.7 Fallback-Based Handshake Recovery
 
@@ -472,6 +480,8 @@ A GUI client could be added on top of the existing lower layers. The current sep
 Local key storage could be improved. Today, `priv.key` and `aes.key` are file-based. A future version could integrate platform-specific secure storage mechanisms.
 
 The upload execution model could evolve. Right now, multi-file sending is sequential. Future work could evaluate whether controlled parallel uploads are worth the extra protocol and state complexity.
+
+The streaming upload implementation currently lives close to the main orchestration entrypoint. A future cleanup could extract the upload pipeline into a dedicated client upload module to reduce `client_main.cpp` size and improve testability.
 
 Progress reporting could also improve. The client already logs activity, but richer progress reporting and more structured status output would improve usability.
 

@@ -2,7 +2,7 @@
 
 ## 1. Purpose and Scope
 
-The server is the stateful backend of the secure file transfer system. It accepts TCP connections from protocol-aware clients, parses a custom binary protocol, maintains per-connection session state, performs registration and key-exchange flows, receives encrypted file uploads in chunks, finalizes uploads by decrypting and validating them, and persists durable metadata in SQLite. The current server is implemented in Python on top of `asyncio`, with explicit admission control for both connections and uploads, and with bounded offloading of CPU-heavy upload finalization work.
+The server is the stateful backend of the secure file transfer system. It accepts TCP connections from protocol-aware clients, parses a custom binary protocol, maintains per-connection session state, performs registration and key-exchange flows, receives encrypted file uploads in chunks, decrypts uploads incrementally, writes plaintext to temporary files, validates upload completion, and persists durable metadata in SQLite. The current server is implemented in Python on top of `asyncio`, with explicit admission control for both connections and uploads.
 
 The current scope includes:
 - request handling for registration, public-key submission, relogin, chunked encrypted upload, and CRC result handling
@@ -17,6 +17,11 @@ The current scope includes:
 - persistent server RSA identity key generation/loading
 - router gating that rejects application requests before handshake completion
 - signed AES key responses (`1602` / `1605`) bound to the Stage 7 handshake transcript
+- streaming server-side upload processing for request `828`
+- incremental AES-CBC decryption with EOF-only PKCS#7 unpadding
+- temporary upload files and atomic finalization with `os.replace`
+- incremental CRC32 calculation over decrypted plaintext
+- control-plane request burst limiting that excludes upload data-plane chunks
 
 The current scope does not include:
 - multi-node deployment
@@ -27,7 +32,7 @@ The current scope does not include:
 
 ## 2. High-Level Architecture
 
-At a high level, the server listens for TCP connections, creates a dedicated `ClientSession` object per connection, incrementally frames incoming bytes into complete protocol frames, routes each frame by request code, executes the matching handler, and sends binary protocol responses back to the client. The data plane is split into network/session handling, protocol dispatch, business logic handlers, durable metadata persistence, and admission control. CPU-heavy upload finalization is intentionally offloaded from the event loop into a bounded thread pool.
+At a high level, the server listens for TCP connections, creates a dedicated `ClientSession` object per connection, incrementally frames incoming bytes into complete protocol frames, routes each frame by request code, executes the matching handler, and sends binary protocol responses back to the client. The data plane is split into network/session handling, protocol dispatch, business logic handlers, durable metadata persistence, and admission control. Upload processing is now handled incrementally during 828 packet handling instead of buffering the full ciphertext and finalizing it in one large operation.
 
 The startup path initializes configuration, logging, SQLite storage, the upload limiter, the connection limiter, and the bounded executor before opening the listening socket. On shutdown, it closes the listener, shuts down the executor, and closes SQLite cleanly. This keeps resource ownership centralized in the server entrypoint and avoids scattering global initialization logic across handlers.
 
@@ -71,7 +76,7 @@ response builders"]
     subgraph Control["Resource Control"]
         CLIM["ConnectionLimiter"]
         ULIM["UploadLimiter"]
-        BEXEC["BoundedExecutor"]
+        BEXEC["BoundedExecutor limited CPU offload"]
     end
 
     subgraph Storage["Persistence and Files"]
@@ -89,10 +94,9 @@ SQLite + in-memory client index"]
 
     CONN --> CLIM
     HANDLERS --> ULIM
-    HANDLERS --> BEXEC
+    HANDLERS --> UPFILES
 
     HANDLERS --> STORE
-    BEXEC --> UPFILES
     STORE --> UPFILES
 ```
 
@@ -105,7 +109,7 @@ SQLite + in-memory client index"]
 
 ### 3.2 Session Model
 
-Each accepted connection gets a `ClientSession` instance. The session holds per-connection runtime state such as byte counters, framing state, request correlation identifiers, timeout timestamps, upload lifecycle fields, expected packet numbers, the current upload IV, temporary ciphertext accumulation, cached AES material for the active upload, and references to shared infrastructure like the store, upload limiter, and bounded executor. This isolates connection-local state and avoids using global mutable state for in-flight protocol handling.
+Each accepted connection gets a `ClientSession` instance. The session holds per-connection runtime state such as byte counters, framing state, request correlation identifiers, timeout timestamps, upload lifecycle fields, expected packet numbers, the current upload IV, AES-CBC decrypt state for the active upload, temporary upload file state, incremental CRC32 state, and references to shared infrastructure like the store and upload limiter. This isolates connection-local state and avoids using global mutable state for in-flight protocol handling.
 
 The session also centralizes common behaviors such as sending framed responses, marking activity, tracking good and bad frames, recording upload progress, releasing upload slots, and resetting transfer state. That makes cleanup predictable and reduces the risk that one handler forgets to clear upload-related state after an error path.
 
@@ -137,10 +141,10 @@ The `handlers` module implements the core protocol operations:
 - `825` creates a new registered client if the username is not already present
 - `826` validates the client identity and public key, stores the key, generates a fresh AES key, encrypts it with RSA-OAEP, and returns it
 - `827` supports relogin for an existing user with a stored valid public key
-- `828` handles encrypted file upload in chunks, including IV setup, header validation, ordering validation, slot acquisition, accumulation, finalization, and CRC response generation
+- `828` handles encrypted file upload in chunks, including IV setup, header validation, ordering validation, slot acquisition, streaming AES-CBC decryption, temporary file writing, incremental CRC calculation, final padding validation, atomic file finalization, and CRC response generation
 - `900`, `901`, and `902` finalize the upload record depending on CRC outcome
 
-A notable design choice is that upload handling is stateful and split across the session lifecycle rather than implemented as a single stateless request. `packet 0` seeds the IV and expected upload metadata, `packet 1` acquires an upload slot and creates the upload record, subsequent packets append ciphertext in order, and the final packet triggers decryption, file write, and CRC computation before the server responds with 1603.
+A notable design choice is that upload handling is stateful and split across the session lifecycle rather than implemented as a single stateless request. `packet 0` seeds the IV and expected upload metadata. `packet 1` acquires an upload slot, creates the upload record, initializes AES-CBC decrypt state, and opens a temporary upload file. Subsequent packets are validated, decrypted incrementally, and written to the temporary file in order. The final packet removes PKCS#7 padding, validates plaintext length, atomically replaces the final output path, and returns `1603` with the computed server CRC.
 
 ### 3.6 Response Builder
 
@@ -166,7 +170,9 @@ There are two separate admission-control mechanisms.
 
 ### 3.9 Bounded CPU Offload
 
-`BoundedExecutor` provides a thread pool plus an `asyncio.Semaphore` to limit the number of in-flight CPU-bound tasks. Upload finalization uses it to run decryption, unpadding, plaintext trimming, file writing, and CRC calculation outside the event loop. This avoids unbounded offload growth and prevents CPU-heavy finalization work from blocking unrelated connections.
+`BoundedExecutor` remains part of the server infrastructure for limiting CPU-heavy work when needed. Earlier upload handling used it for full-file finalization after accumulating ciphertext in memory. Stage 7 upload streaming moved the upload hot path away from full-file finalization: decryption, CRC calculation, and file writing now happen incrementally as 828 chunks arrive.
+
+This reduces peak memory pressure and avoids scheduling one large finalization job per upload. Future CPU-heavy operations can still use the bounded executor when offload is justified.
 
 ### 3.10 Logging
 
@@ -212,13 +218,15 @@ A returning client can use `request 827` with its client ID and username. The se
 
 The upload flow is the most stateful part of the server.
 
-The client sends `request 828` packet 0 first. Packet 0 carries the encrypted file metadata and the per-file IV. The server uses this packet to initialize transfer state, store the IV, and record the expected number of packets, total ciphertext size, and original plaintext size. No upload slot is acquired yet at this stage.
+The client sends `request 828` packet `0` first. Packet `0` carries upload metadata and the per-file IV. The server uses this packet to initialize transfer state, store the IV, and record the expected number of packets, total ciphertext size, and original plaintext size. No upload slot is acquired yet at this stage.
 
-When packet 1 arrives, the server acquires an upload slot from the `UploadLimiter`. If no slot is available, the server returns `response 1607` with the message `server busy: too many concurrent uploads` and rejects the upload early. If a slot is acquired, the server marks the upload active, creates an upload record in SQLite with status `in_progress`, initializes ciphertext accumulation, and begins accepting ordered ciphertext chunks. This is an intentional backpressure mechanism rather than a best-effort overload strategy.
+When packet `1` arrives, the server acquires an upload slot from the `UploadLimiter`. If no slot is available, the server returns `response 1607` with the message `server busy: too many concurrent uploads` and rejects the upload early. If a slot is acquired, the server marks the upload active, creates an upload record in SQLite with status `in_progress`, initializes AES-CBC decrypt state, creates a temporary upload file, and begins streaming upload processing.
 
-For each following packet, the server validates that the client identity has not changed mid-upload, that the IV has already been received, that packet ordering is correct, that the total packet count and size values match the values established by packet 0, and that the chunk size does not exceed configured bounds. It appends the ciphertext to the session buffer and tracks cumulative bytes received.
+For each packet, the server validates that the client identity has not changed mid-upload, that the IV has already been received, that packet ordering is correct, that the total packet count and size values match the values established by packet `0`, and that the chunk size does not exceed configured bounds.
 
-On the last packet, the server confirms that the total accumulated ciphertext size matches the expected content size, creates the user upload directory under `data/uploads/<username>`, and offloads finalization to the bounded executor. Finalization decrypts using AES-256-CBC with the session IV, removes PKCS#7 padding when possible, trims plaintext to the declared original size, writes the plaintext file to disk, computes CRC32 over the plaintext, and returns the CRC to the handler. The handler stores the output path and CRC in the session and sends `response 1603` back to the client.
+Ciphertext is not accumulated into a full in-memory file buffer. Instead, each ciphertext chunk is decrypted incrementally using continuous AES-CBC state. The server writes decrypted plaintext to the temporary file and updates CRC32 incrementally. To handle PKCS#7 safely, the server keeps a small pending plaintext tail and only removes padding when the last packet arrives.
+
+On the last packet, the server confirms that the total received ciphertext size matches the expected content size, validates final PKCS#7 padding, verifies that the plaintext size matches `original_plain_size`, closes the temporary file, atomically replaces the final output file path, stores the output path and CRC in the session, and sends `response 1603` back to the client.
 
 ### 4.6 CRC Outcome Flows
 
@@ -236,7 +244,7 @@ The persistence model is intentionally split between durable metadata and transi
 
 - Durable client metadata lives in SQLite in the `Clients` table. Each client record includes a persistent `client_id_hex`, a unique username, the stored RSA public key in DER form, the latest AES key in Base64, and timestamps for creation and last-seen activity. Durable upload metadata lives in the `Uploads` table and includes the owning client, file name, stored path, original plaintext size, ciphertext size, computed server CRC, status, failure reason, and timestamps.
 
-- Transient state lives in `ClientSession`. This includes the live socket writer, framing buffer, current IV, accumulated ciphertext, current upload slot ownership, expected packet numbers, upload timing, the active upload AES key, and upload completion artifacts that have not yet been committed through `900`, `901`, or `902`. This state is connection-scoped and is discarded on disconnect or reset.
+- Transient state lives in `ClientSession`. This includes the live socket writer, framing buffer, current IV, AES-CBC decrypt state, temporary upload file path/handle, pending plaintext tail for final padding handling, current upload slot ownership, expected packet numbers, upload timing, the active upload AES key, and upload completion artifacts that have not yet been committed through `900`, `901`, or `902`. This state is connection-scoped and is discarded on disconnect or reset.
 
 - The store keeps an in-memory client index keyed by both client ID and username. This is not a second source of truth. It is a read optimization layered on top of SQLite and kept in sync via write-through updates. The benefit is that request handlers can resolve client identity quickly on the hot path without repeatedly issuing SQL lookups for every frame.
 
@@ -252,9 +260,9 @@ The server uses an asyncio event loop for connection handling and network IO. Ea
 
 Per-connection state is isolated through `ClientSession`. Concurrent clients do not share upload progress, IVs, packet counters, or request IDs. The primary shared mutable components are the store, the connection limiter, the upload limiter, and the bounded executor, each with a narrow responsibility boundary.
 
-The server uses explicit admission control instead of relying only on timeouts or queue growth. Connection concurrency is bounded globally and per IP. Upload concurrency is bounded separately. These are distinct limits because connection count and active upload count stress different resources. An idle connection is much cheaper than an active upload that buffers ciphertext and eventually performs decryption, file IO, and CRC.
+The server uses explicit admission control instead of relying only on timeouts or queue growth. Connection concurrency is bounded globally and per IP. Upload concurrency is bounded separately. These are distinct limits because connection count and active upload count stress different resources. An idle connection is much cheaper than an active upload that performs streaming decryption, file IO, CRC calculation, and upload lifecycle tracking.
 
-CPU-bound upload finalization is offloaded through the bounded executor. The offload is bounded twice: by the thread-pool size and by a semaphore that limits in-flight work. This avoids a common async anti-pattern where the event loop is protected from direct CPU work but the system still overloads because unbounded executor jobs pile up.
+Stage 7 upload streaming reduces the need for a large CPU-bound finalization step by processing ciphertext incrementally as packets arrive. The bounded executor remains available for future CPU-heavy work, but upload finalization no longer depends on accumulating full ciphertext and offloading one large decrypt/write/CRC job.
 
 ## 7. Validation, Error Handling, and Abuse Resistance
 
@@ -322,7 +330,7 @@ A deeper observability layer would help. Current logging and benchmarking are us
 
 The in-memory client index is a sensible optimization, but its effect has not yet been isolated by dedicated profiling. A future step would be to measure lookup cost, DB interaction frequency, and end-to-end impact under realistic mixed workloads before deciding whether more caching or indexing is justified. The current code already contains the index, so the next move should be evidence-driven evaluation, not optimization by assumption.
 
-Upload persistence could also evolve. Today, metadata is persisted, but upload ciphertext accumulation remains session-bound until finalization. If resumable uploads or reconnect continuation were needed, the state model would need to move beyond the current per-session design.
+Upload persistence could also evolve. Today, metadata is persisted, while in-progress upload stream state remains session-bound until completion. If resumable uploads or reconnect continuation were needed, the protocol and persistence model would need explicit upload sessions, durable chunk-level state, and recovery semantics beyond the current per-session design.
 
 Finally, the current architecture is intentionally single-process and single-node. A future alternative implementation could re-evaluate the server in C++ or another systems-oriented runtime, but that would be a separate architecture exercise rather than a direct next step. The current Python server already demonstrates sound boundaries, backpressure, protocol validation, and persistence modeling.
 

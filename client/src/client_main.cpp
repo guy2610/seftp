@@ -29,6 +29,7 @@
 #include <random>
 #include <cctype>
 #include <algorithm>
+#include <optional>
 #include "protocol/protocol.hpp"
 #include "net/net.hpp"
 #include "util/util.hpp"
@@ -60,15 +61,13 @@ string timestamp();
 void request_825(tcp::socket& s, const string& name);
 void request_826(tcp::socket& s, const string& name, const string& publicKeyStr, const string& uuid);
 void request_827(tcp::socket& s, const string& name, const string & uuid);
-uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components);
 void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc, const std::string& file_name);
 void request_829(tcp::socket& s, std::array<uint8_t, seftp::proto::kStage7NonceLen>& client_nonce);
+std::optional<uint32_t> request_828_streaming(tcp::socket& s, const string& name, const string& uuid, const string& encrypt_key, const std::string& file_name);
 void request_830(tcp::socket& s);
 void request_900(tcp::socket& s, const string& name, const string& uuid);
 void request_901(tcp::socket& s, const string& name, const string& uuid);
 void request_902(tcp::socket& s, const string& name, const string& uuid);
-std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkSize);
-std::vector<string> encrypt_file(const std::string& key, const std::string& file_name);
 std::vector<uint8_t> parse_uuid(const std::string& uuid_str);
 std::string to_hex(const std::string& data);
 seftp::DispatchResult answer_manager(tcp::socket& s, seftp::ClientContext& cc, uint32_t original_crc=0, bool* crc_ok=nullptr);
@@ -465,6 +464,19 @@ void print_client_exit_summary() {
 	}
 	std::cout << "]" << std::endl;
 }
+static size_t padded_cbc_size(size_t plain_size) {
+	const size_t block = CryptoPP::AES::BLOCKSIZE;
+	const size_t padding = block - (plain_size % block);
+	return plain_size + padding;
+}
+
+static size_t choose_upload_chunk_size(size_t cipher_size) {
+	const size_t MAX_PACKETS = 65535;
+	size_t chunk_min = (cipher_size + MAX_PACKETS - 1) / MAX_PACKETS;
+	size_t chunk_size = std::max<size_t>(8192, chunk_min);
+	chunk_size = ((chunk_size + 1023) / 1024) * 1024;
+	return chunk_size;
+}
 CliOptions parse_cli(int argc, char* argv[]) {
 	CliOptions cli;
 	for (int i = 1; i < argc; ++i) {
@@ -669,99 +681,181 @@ void request_827(tcp::socket& s, const string& name, const string& uuid) {
 	}
 
 }
-uint32_t request_828(tcp::socket& s, const string& name, const string& uuid, vector<string>& components) {
-	// Build and send request 828: encrypted file in chunks.
-	// Packet 0 carries ONLY the 16-byte IV.
-	// Packets 1..N carry metadata + filename + ciphertext chunk.
-	// total_cipher_size refers to ciphertext bytes only (excludes the IV).
-	// Returns the original CRC32 of the plaintext for verification.
-	g_logger.debug("in request_828");
-	client_history.push_back({ "request_828", timestamp() });
+std::optional<uint32_t> request_828_streaming(tcp::socket& s, const string& name, const string& uuid, const string& encrypt_key, const std::string& file_name) {
+	g_logger.debug("in request_828_streaming");
+	client_history.push_back({ "request_828_streaming", timestamp() });
 	try {
-
-		if (components[4].size() != CryptoPP::AES::BLOCKSIZE)
-			throw std::runtime_error("IV size is not 16");
-		if (components.empty()) {
-			throw std::runtime_error("upload components are empty");
+		const auto plain_size_u64 = std::filesystem::file_size(file_name);
+		if (plain_size_u64 > std::numeric_limits<uint32_t>::max()) {
+			throw std::runtime_error("file too large for current 828 protocol");
 		}
-		g_logger.info("IV(hex)=" + to_hex(components[4]));
-		g_logger.info("cipher_prefix(hex)=" + to_hex(components[2].substr(0, 32)));
-		const size_t cipher_size = components[2].size();
-		const size_t MAX_PACKETS = 65535;
-		size_t chunk_min = (cipher_size + MAX_PACKETS - 1) / MAX_PACKETS;
-		size_t chunk_size = std::max<size_t>(8192,chunk_min);
-		chunk_size = ((chunk_size + 1023) / 1024) * 1024;
-		const size_t CHUNK_SIZE = chunk_size;
-		// Split ciphertext into fixed-size chunks
-		vector<string> chunks = splitStringBySize(components[2], CHUNK_SIZE);
-		const size_t total_packets = chunks.size();
-		g_logger.info("dynamic chunk_size=" + std::to_string(CHUNK_SIZE) +" cipher_size=" + std::to_string(cipher_size) +
-			" total_packets=" + std::to_string(total_packets));
-
-		// Packet 0: send IV only (16 bytes). Packets 1..N: send ciphertext chunks.
-		CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
-		std::memcpy(iv, components[4].data(), CryptoPP::AES::BLOCKSIZE);
-		//Clean file name
-		size_t address_ch_name = components[0].rfind('\\');
-		std::string file_name;
-		if (address_ch_name!=string::npos)
-		{
-			file_name = components[0].substr(address_ch_name+1);
+		const size_t plain_size = static_cast<size_t>(plain_size_u64);
+		const size_t cipher_size = padded_cbc_size(plain_size);
+		if (cipher_size > std::numeric_limits<uint32_t>::max()) {
+			throw std::runtime_error("ciphertext too large for current 828 protocol");
 		}
-		else {
-			file_name = components[0];
+		const size_t CHUNK_SIZE = choose_upload_chunk_size(cipher_size);
+		const size_t total_packets = (cipher_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+		if (total_packets == 0 || total_packets > std::numeric_limits<uint16_t>::max()) {
+			throw std::runtime_error("too many upload packets");
 		}
+		std::string protocol_file_name = protocol_filename_from_path(file_name);
 		auto cid = seftp::util::parse_client_id_hex32(uuid);
-		std::array<uint8_t, 16> iv_arr{};
-		std::memcpy(iv_arr.data(), components[4].data(), 16);
-		auto msg0 = seftp::proto::build_828_packet0_iv(cid, (uint32_t)components[2].size(), (uint32_t)components[1].size(), (uint16_t)total_packets,file_name, iv_arr);
-		g_logger.debug("[CLIENT] sending packet  0/" + std::to_string(total_packets)+ ", chunk size=" + std::to_string(components[4].size()));
-		// Send the full frame
-		boost::asio::write(s, boost::asio::buffer(msg0));
-		const bool debug = g_logger.isDebugEnabled();
-		std::ostream& prog = std::cerr;
-		// Send each chunk as a separate 828 request
-		for (size_t packet_num = 1; packet_num <= total_packets; packet_num ++)
-		{
-			const std::string& chunk_str = chunks[packet_num - 1];
-			std::vector<uint8_t> chunk(chunk_str.begin(), chunk_str.end());
-			// Progress bar: debug/normal printing
-			if (debug) {
-				prog << "sending packet number: " << packet_num << " of " << total_packets << std::endl;
-			}
-			else if (packet_num == total_packets) prog << "\r"<< "sending packet number: " << packet_num << " of " << total_packets<< " [####################] 100%" << std::endl;
-			else {
-				prog << "\r"<<"sending packet number: " << packet_num << " of " << total_packets << " [";
-				size_t filled = (packet_num * 20) / total_packets;
-				for (size_t i = 0; i < 20; i++)
-					prog << (i < filled ? '#' : '.');
 
-				prog << "] "<<filled*5<<"%" << std::flush;
-
-			}
-			auto msgN=seftp::proto::build_828_packet_chunk(cid, (uint32_t)components[2].size(), (uint32_t)components[1].size(), (uint16_t)packet_num,(uint16_t)total_packets,file_name, chunk);
-			if (debug) g_logger.debug("[CLIENT] sending packet " + std::to_string(packet_num) +
-				"/" + std::to_string(total_packets) +
-				", chunk size=" + std::to_string(chunk.size()));
-			// Send the full frame
-			boost::asio::write(s, boost::asio::buffer(msgN));
+		std::string raw_key = seftp::crypto::decode_base64(encrypt_key);
+		if (raw_key.size() != CryptoPP::AES::MAX_KEYLENGTH) {
+			throw std::runtime_error("AES key must be exactly 32 bytes");
 		}
-		g_logger.debug("[CLIENT] full cipher sent size=" + std::to_string(components[2].size()) +
-			", total_packets=" + std::to_string(total_packets) +
-			", chunk_size=" + std::to_string(CHUNK_SIZE));
-		g_logger.debug("CRC string: [" + components[3] + "]");
-		// Convert CRC string to uint32_t (decimal)
-		uint32_t original_crc = static_cast<uint32_t>(std::stoul(components[3], nullptr, 10));
-		std::stringstream ss;
-		ss << "original_crc (dec): " << original_crc
-			<< " (hex): 0x" << std::hex << original_crc;
-		g_logger.debug(ss.str());
+		auto iv_arr = seftp::crypto::make_iv();
 
-		return original_crc;// original CRC for this file
+		auto msg0 = seftp::proto::build_828_packet0_iv(cid, static_cast<uint32_t>(cipher_size),
+			static_cast<uint32_t>(plain_size),
+			static_cast<uint16_t>(total_packets),
+			protocol_file_name,
+			iv_arr
+		);
+
+		boost::asio::write(s, boost::asio::buffer(msg0));
+
+		CryptoPP::SecByteBlock aes_key(
+			reinterpret_cast<const CryptoPP::byte*>(raw_key.data()),
+			CryptoPP::AES::MAX_KEYLENGTH
+		);
+
+		CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
+		std::memcpy(iv, iv_arr.data(), CryptoPP::AES::BLOCKSIZE);
+
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption encryptor;
+		encryptor.SetKeyWithIV(aes_key, aes_key.size(), iv);
+
+		CryptoPP::CRC32 crc;
+		std::ifstream file(file_name, std::ios::binary);
+		if (!file.is_open()) {
+			throw std::runtime_error("failed to open file: " + file_name);
+		}
+
+		size_t packet_num = 1;
+		size_t sent_cipher_bytes = 0;
+		std::string pending_cipher_packet;
+
+		auto send_packet = [&](const std::string& packet_data) {
+			if (packet_data.empty()) {
+				throw std::runtime_error("attempted to send empty upload packet");
+			}
+
+			if (packet_num > total_packets) {
+				throw std::runtime_error("attempted to send too many upload packets");
+			}
+
+			std::vector<uint8_t> chunk(packet_data.begin(), packet_data.end());
+
+			auto msgN = seftp::proto::build_828_packet_chunk(
+				cid,
+				static_cast<uint32_t>(cipher_size),
+				static_cast<uint32_t>(plain_size),
+				static_cast<uint16_t>(packet_num),
+				static_cast<uint16_t>(total_packets),
+				protocol_file_name,
+				chunk
+			);
+
+			boost::asio::write(s, boost::asio::buffer(msgN));
+
+			sent_cipher_bytes += packet_data.size();
+			packet_num++;
+		};
+
+		auto append_cipher_bytes = [&](const std::string& data) {
+			pending_cipher_packet.append(data);
+
+			while (pending_cipher_packet.size() >= CHUNK_SIZE) {
+				std::string packet_data = pending_cipher_packet.substr(0, CHUNK_SIZE);
+				pending_cipher_packet.erase(0, CHUNK_SIZE);
+				send_packet(packet_data);
+			}
+		};
+
+		std::vector<char> plain_buf(64 * 1024);
+		std::string pending_plain;
+
+		while (file) {
+			file.read(plain_buf.data(), static_cast<std::streamsize>(plain_buf.size()));
+			const std::streamsize got = file.gcount();
+
+			if (got <= 0) {
+				break;
+			}
+
+			crc.Update(
+				reinterpret_cast<const CryptoPP::byte*>(plain_buf.data()),
+				static_cast<size_t>(got)
+			);
+
+			pending_plain.append(plain_buf.data(), static_cast<size_t>(got));
+
+			const size_t full_block_len =
+				(pending_plain.size() / CryptoPP::AES::BLOCKSIZE) * CryptoPP::AES::BLOCKSIZE;
+
+			if (full_block_len > 0) {
+				std::string encrypted(full_block_len, '\0');
+
+				encryptor.ProcessData(
+					reinterpret_cast<CryptoPP::byte*>(encrypted.data()),
+					reinterpret_cast<const CryptoPP::byte*>(pending_plain.data()),
+					full_block_len
+				);
+
+				append_cipher_bytes(encrypted);
+				pending_plain.erase(0, full_block_len);
+			}
+		}
+
+		const size_t padding_len =
+			CryptoPP::AES::BLOCKSIZE - (pending_plain.size() % CryptoPP::AES::BLOCKSIZE);
+
+		pending_plain.append(padding_len, static_cast<char>(padding_len));
+
+		if (pending_plain.size() % CryptoPP::AES::BLOCKSIZE != 0) {
+			throw std::runtime_error("internal error: final padded plaintext is not block aligned");
+		}
+
+		std::string encrypted_final(pending_plain.size(), '\0');
+
+		encryptor.ProcessData(
+			reinterpret_cast<CryptoPP::byte*>(encrypted_final.data()),
+			reinterpret_cast<const CryptoPP::byte*>(pending_plain.data()),
+			pending_plain.size()
+		);
+
+		append_cipher_bytes(encrypted_final);
+
+		if (!pending_cipher_packet.empty()) {
+			send_packet(pending_cipher_packet);
+			pending_cipher_packet.clear();
+		}
+
+		if (sent_cipher_bytes != cipher_size) {
+			throw std::runtime_error("streaming upload sent unexpected ciphertext size");
+		}
+
+		if (packet_num != total_packets + 1) {
+			throw std::runtime_error("streaming upload sent unexpected packet count");
+		}
+
+		uint32_t crc_val = 0;
+		crc.Final(reinterpret_cast<CryptoPP::byte*>(&crc_val));
+
+		g_logger.info(
+			"streaming upload complete cipher_size=" + std::to_string(cipher_size) +
+			" plain_size=" + std::to_string(plain_size) +
+			" total_packets=" + std::to_string(total_packets)
+		);
+
+		return crc_val;
 	}
 	catch (const std::exception& e) {
-		g_logger.error("Error in request_828: " + std::string(e.what()));
-		return 0;
+		g_logger.error("Error in request_828_streaming: " + std::string(e.what()));
+		return std::nullopt;
 	}
 }
 void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext& cc, const std::string& file_name) {
@@ -776,15 +870,21 @@ void request_828_retry(tcp::socket& s, string encrypt_key, seftp::ClientContext&
 	const int MAX_RETRIES = 4;
 	bool crc_ok_init = false;
 	bool* crc_ok = &crc_ok_init;
-	// Encrypt file and compute its CRC32
-	// components = [ file_name, plaintext, ciphertext, crc_string, random iv ]
-	vector<string> components = encrypt_file(encrypt_key, file_name);
 	const std::string protocol_file_name = protocol_filename_from_path(file_name);
 	while (retries < MAX_RETRIES && !*crc_ok) {
 		// 1) Send encrypted file (828) and get original CRC of plaintext
-		uint32_t original_crc_file = request_828(s, cc.username, cc.client_id, components);
+		auto original_crc_file = request_828_streaming(s, cc.username, cc.client_id, encrypt_key, file_name);
+		if (!original_crc_file.has_value()) {
+			cc.last_error_text = "upload send failed before receiving server CRC";
+			g_logger.error(cc.last_error_text);
+			return;
+		}
 		// 2) Wait for 1603 from server (CRC verification) and update crc_ok
-		auto r = answer_manager(s, cc, original_crc_file, crc_ok);
+		auto r = answer_manager(s, cc, *original_crc_file, crc_ok);
+		if (r.step == seftp::NextStep::Fatal) {
+			g_logger.error("upload aborted after server/protocol error: " + cc.last_error_text);
+			return;
+		}
 		if (!*crc_ok) {
 			// CRC mismatch -> retry or give up
 			retries++;
@@ -893,65 +993,6 @@ std::vector<uint8_t> parse_uuid(const std::string& uuid_str) {
 	return uuid_bytes;
 }
 
-std::vector<string> encrypt_file(const std::string& key, const std::string& file_name) {
-	// Ask the user for a filename, read the file in binary, compute CRC32,
-	// encrypt content using AES-256-CBC with a random per-file IV and a 32-byte AES key
-	// (provided as a Base64 string).
-	//
-	// Returns:
-	//   res[0] = file name
-	//   res[1] = plaintext content
-	//   res[2] = ciphertext (binary, includes PKCS#7 padding, WITHOUT the IV)
-	//   res[3] = CRC32 of plaintext as a decimal string
-	//   res[4] = IV (16 bytes, binary) for this file
-	client_history.push_back({ "encrypt_file", timestamp() });
-	g_logger.debug("in encrypt_file");
-	std::ifstream file;
-	g_logger.info("reading file ");
-	file.open(file_name, std::ios::binary);
-	if (!file.is_open()) {
-		throw std::runtime_error("failed to open file: " + file_name);
-	}
-
-	// Read entire file into plaintext string
-	std::string plain_text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-	file.close();
-	// Compute CRC32 over plaintext (for integrity verification with server later)
-	uint32_t crc_val = seftp::crypto::crc32(plain_text);
-	std::stringstream ss;
-	ss << "CRC (dec): " << crc_val << " (hex): 0x" << std::hex << crc_val;
-	g_logger.info(ss.str());
-	g_logger.debug("Plaintext size: " + std::to_string(plain_text.size()));
-	// Decode AES key from Base64 string
-	std::string raw_key = seftp::crypto::decode_base64(key);
-	auto iv_arr = seftp::crypto::make_iv();
-	std::string cipher_text = seftp::crypto::aes256_cbc_encrypt(plain_text,raw_key,iv_arr);
-	std::string iv_str(reinterpret_cast<const char*>(iv_arr.data()), iv_arr.size());
-
-	// Package results for later use:
-	std::vector<std::string> res;
-	res.push_back(file_name);      // index 0: file name
-	res.push_back(plain_text);     // index 1: original plaintext
-	res.push_back(cipher_text);    // index 2:  encrypted binary data
-	res.push_back(std::to_string(crc_val));//CRC32 of plaintext, as a decimal string
-	res.push_back(iv_str); // IV (16 bytes) generated per file, sent separately in 828 packet_number=0
-	g_logger.debug("==== CLIENT DEBUG ====");
-	g_logger.debug("Original file name: ");
-	g_logger.debug("Original file size: " + std::to_string(plain_text.size()));
-	ss.clear();
-	ss.str("");
-	ss << "Original CRC (dec): " << crc_val << " (hex): 0x" << std::hex << crc_val;
-	g_logger.debug(ss.str());
-	g_logger.debug("======================");
-	return res;
-}
-std::vector<std::string> splitStringBySize(const std::string& str, size_t chunkSize) {
-	std::vector<std::string> chunks;
-	for (size_t i = 0; i < str.length(); i += chunkSize) {
-		chunks.push_back(str.substr(i, chunkSize));
-	}
-	return chunks;
-}
 string answer_1600(vector<uint8_t>& payload, string name) {
 	// Handle response 1600: registration succeeded.
 	// Payload: 16-byte client_id.

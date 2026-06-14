@@ -1816,15 +1816,16 @@ async def test_830_rejects_duplicate_ack(monkeypatch, tmp_path):
     assert fake_session.handshake_verified is True
 
 @pytest.mark.parametrize(
-    "plain",
-    [
-        b"A" * 15,
-        b"B" * 16,
-        b"C" * 17,
-        b"D" * 65536,
-    ],
-)
-def test_process_streaming_cipher_chunk_padding_boundaries(tmp_path, plain):
+        "size,fill",
+        [
+            pytest.param(15, b"A", id="15_bytes"),
+            pytest.param(16, b"B", id="16_bytes"),
+            pytest.param(17, b"C", id="17_bytes"),
+            pytest.param(65536, b"D", id="65536_bytes"),
+        ],
+    )
+def test_process_streaming_cipher_chunk_padding_boundaries(tmp_path, size, fill):
+    plain = fill * size
     key = b"\x11" * 32
     iv = b"\x22" * 16
 

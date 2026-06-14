@@ -107,7 +107,13 @@ class FakeSession:
         self.expected_content_size = None
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
-        self.transfer_cipher = bytearray()
+        self.connection_id = "test-connection"
+        self.upload_decrypt_cipher = None
+        self.upload_tmp_path = None
+        self.upload_tmp_file = None
+        self.upload_plain_tail = bytearray()
+        self.upload_plain_bytes_written = 0
+        self.upload_crc32_state = 0
 
         self.upload_filename = None
         self.upload_id = None
@@ -150,7 +156,6 @@ class FakeSession:
         self.expected_content_size = None
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
-        self.transfer_cipher = bytearray()
 
         self.upload_filename = None
         self.upload_id = None
@@ -160,6 +165,13 @@ class FakeSession:
         self.upload_client_id_hex = None
         self.upload_username = None
         self.upload_aes_key = None
+
+        self.upload_decrypt_cipher = None
+        self.upload_tmp_path = None
+        self.upload_tmp_file = None
+        self.upload_plain_tail = bytearray()
+        self.upload_plain_bytes_written = 0
+        self.upload_crc32_state = 0
 
     async def release_upload_slot(self):
         if self.has_upload_slot:
@@ -218,14 +230,30 @@ def patch_828_side_effects(monkeypatch):
     async def fake_1607(client_id, version, text, session):
         calls.append(("1607", client_id, version, text))
 
+    def fake_process_streaming_cipher_chunk(session, cipher_chunk, is_last):
+        if session.upload_tmp_file is None:
+            return
+
+        expected_size = session.expected_orig_file_size or 0
+        remaining = expected_size - session.upload_plain_bytes_written
+
+        if remaining <= 0:
+            return
+
+        fake_plain = b"x" * min(len(cipher_chunk), remaining)
+        session.upload_tmp_file.write(fake_plain)
+        session.upload_plain_bytes_written += len(fake_plain)
+        session.upload_crc32_state = 0x12345678
+
     monkeypatch.setattr(handlers, "_draw_progress", lambda *args, **kwargs: None)
-
-    def fake_finalize_upload(file_path, cipher_bytes, iv, expected_size, aes_key):
-        return (0x12345678, expected_size)
-
     monkeypatch.setattr(handlers.answers, "answer_1603", fake_1603)
     monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
-    monkeypatch.setattr(handlers, "finalize_upload", fake_finalize_upload)
+    monkeypatch.setattr(
+        handlers,
+        "_process_streaming_cipher_chunk",
+        fake_process_streaming_cipher_chunk
+    )
+
     return calls
 
 

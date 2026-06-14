@@ -13,6 +13,30 @@ from src.bounded_executor import BoundedExecutor
 from src.server_identity import load_or_create_server_identity
 from pathlib import Path
 
+CONTROL_PLANE_RATE_LIMITED_CODES = {
+    825,  # register
+    826,  # public key / AES key exchange
+    827,  # relogin
+    829,  # client hello
+    830,  # handshake ack
+    900,  # CRC OK
+    901,  # CRC retry
+    902,  # CRC fail
+}
+
+def _parse_frame_identity(frame: bytes):
+    if len(frame) < 19:
+        return None, None, None
+
+    client_id = frame[:16]
+    version = frame[16:17]
+    code = int.from_bytes(frame[17:19], "little")
+
+    return client_id, version, code
+
+def _is_control_plane_rate_limited(code: int | None) -> bool:
+    return code in CONTROL_PLANE_RATE_LIMITED_CODES
+
 async def main():
     config = Config.load()
     logger = setup_logging(config.log_level)
@@ -98,18 +122,22 @@ async def main():
                 rate_limited = False
                 for frame in frames:
                     now = time.monotonic()
-                    if not session.allow_request_now(now):
+                    client_id, version, code = _parse_frame_identity(frame)
+                    if _is_control_plane_rate_limited(code) and not session.allow_request_now(now):
                         session.disconnect_reason = "request_rate_limited"
-                        session.log.warning("request rate limit exceeded")
-                        if session.last_client_id is not None and session.last_version is not None:
-                            try:
-                                await answers.answer_1607(session.last_client_id,
-                                                          session.last_version,
-                                                          "request rate limit exceeded",
-                                                          session,
-                                                          )
-                            except Exception:
-                                pass
+                        session.log.warning(
+                            "request rate limit exceeded code=%s",
+                            code,
+                        )
+                        try:
+                            await answers.answer_1607(
+                                client_id or b"\x00" * 16,
+                                version or b"\x00",
+                                "request rate limit exceeded",
+                                session,
+                            )
+                        except Exception:
+                            pass
                         rate_limited = True
                         break
                     await router.handle_frame(frame, session)

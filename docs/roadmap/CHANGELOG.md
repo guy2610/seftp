@@ -2,9 +2,42 @@
 
 This file tracks major project milestones by version.
 
-Stage 7 is currently active. The core security hardening work is implemented through v0.7.1. The remaining Stage 7 item is upload pipeline evolution toward streaming encryption.
+Stage 7 is functionally complete through v0.7.2. It includes the mandatory server-identity handshake, AES key response binding, key lifecycle hardening, application-level abuse protection, and end-to-end streaming upload pipeline evolution.
 
 ---
+
+**v0.7.2 - Stage 7 upload streaming pipeline**
+
+* Replaced full-file client upload buffering with incremental upload processing
+* Added client-side streaming upload path for request `828`
+  * reads plaintext incrementally from disk
+  * updates CRC32 incrementally
+  * encrypts with continuous AES-256-CBC state
+  * applies PKCS#7 padding only at end-of-file
+  * packetizes ciphertext according to existing 828 semantics
+* Replaced server-side ciphertext accumulation with streaming decrypt/write processing
+  * decrypts 828 ciphertext chunks incrementally
+  * writes plaintext to a temporary upload file
+  * updates CRC32 incrementally
+  * validates final PKCS#7 padding and plaintext size
+  * atomically replaces the final upload path on success
+* Preserved the existing 828 wire protocol semantics
+  * packet 0 carries the IV
+  * packets 1..N carry ciphertext chunks
+  * `total_packets` excludes packet 0
+  * `content_size` is ciphertext size excluding IV
+* Separated control-plane burst limiting from upload data-plane chunks
+  * 825 / 826 / 827 / 829 / 830 / 900 / 901 / 902 remain request-rate limited
+  * 828 upload chunks are governed by upload-specific limits instead
+* Increased default `max_packets` to 65535 to align with the uint16 packet-count field
+* Hardened upload error flow so server/protocol errors (`1607`) abort upload instead of triggering CRC retry messages (`901` / `902`)
+* Updated server handler tests for the streaming upload state model
+* Verified upload correctness with boundary files:
+  * 15 bytes
+  * 16 bytes
+  * 17 bytes
+  * 65536 bytes
+  * random 1MB
 
 **v0.7.1 - Stage 7 hardening completion checkpoint**
 
@@ -33,9 +66,6 @@ Stage 7 is currently active. The core security hardening work is implemented thr
 * Added client-side AES key binding signature verification before decrypting and saving `aes.key`
 * Added parser and answer tests for the new bound AES key response format
 
-Remaining Stage 7 work:
-* Upload pipeline evolution toward streaming encryption and transmission
-
 **v0.7.0 - Stage 7 core handshake (Server Identity & Trust Model)**
 
 * Added mandatory Stage 7 handshake before application-level protocol requests
@@ -52,7 +82,7 @@ Remaining Stage 7 work:
 * Added hard-fail behavior for fingerprint mismatch, signature failure, malformed `SERVER_HELLO`, and unsupported security version
 * Added server, client, and E2E tests for Stage 7 handshake behavior
 
-Remaining Stage 7 work includes stronger key lifecycle handling, improved local key storage, upload streaming pipeline evolution, and additional abuse protection.
+Follow-up Stage 7 work continued in v0.7.1 and v0.7.2 with key lifecycle hardening, application-level abuse protection, AES key response binding, and upload streaming pipeline evolution.
 
 **v0.6.0 - Stage 6 complete (Performance Analysis, Observability & Design Documentation)**
 

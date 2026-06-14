@@ -10,21 +10,19 @@ The system is not intended for production use. It is a portfolio-grade systems p
 
 ## Current Status
 
-Current stable baseline: v0.7.0
+Current stable baseline: v0.7.2
 
-v0.7.0 completed the Stage 7 core handshake:
+v0.7.2 completes Stage 7 security hardening and protocol evolution:
 - authenticated server identity verification
 - signed server handshake transcript
 - TOFU trust model
 - optional pinned fingerprint validation
-- protocol handshake gating
+- protocol handshake gating before application requests
+- AES key delivery signatures bound to Stage 7 handshake nonces
+- key lifecycle hardening for sensitive local files
+- application-level abuse protection and rate limiting
+- end-to-end streaming upload pipeline for request `828`
 - server, client, and E2E test coverage
-
-Stage 7 remains active for broader hardening work:
-- key lifecycle improvements
-- stronger local key storage
-- upload streaming pipeline evolution
-- abuse protection and rate limiting
 
 See:
 - `docs/roadmap/ROADMAP.md`
@@ -88,10 +86,10 @@ High-level flow:
 4. The client validates the server signature and trust model.
 5. The client performs registration or relogin.
 6. The server issues an AES key encrypted with the client's RSA public key.
-7. The client encrypts files locally using AES-256-CBC.
-8. The client uploads encrypted chunks through request `828`.
+7. The client uploads files through a streaming AES-256-CBC pipeline.
+8. The client reads plaintext incrementally, updates CRC32, encrypts with continuous CBC state, and sends request `828` chunks.
 9. The server validates ordering, limits, and upload state.
-10. The server decrypts, stores the file, computes CRC32, and returns the result.
+10. The server decrypts chunks incrementally, writes plaintext to a temporary file, computes CRC32, atomically finalizes the upload, and returns the result.
 11. The client confirms the CRC result through `900`, `901`, or `902`.
 
 Main design boundary:
@@ -164,7 +162,7 @@ Main design boundary:
 - first-time client registration
 - relogin using persisted client identity
 - RSA public-key submission and AES key bootstrap
-- encrypted file upload in ordered chunks
+- streaming encrypted file upload in ordered 828 chunks
 - CRC-based completion and retry signaling
 - client-side identity and key persistence
 - server-side SQLite persistence for clients and uploads
@@ -174,13 +172,15 @@ Main design boundary:
 - idle and upload inactivity timeouts
 - upload admission control and explicit backpressure
 - global and per-IP connection limits
-- bounded executor for CPU-heavy upload finalization
+- bounded executor infrastructure for controlled CPU-heavy work
 - interactive console mode and headless multi-file client mode
 - automated unit, integration, and CI validation
 - Stage 7 authenticated server-identity handshake
 - SHA-256 server fingerprint validation
 - TOFU trust model (`server.fingerprint`)
 - optional pinned trust mode (`server.pin`)
+- signed AES key responses bound to Stage 7 handshake nonces
+- end-to-end streaming upload pipeline without full-file plaintext or ciphertext buffering
 
 ---
 
@@ -211,6 +211,9 @@ Stage 7 handshake:
 - `826` upload RSA public key and receive AES key
 - `827` relogin
 - `828` encrypted file chunk
+  - packet `0` carries upload metadata and IV
+  - packets `1..N` carry ciphertext chunks
+  - implementation streams encryption/decryption while preserving the same 828 wire semantics
 - `900` CRC OK
 - `901` CRC mismatch, retry
 - `902` CRC mismatch, stop
@@ -343,13 +346,14 @@ Main findings:
 - larger files increase RSS and CPU pressure more sharply
 - mixed workloads are primarily constrained by upload pressure
 
+Stage 7 upload streaming addresses the earlier upload memory-pressure concern by avoiding full-file plaintext and ciphertext buffering on both the client and server while preserving the same 828 wire protocol.
 See `docs/performance/performance_analysis.md`.
 
 ---
 
 ## Security Model
 
-Current v0.7.0 security model:
+Current v0.7.2 security model:
 
 - authenticated server identity verification before AES key establishment
 - signed Stage 7 handshake transcript
@@ -361,6 +365,9 @@ Current v0.7.0 security model:
 - malformed protocol flows rejected with `1607`
 - application requests rejected before handshake completion
 - uploaded files validated through CRC32 completion flow
+- AES key responses are signed and bound to the Stage 7 handshake transcript
+- upload processing uses continuous file-level AES-CBC streaming with one IV per file
+- PKCS#7 padding is applied only at end-of-file, not independently per chunk
 
 Known limitations:
 
@@ -383,8 +390,6 @@ Completed:
 - Stage 4: client UX, persistence, and operational polish
 - Stage 5: scalability and persistence
 - Stage 6: performance analysis, observability, and design documentation
-
-Active:
 - Stage 7: security hardening and protocol evolution
 
 Future:

@@ -156,7 +156,7 @@ Measure and analyze runtime behavior under load to identify bottlenecks and guid
   * Add system, client, and server design documents with Mermaid diagrams (DONE)
 
 ---
-### **Stage 7 - Security Hardening & Protocol Evolution** IN PROGRESS
+### **Stage 7 - Security Hardening & Protocol Evolution** DONE
 
 Related documents:
 - `../protocol/protocol_extension_design.md`
@@ -164,7 +164,7 @@ Related documents:
 
 Current status:
 
-The core Stage 7 security hardening work is implemented and tested through protocol version `v0.7.1`.
+Stage 7 is functionally complete and tested through protocol version `v0.7.2`.
 
 Completed:
 - mandatory `829 CLIENT_HELLO` / `1608 SERVER_HELLO` / `830 CLIENT_HANDSHAKE_ACK`
@@ -181,13 +181,11 @@ Completed:
 - owner-only permissions for sensitive local key material
 - key lifecycle hardening for private key overwrite, corruption, and server identity loading
 - application-level abuse protection: connection limits, per-IP limits, handshake timeout, upload inactivity timeout, upload slots, bounded executor, and request burst limiting
-
-Remaining Stage 7 work:
 - end-to-end upload pipeline streaming for the existing AES-CBC upload model
-  - client-side incremental file read, encryption, and transmission
-  - server-side incremental receive, decryption, and disk write
-  - preserve existing upload protocol semantics
-  - avoid full-file plaintext or ciphertext buffering on either side
+  - client-side incremental file read, CRC calculation, AES-CBC encryption, and 828 packet transmission
+  - server-side incremental 828 receive, AES-CBC decryption, temp-file write, CRC calculation, and atomic finalization
+  - preserved existing 828 wire protocol semantics while removing full-file plaintext/ciphertext buffering from the upload path
+  - separated control-plane burst limiting from 828 upload data-plane chunk handling
 
 Strengthen the cryptographic model and extend the protocol to provide authenticated key establishment, improved transport security, and more robust resource handling.
 
@@ -206,14 +204,14 @@ Strengthen the cryptographic model and extend the protocol to provide authentica
   * Improve storage of `priv.key` and `aes.key` beyond plain file-based persistence (PARTIAL - owner-only permissions and overwrite protection implemented)
   * Evaluate stronger protection or platform-native secure storage (FUTURE)
 
-* Upload pipeline evolution
-  * Move from full-file buffering to end-to-end incremental upload processing
-    * Client: read plaintext chunk -> encrypt with continuous AES-CBC state -> send encrypted chunk
-    * Server: receive encrypted chunk -> decrypt with continuous AES-CBC state -> write plaintext chunk to disk
-  * Preserve current upload protocol semantics and AES-CBC file-level encryption model
-  * Apply CBC padding only at the file boundary, not independently per chunk
-  * Reduce peak memory usage by avoiding full-file plaintext or ciphertext buffering on both client and server
-    * Defer independent per-chunk encryption, retry, resume, and parallel upload semantics to a future AEAD-based upload protocol stage
+* Upload pipeline evolution (DONE)
+  * Moved from full-file buffering to end-to-end incremental upload processing
+    * Client: read plaintext chunk -> update CRC -> encrypt with continuous AES-CBC state -> send encrypted chunk
+    * Server: receive encrypted chunk -> decrypt with continuous AES-CBC state -> write plaintext chunk to temporary file -> update CRC
+  * Preserved current upload protocol semantics and AES-CBC file-level encryption model
+  * Applied CBC padding only at the file boundary, not independently per chunk
+  * Reduced peak memory usage by avoiding full-file plaintext or ciphertext buffering on both client and server
+  * Deferred independent per-chunk encryption, retry, resume, and parallel upload semantics to a future AEAD-based upload protocol stage
 
 * Abuse protection
   * Connection rate limiting (limit new connections per time window, per IP/global) (DONE)

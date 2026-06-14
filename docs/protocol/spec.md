@@ -286,11 +286,13 @@ username + '\0'
 
 ### **828 - Encrypted File Chunk**
 
-Transfers an encrypted file in fixed-size chunks.
+Transfers an encrypted file in protocol chunks.
+
+The wire format remains unchanged in Stage 7 upload streaming. The implementation changed from full-file buffering to incremental processing, but the protocol layout is the same.
 
 **Payload Format:**
 
-```
+```text
 uint32  total_cipher_size
 uint32  original_plain_size
 uint16  packet_number      (0 = init packet with IV, then 1..total_packets)
@@ -299,16 +301,47 @@ filename + '\0'
 cipher_chunk
 ```
 
+Semantics:
+
+- `packet_number = 0` is the upload initialization packet.
+- Packet `0` carries the per-file IV in `cipher_chunk`.
+- Packets `1..total_packets` carry ciphertext bytes.
+- `total_packets` counts ciphertext packets only and does not include packet `0`.
+- `total_cipher_size` is the total ciphertext size excluding the IV.
+- `original_plain_size` is the plaintext file size before AES-CBC padding.
+- `filename` is UTF-8 and null-terminated.
+
+Upload encryption model:
+
+- AES-256-CBC is applied as one continuous file-level encryption stream.
+- A single random IV is used per file.
+- CBC state continues across protocol chunks.
+- PKCS#7 padding is applied only once at end-of-file.
+- Chunks are protocol transport chunks, not independently encrypted records.
+
+Client logic:
+
+1. Determine plaintext size from the file.
+2. Compute expected ciphertext size after PKCS#7 padding.
+3. Send packet `0` with metadata and IV.
+4. Read plaintext incrementally from disk.
+5. Update CRC32 incrementally over plaintext.
+6. Encrypt full AES blocks with continuous AES-CBC state.
+7. Buffer ciphertext until protocol chunk boundaries are reached.
+8. Send packets `1..N` as 828 chunk packets.
+
 Server logic:
 
-1. If packet_number == 0: stores 16-byte IV and resets accumulator
-2. Accumulates ciphertext chunks for packets 1..`total_packets`
-3. Reconstructs full ciphertext
-4. Decrypts with AES-256-CBC using the stored IV
-5. Removes padding and trims to `original_plain_size`
-6. Writes file to disk
-7. Computes CRC32 over plaintext
-8. Responds with `1603`
+1. If `packet_number == 0`, store IV and expected upload metadata.
+2. On packet `1`, acquire an upload slot, create an upload record, open a temporary output file, and initialize AES-CBC decrypt state.
+3. For packets `1..N`, validate ordering and size consistency.
+4. Decrypt ciphertext incrementally with continuous AES-CBC state.
+5. Write plaintext incrementally to the temporary file.
+6. Keep the final plaintext block pending until the last packet so PKCS#7 padding is removed only at EOF.
+7. On the last packet, validate padding, finalize the plaintext size, close the temp file, and atomically replace the final output path.
+8. Compute CRC32 incrementally over plaintext and respond with `1603`.
+
+This remains a file-level AES-CBC upload model. It is not an AEAD-per-chunk protocol and does not support independent chunk retry or resumable upload semantics.
 
 ---
 #### Validation Rules (Server-side)
@@ -520,9 +553,11 @@ With the Stage 7 server-identity handshake implemented:
 
 ## 8. Future Improvements
 
-* Authenticated encryption
+* Authenticated encryption / AEAD-based upload mode
+* Future chunk-level authenticated upload protocol
+* Resumable uploads based on explicit upload sessions
+* Controlled per-chunk retry semantics
 * Deployment-level abuse protection beyond application-level limits
-* Resumable uploads
 * Stronger local key storage on the client
 * Deeper observability and protocol-level diagnostics
 

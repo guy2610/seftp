@@ -7,6 +7,10 @@ from collections import defaultdict
 from Crypto.PublicKey import RSA
 import base64
 from base64 import b64decode
+from types import SimpleNamespace
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+import zlib
 import src.store as store
 
 def make_sql_store(tmp_path):
@@ -1810,3 +1814,79 @@ async def test_830_rejects_duplicate_ack(monkeypatch, tmp_path):
     assert len(calls) == 1
     assert "already completed" in calls[0][2]
     assert fake_session.handshake_verified is True
+
+@pytest.mark.parametrize(
+    "plain",
+    [
+        b"A" * 15,
+        b"B" * 16,
+        b"C" * 17,
+        b"D" * 65536,
+    ],
+)
+def test_process_streaming_cipher_chunk_padding_boundaries(tmp_path, plain):
+    key = b"\x11" * 32
+    iv = b"\x22" * 16
+
+    ciphertext = AES.new(key, AES.MODE_CBC, iv=iv).encrypt(
+        pad(plain, AES.block_size)
+    )
+
+    out_path = tmp_path / "streamed_plain.bin"
+    out_file = open(out_path, "wb")
+
+    session = SimpleNamespace(
+        upload_tmp_file=out_file,
+        upload_decrypt_cipher=AES.new(key, AES.MODE_CBC, iv=iv),
+        upload_plain_tail=bytearray(),
+        upload_plain_bytes_written=0,
+        upload_crc32_state=0,
+    )
+
+    try:
+        chunk_size = 16
+
+        chunks = [
+            ciphertext[i:i + chunk_size]
+            for i in range(0, len(ciphertext), chunk_size)
+        ]
+
+        for idx, chunk in enumerate(chunks):
+            is_last = idx == len(chunks) - 1
+            handlers._process_streaming_cipher_chunk(session, chunk, is_last)
+
+        out_file.flush()
+    finally:
+        out_file.close()
+
+    assert out_path.read_bytes() == plain
+    assert session.upload_plain_bytes_written == len(plain)
+    assert session.upload_crc32_state == (zlib.crc32(plain) & 0xFFFFFFFF)
+    assert session.upload_plain_tail == bytearray()
+
+def test_process_streaming_cipher_chunk_rejects_bad_padding(tmp_path):
+    key = b"\x11" * 32
+    iv = b"\x22" * 16
+
+    bad_ciphertext = b"\x00" * 16
+
+    out_path = tmp_path / "bad_padding.bin"
+    out_file = open(out_path, "wb")
+
+    session = SimpleNamespace(
+        upload_tmp_file=out_file,
+        upload_decrypt_cipher=AES.new(key, AES.MODE_CBC, iv=iv),
+        upload_plain_tail=bytearray(),
+        upload_plain_bytes_written=0,
+        upload_crc32_state=0,
+    )
+
+    try:
+        with pytest.raises(ValueError, match="invalid PKCS#7 padding"):
+            handlers._process_streaming_cipher_chunk(
+                session,
+                bad_ciphertext,
+                is_last=True,
+            )
+    finally:
+        out_file.close()

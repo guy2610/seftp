@@ -53,10 +53,52 @@ async def try_read_response_frame(reader: asyncio.StreamReader, timeout: float):
     except asyncio.TimeoutError:
         return None
 
+async def perform_stage7_handshake(reader, writer, io_timeout: float) -> None:
+    client_nonce = secrets.token_bytes(32)
+    payload = b"\x01" + client_nonce + b"\x00"
+
+    writer.write(build_request_frame(b"\x00" * 16, 829, payload))
+    await writer.drain()
+
+    _, code, _server_payload = await read_response_frame(reader, io_timeout)
+    if code != 1608:
+        raise RuntimeError(f"handshake_failed_{code}")
+
+    writer.write(build_request_frame(b"\x00" * 16, 830, b""))
+    await writer.drain()
+
 def decode_1607_message(payload: bytes) -> str:
     if len(payload) < 16:
         return "<short_1607_payload>"
     return payload[16:].decode("utf-8", errors="replace")
+
+def parse_stage7_aes_key_response(payload: bytes, expected_client_id: bytes, response_name: str):
+    if len(payload) < 20:
+        raise RuntimeError(f"bad_{response_name}_payload_len")
+
+    returned_client_id = payload[:16]
+    if returned_client_id != expected_client_id:
+        raise RuntimeError(f"client_id_mismatch_after_{response_name}")
+
+    enc_key_len = int.from_bytes(payload[16:18], "little")
+    enc_key_start = 18
+    enc_key_end = enc_key_start + enc_key_len
+
+    if len(payload) < enc_key_end + 2:
+        raise RuntimeError(f"bad_{response_name}_enc_key_len")
+
+    encrypted_aes = payload[enc_key_start:enc_key_end]
+
+    sig_len = int.from_bytes(payload[enc_key_end:enc_key_end + 2], "little")
+    sig_start = enc_key_end + 2
+    sig_end = sig_start + sig_len
+
+    if len(payload) != sig_end:
+        raise RuntimeError(f"bad_{response_name}_sig_len")
+
+    signature = payload[sig_start:sig_end]
+
+    return returned_client_id, encrypted_aes, signature
 
 def random_username(prefix: str = "load") -> str:
     return f"{prefix}_{secrets.token_hex(6)}"
@@ -382,6 +424,7 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
     writer = None
     try:
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
         username = random_username("reg")
         frame = build_request_frame(
             client_id=b"\x00" * 16,
@@ -416,6 +459,7 @@ async def churn_client(host: str, port: int, io_timeout: float,connections_per_w
     try:
         for i in range(connections_per_worker):
             reader, writer = await asyncio.open_connection(host, port)
+            await perform_stage7_handshake(reader, writer, io_timeout)
             username = random_username("reg")
             frame = build_request_frame(
                 client_id=b"\x00" * 16,
@@ -449,6 +493,7 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
     try:
         # setup phase: create a valid existing user with stored public key
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
 
         username = random_username("relogin")
         zero_id = b"\x00" * 16
@@ -474,12 +519,12 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
         _, code, payload = await read_response_frame(reader, io_timeout)
         if code != 1602:
             raise RuntimeError(f"relogin_setup_key_exchange_failed_{code}")
-        if len(payload) < 16:
-            raise RuntimeError("relogin_setup_bad_1602_payload_len")
 
-        returned_client_id = payload[-16:]
-        if returned_client_id != client_id:
-            raise RuntimeError("relogin_setup_client_id_mismatch_after_1602")
+        parse_stage7_aes_key_response(
+            payload,
+            client_id,
+            "1602",
+        )
 
         writer.close()
         await writer.wait_closed()
@@ -489,18 +534,19 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
         started = time.perf_counter()
 
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
+
         writer.write(build_request_frame(client_id, 827, build_825_payload(username)))
         await writer.drain()
 
         _, code, payload = await read_response_frame(reader, io_timeout)
         if code != 1605:
             raise RuntimeError(f"relogin_failed_{code}")
-        if len(payload) < 16:
-            raise RuntimeError("bad_1605_payload_len")
-
-        returned_client_id = payload[-16:]
-        if returned_client_id != client_id:
-            raise RuntimeError("client_id_mismatch_after_1605")
+        parse_stage7_aes_key_response(
+            payload,
+            client_id,
+            "1605",
+        )
 
         writer.close()
         await writer.wait_closed()
@@ -531,6 +577,7 @@ async def upload_client(
     writer = None
     try:
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
 
         username = random_username("up")
         zero_id = b"\x00" * 16
@@ -551,13 +598,12 @@ async def upload_client(
         _, code, payload = await read_response_frame(reader, io_timeout)
         if code != 1602:
             raise RuntimeError(f"key_exchange_failed_{code}")
-        if len(payload) < 16:
-            raise RuntimeError("bad_1602_payload_len")
 
-        encrypted_aes = payload[:-16]
-        returned_client_id = payload[-16:]
-        if returned_client_id != client_id:
-            raise RuntimeError("client_id_mismatch_after_1602")
+        _, encrypted_aes, _ = parse_stage7_aes_key_response(
+            payload,
+            client_id,
+            "1602",
+        )
 
         cipher_rsa = PKCS1_OAEP.new(rsa_key)
         aes_key = cipher_rsa.decrypt(encrypted_aes)

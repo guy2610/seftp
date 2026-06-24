@@ -47,6 +47,14 @@ def cleanup_load_test_uploads(server_data_dir: str, run_id: str) -> int:
         except OSError:
             pass
 
+    for path in sorted(uploads_dir.rglob("*"), reverse=True):
+        if not path.is_dir():
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+
     return deleted
 
 def build_request_frame(client_id: bytes, code: int, payload: bytes, version: bytes = VERSION) -> bytes:

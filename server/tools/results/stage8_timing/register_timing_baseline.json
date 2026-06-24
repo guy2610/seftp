@@ -1,0 +1,214 @@
+{
+  "run_id": "2026-06-24T13-07-51Z_register_ramp",
+  "created_at": "2026-06-24T13:07:51.124229+00:00",
+  "tool_version": "stage6-v1",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 1234,
+    "server_pid": 1994
+  },
+  "scenario": {
+    "mode": "register",
+    "ramp": [
+      10,
+      25,
+      50
+    ],
+    "concurrency_limit": 50,
+    "pause_between_stages_s": 1.0
+  },
+  "thresholds": {
+    "stop_failure_rate": 0.1,
+    "stop_p95_ms": 30000.0,
+    "stop_rss_mb": 2048.0,
+    "stop_cpu_percent": 95.0
+  },
+  "scenario_params": {
+    "io_timeout_s": 30.0,
+    "hold_s": null,
+    "connect_timeout_s": null,
+    "file_size_bytes": null,
+    "chunk_size_bytes": null
+  },
+  "stages": [
+    {
+      "load": 10,
+      "concurrency": 10,
+      "elapsed_s": 0.10136262500009252,
+      "stop_reason": null,
+      "throughput_ops_per_s": 98.65569286500693,
+      "summary": {
+        "total": 10,
+        "ok": 10,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 20.938458399905358,
+          "p50": 20.718834000035713,
+          "p95": 22.75012499967488,
+          "p99": 22.75012499967488,
+          "max": 22.75012499967488
+        },
+        "errors": {},
+        "timings_ms": {
+          "connect_handshake_ms": {
+            "avg": 12.018120699940482,
+            "p50": 11.303708000014012,
+            "p95": 17.53412500011109,
+            "p99": 17.53412500011109,
+            "max": 17.53412500011109
+          },
+          "register_ms": {
+            "avg": 8.879195800000161,
+            "p50": 8.152625000093394,
+            "p95": 15.767374999995809,
+            "p99": 15.767374999995809,
+            "max": 15.767374999995809
+          }
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 50.859375,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "after": {
+          "rss_mb": 50.875,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "peak": {
+          "rss_mb": 50.875,
+          "cpu_percent": 81.0,
+          "num_threads": 1
+        }
+      },
+      "per_operation_summaries": null
+    },
+    {
+      "load": 25,
+      "concurrency": 25,
+      "elapsed_s": 0.10205537500041828,
+      "stop_reason": null,
+      "throughput_ops_per_s": 244.96504961054268,
+      "summary": {
+        "total": 25,
+        "ok": 25,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 76.74630671996056,
+          "p50": 76.29608399975041,
+          "p95": 81.07312499987529,
+          "p99": 82.61337499970978,
+          "max": 82.61337499970978
+        },
+        "errors": {},
+        "timings_ms": {
+          "connect_handshake_ms": {
+            "avg": 48.07721507993847,
+            "p50": 49.68979099976423,
+            "p95": 67.6263749996906,
+            "p99": 69.1364170002089,
+            "max": 69.1364170002089
+          },
+          "register_ms": {
+            "avg": 28.631153240039566,
+            "p50": 26.56750000005559,
+            "p95": 56.78437500000655,
+            "p99": 61.82833399998344,
+            "max": 61.82833399998344
+          }
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 50.875,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "after": {
+          "rss_mb": 50.875,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "peak": {
+          "rss_mb": 50.875,
+          "cpu_percent": 91.2,
+          "num_threads": 1
+        }
+      },
+      "per_operation_summaries": null
+    },
+    {
+      "load": 50,
+      "concurrency": 50,
+      "elapsed_s": 0.20236537499977203,
+      "stop_reason": null,
+      "throughput_ops_per_s": 247.0778412564715,
+      "summary": {
+        "total": 50,
+        "ok": 50,
+        "failed": 0,
+        "rejected": 0,
+        "success_rate": 1.0,
+        "failure_rate": 0.0,
+        "rejected_rate": 0.0,
+        "latency_ms": {
+          "avg": 120.30739337999876,
+          "p50": 119.89520899987838,
+          "p95": 127.88433299965618,
+          "p99": 129.70379200032767,
+          "max": 129.70379200032767
+        },
+        "errors": {},
+        "timings_ms": {
+          "connect_handshake_ms": {
+            "avg": 71.97144335999837,
+            "p50": 73.30233299990141,
+            "p95": 102.81491700015977,
+            "p99": 105.44274999983827,
+            "max": 105.44274999983827
+          },
+          "register_ms": {
+            "avg": 48.29817910001111,
+            "p50": 45.22704099963448,
+            "p95": 92.83891599989147,
+            "p99": 99.26129199993738,
+            "max": 99.26129199993738
+          }
+        }
+      },
+      "server_metrics": {
+        "before": {
+          "rss_mb": 50.875,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "after": {
+          "rss_mb": 50.90625,
+          "cpu_percent": 0.0,
+          "num_threads": 1
+        },
+        "peak": {
+          "rss_mb": 50.90625,
+          "cpu_percent": 94.4,
+          "num_threads": 1
+        }
+      },
+      "per_operation_summaries": null
+    }
+  ],
+  "final_status": {
+    "completed_all_stages": true,
+    "stopped_early": false,
+    "final_exit_code": 0
+  }
+}

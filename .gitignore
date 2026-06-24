@@ -88,3 +88,4 @@ priv.key
 /server/data/server_identity.pem
 /server/data/seftp_server_sql.db
 /server/data/uploads/
+/data

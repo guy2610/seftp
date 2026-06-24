@@ -150,6 +150,8 @@ def percentile(values: list[float], p: int) -> float:
     idx = max(0, min(idx, len(ordered) - 1))
     return ordered[idx]
 
+def elapsed_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000
 
 @dataclass
 class Result:
@@ -157,6 +159,7 @@ class Result:
     duration_ms: float
     error: Optional[str] = None
     rejected: bool = False
+    timings_ms: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -168,6 +171,7 @@ class Summary:
     durations_ms: list[float] = field(default_factory=list)
     errors: dict[str, int] = field(default_factory=dict)
     rejected: int = 0
+    timings_ms: dict[str, list[float]] = field(default_factory=dict)
 
     def add(self, r: Result):
         self.total += 1
@@ -182,6 +186,9 @@ class Summary:
             self.failed += 1
             key = r.error or "unknown"
             self.errors[key] = self.errors.get(key, 0) + 1
+
+        for name, value in r.timings_ms.items():
+            self.timings_ms.setdefault(name, []).append(value)
 
     @property
     def success_rate(self) -> float:
@@ -260,7 +267,20 @@ def summary_to_dict(summary: Summary) -> dict:
       "p99": summary.p99_ms,
       "max": summary.max_ms}
     result["errors"] = dict(summary.errors)
+    result["timings_ms"] = {
+        name: timing_summary_to_dict(values)
+        for name, values in summary.timings_ms.items()
+    }
     return result
+
+def timing_summary_to_dict(values: list[float]) -> dict:
+    return {
+        "avg": statistics.mean(values) if values else 0.0,
+        "p50": percentile(values, 50),
+        "p95": percentile(values, 95),
+        "p99": percentile(values, 99),
+        "max": max(values) if values else 0.0,
+    }
 
 @dataclass
 class MetricsSnapshot:
@@ -420,11 +440,16 @@ async def idle_connection_client(host: str, port: int, hold_seconds: float, conn
 
 
 async def register_client(host: str, port: int, io_timeout: float) -> Result:
+    timings: dict[str, float] = {}
     started = time.perf_counter()
     writer = None
     try:
+        phase = time.perf_counter()
         reader, writer = await asyncio.open_connection(host, port)
         await perform_stage7_handshake(reader, writer, io_timeout)
+        timings["connect_handshake_ms"] = elapsed_ms(phase)
+
+        phase = time.perf_counter()
         username = random_username("reg")
         frame = build_request_frame(
             client_id=b"\x00" * 16,
@@ -441,9 +466,11 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
         if code == 1600 and len(payload) != 16:
             raise RuntimeError("bad_1600_payload_len")
 
+        timings["register_ms"] = elapsed_ms(phase)
+
         writer.close()
         await writer.wait_closed()
-        return Result(ok=True, duration_ms=(time.perf_counter() - started) * 1000)
+        return Result(ok=True, duration_ms=elapsed_ms(started), timings_ms=timings)
     except Exception as e:
         if writer:
             try:
@@ -451,7 +478,12 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
                 await writer.wait_closed()
             except Exception:
                 pass
-        return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
+        return Result(
+            ok=False,
+            duration_ms=elapsed_ms(started),
+            error=f"{type(e).__name__}: {e}",
+            timings_ms=timings,
+        )
 
 async def churn_client(host: str, port: int, io_timeout: float,connections_per_worker:int) -> Result:
     started = time.perf_counter()
@@ -575,27 +607,36 @@ async def upload_client(
 ) -> Result:
     started = time.perf_counter()
     writer = None
+    timings: dict[str, float] = {}
     try:
+        phase = time.perf_counter()
         reader, writer = await asyncio.open_connection(host, port)
         await perform_stage7_handshake(reader, writer, io_timeout)
+        timings["connect_handshake_ms"] = elapsed_ms(phase)
 
+        phase = time.perf_counter()
         username = random_username("up")
         zero_id = b"\x00" * 16
 
         writer.write(build_request_frame(zero_id, 825, build_825_payload(username)))
         await writer.drain()
         _, code, payload = await read_response_frame(reader, io_timeout)
+        timings["register_ms"] = elapsed_ms(phase)
         if code != 1600 or len(payload) != 16:
             raise RuntimeError(f"register_failed_{code}")
         client_id = payload
 
+        phase = time.perf_counter()
         rsa_key = RSA.generate(2048)
         public_der = rsa_key.publickey().export_key(format="DER")
         public_b64 = base64.b64encode(public_der)
+        timings["rsa_generate_ms"] = elapsed_ms(phase)
 
+        phase = time.perf_counter()
         writer.write(build_request_frame(client_id, 826, build_826_payload(username, public_b64)))
         await writer.drain()
         _, code, payload = await read_response_frame(reader, io_timeout)
+        timings["key_exchange_ms"] = elapsed_ms(phase)
         if code != 1602:
             raise RuntimeError(f"key_exchange_failed_{code}")
 
@@ -605,16 +646,21 @@ async def upload_client(
             "1602",
         )
 
+        phase = time.perf_counter()
         cipher_rsa = PKCS1_OAEP.new(rsa_key)
         aes_key = cipher_rsa.decrypt(encrypted_aes)
+        timings["rsa_decrypt_ms"] = elapsed_ms(phase)
         if len(aes_key) != 32:
             raise RuntimeError("bad_aes_len")
 
+        phase = time.perf_counter()
         plaintext = os.urandom(file_size)
         file_name = f"load_{secrets.token_hex(4)}.bin"
         iv, ciphertext = encrypt_file_for_828(plaintext, aes_key)
         total_packets = math.ceil(len(ciphertext) / chunk_size)
+        timings["client_encrypt_prepare_ms"] = elapsed_ms(phase)
 
+        phase = time.perf_counter()
         packet0 = build_828_packet(
             content_size=len(ciphertext),
             orig_file_size=len(plaintext),
@@ -638,8 +684,9 @@ async def upload_client(
                 return Result(
                     ok=False,
                     rejected=True,
-                    duration_ms=(time.perf_counter() - started) * 1000,
+                    duration_ms=elapsed_ms(started),
                     error=f"rejected_early_1607: {text}",
+                    timings_ms=timings,
                 )
             elif early_code == 1603:
                 early_crc_received = True
@@ -672,8 +719,9 @@ async def upload_client(
                     return Result(
                         ok=False,
                         rejected=True,
-                        duration_ms=(time.perf_counter() - started) * 1000,
+                        duration_ms=elapsed_ms(started),
                         error=f"rejected_by_backpressure: {text}",
+                        timings_ms=timings,
                     )
 
                 if early_code == 1603:
@@ -694,22 +742,26 @@ async def upload_client(
                 return Result(
                     ok=False,
                     rejected=True,
-                    duration_ms=(time.perf_counter() - started) * 1000,
+                    duration_ms=elapsed_ms(started),
                     error=f"rejected_final_1607: {text}",
+                    timings_ms=timings,
                 )
             else:
                 raise RuntimeError(f"upload_crc_response_failed_{code}")
 
+        timings["upload_packets_ms"] = elapsed_ms(phase)
+        phase = time.perf_counter()
         writer.write(build_request_frame(client_id, 900, file_name.encode("utf-8") + b"\x00"))
         await writer.drain()
 
         _, code, _ = await read_response_frame(reader, io_timeout)
+        timings["confirm_ms"] = elapsed_ms(phase)
         if code != 1604:
             raise RuntimeError(f"final_confirm_failed_{code}")
 
         writer.close()
         await writer.wait_closed()
-        return Result(ok=True, duration_ms=(time.perf_counter() - started) * 1000)
+        return Result(ok=True, duration_ms=elapsed_ms(started), timings_ms=timings)
     except Exception as e:
         if writer:
             try:
@@ -717,7 +769,12 @@ async def upload_client(
                 await writer.wait_closed()
             except Exception:
                 pass
-        return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
+        return Result(
+            ok=False,
+            duration_ms=elapsed_ms(started),
+            error=f"{type(e).__name__}: {e}",
+            timings_ms=timings,
+        )
 
 
 async def run_batched(total_clients: int, concurrency: int, worker_coro_factory, summary_name: str) -> Summary:

@@ -299,6 +299,10 @@ def metrics_snapshot_to_dict(snapshot: MetricsSnapshot) -> dict:
               "num_threads" : snapshot.num_threads}
     return result
 
+@dataclass(frozen=True)
+class RsaKeyMaterial:
+    private_key: RSA.RsaKey
+    public_der_b64: bytes
 
 @dataclass
 class StageReport:
@@ -520,7 +524,12 @@ async def churn_client(host: str, port: int, io_timeout: float,connections_per_w
                 pass
         return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
 
-async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
+async def relogin_client(
+    host: str,
+    port: int,
+    io_timeout: float,
+    rsa_material: Optional[RsaKeyMaterial] = None,
+) -> Result:
     writer = None
     try:
         # setup phase: create a valid existing user with stored public key
@@ -541,9 +550,13 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
         client_id = payload
 
         # 826 store public key + get AES
-        rsa_key = RSA.generate(2048)
-        public_der = rsa_key.publickey().export_key(format="DER")
-        public_b64 = base64.b64encode(public_der)
+        if rsa_material is None:
+            rsa_key = RSA.generate(2048)
+            public_der = rsa_key.publickey().export_key(format="DER")
+            public_b64 = base64.b64encode(public_der)
+        else:
+            rsa_key = rsa_material.private_key
+            public_b64 = rsa_material.public_der_b64
 
         writer.write(build_request_frame(client_id, 826, build_826_payload(username, public_b64)))
         await writer.drain()
@@ -604,6 +617,7 @@ async def upload_client(
     io_timeout: float,
     file_size: int,
     chunk_size: int,
+    rsa_material: Optional[RsaKeyMaterial] = None,
 ) -> Result:
     started = time.perf_counter()
     writer = None
@@ -627,10 +641,15 @@ async def upload_client(
         client_id = payload
 
         phase = time.perf_counter()
-        rsa_key = RSA.generate(2048)
-        public_der = rsa_key.publickey().export_key(format="DER")
-        public_b64 = base64.b64encode(public_der)
-        timings["rsa_generate_ms"] = elapsed_ms(phase)
+        if rsa_material is None:
+            rsa_key = RSA.generate(2048)
+            public_der = rsa_key.publickey().export_key(format="DER")
+            public_b64 = base64.b64encode(public_der)
+            timings["rsa_generate_ms"] = elapsed_ms(phase)
+        else:
+            rsa_key = rsa_material.private_key
+            public_b64 = rsa_material.public_der_b64
+            timings["rsa_key_select_ms"] = elapsed_ms(phase)
 
         phase = time.perf_counter()
         writer.write(build_request_frame(client_id, 826, build_826_payload(username, public_b64)))
@@ -833,6 +852,8 @@ async def run_idle_upload_batched(  idle_clients: int,upload_clients: int, concu
     return summary_overall, summaries
 
 async def run_single_stage(args, mode: str, load: int) -> StageReport:
+    rsa_key_pool = build_rsa_key_pool(args.rsa_key_pool_size)
+
     started = time.perf_counter()
 
     monitor = ServerMonitor(args.server_pid, sample_interval=args.sample_interval)
@@ -865,12 +886,13 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     f"upload load={load} concurrency={min(args.concurrency, load)} "
                     f"file_size={args.file_size} chunk_size={args.chunk_size}"
                 ),
-                worker_coro_factory=lambda _: upload_client(
+                worker_coro_factory=lambda i: upload_client(
                     args.host,
                     args.port,
                     args.io_timeout,
                     args.file_size,
                     args.chunk_size,
+                    rsa_key_for_worker(rsa_key_pool, i),
                 ),
             )
         elif mode == "relogin":
@@ -878,10 +900,11 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                 total_clients=load,
                 concurrency=min(args.concurrency, load),
                 summary_name=f"relogin load={load} concurrency={min(args.concurrency, load)}",
-                worker_coro_factory=lambda _: relogin_client(
+                worker_coro_factory=lambda i: relogin_client(
                     args.host,
                     args.port,
                     args.io_timeout,
+                    rsa_key_for_worker(rsa_key_pool, i),
                 ),
             )
         elif mode == "churn":
@@ -895,11 +918,11 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
             async def mixed_worker(i: int):
                 r = random.random()
                 if r < 0.25:
-                    return await relogin_client(args.host,args.port,args.io_timeout), "relogin"
+                    return await relogin_client(args.host,args.port,args.io_timeout,rsa_key_for_worker(rsa_key_pool, i),), "relogin"
                 elif r < 0.5:
                     return await register_client(args.host,args.port,args.io_timeout), "register"
                 else:
-                    return await upload_client(args.host,args.port,args.io_timeout,args.file_size,args.chunk_size) , "upload"
+                    return await upload_client(args.host,args.port,args.io_timeout,args.file_size,args.chunk_size ,rsa_key_for_worker(rsa_key_pool, i),) , "upload"
 
             summary, per_operation_summaries = await run_mixed_batched(
                 total_clients=load,
@@ -1047,6 +1070,26 @@ def parse_ramp(ramp_str: str) -> list[int]:
     if not values:
         raise ValueError("ramp must contain at least one integer")
     return values
+def build_rsa_key_pool(count: int) -> list[RsaKeyMaterial]:
+    if count <= 0:
+        return []
+
+    pool = []
+    for _ in range(count):
+        key = RSA.generate(2048)
+        public_der = key.publickey().export_key(format="DER")
+        pool.append(
+            RsaKeyMaterial(
+                private_key=key,
+                public_der_b64=base64.b64encode(public_der),
+            )
+        )
+    return pool
+
+def rsa_key_for_worker(pool: list[RsaKeyMaterial], worker_index: int) -> Optional[RsaKeyMaterial]:
+    if not pool:
+        return None
+    return pool[worker_index % len(pool)]
 
 def build_run_id(mode: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -1056,6 +1099,7 @@ def build_run_id(mode: str) -> str:
 def build_scenario_params(args, mode: str) -> dict:
     params = {
         "io_timeout_s": args.io_timeout,
+        "rsa_key_pool_size": args.rsa_key_pool_size,
     }
 
     if mode == "idle":
@@ -1178,6 +1222,7 @@ def build_common_parser(parser: argparse.ArgumentParser):
 
     parser.add_argument("--server-pid", type=int, default=None)
     parser.add_argument("--sample-interval", type=float, default=0.1)
+    parser.add_argument("--rsa-key-pool-size", type=int, default=0)
 
     parser.add_argument("--stop-failure-rate", type=float, default=0.10)
     parser.add_argument("--stop-p95-ms", type=float, default=30000.0)

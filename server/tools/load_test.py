@@ -23,6 +23,32 @@ RESPONSE_HEADER_LEN = 7
 VERSION = b"\x03"
 DEFAULT_UPLOAD_CHUNK_SIZE = 64 * 1024
 
+def safe_run_prefix(run_id: str) -> str:
+    return run_id.replace("/", "-").replace(":", "-")
+
+
+def load_test_upload_filename(run_id: str, worker_index: int, file_size: int) -> str:
+    return f"loadtest_{safe_run_prefix(run_id)}_{worker_index}_{file_size}.bin"
+
+def cleanup_load_test_uploads(server_data_dir: str, run_id: str) -> int:
+    uploads_dir = Path(server_data_dir) / "uploads"
+    if not uploads_dir.exists():
+        return 0
+
+    prefix = f"loadtest_{safe_run_prefix(run_id)}_"
+    deleted = 0
+
+    for path in uploads_dir.rglob(f"{prefix}*"):
+        if not path.is_file():
+            continue
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError:
+            pass
+
+    return deleted
+
 def build_request_frame(client_id: bytes, code: int, payload: bytes, version: bytes = VERSION) -> bytes:
     if len(client_id) != 16:
         raise ValueError("client_id must be 16 bytes")
@@ -618,6 +644,7 @@ async def upload_client(
     file_size: int,
     chunk_size: int,
     rsa_material: Optional[RsaKeyMaterial] = None,
+    upload_filename: Optional[str] = None,
 ) -> Result:
     started = time.perf_counter()
     writer = None
@@ -674,7 +701,7 @@ async def upload_client(
 
         phase = time.perf_counter()
         plaintext = os.urandom(file_size)
-        file_name = f"load_{secrets.token_hex(4)}.bin"
+        file_name = upload_filename or f"load_test_{file_size}.bin"
         iv, ciphertext = encrypt_file_for_828(plaintext, aes_key)
         total_packets = math.ceil(len(ciphertext) / chunk_size)
         timings["client_encrypt_prepare_ms"] = elapsed_ms(phase)
@@ -824,9 +851,22 @@ async def run_mixed_batched(total_clients: int, concurrency: int, worker_coro_fa
 
     await asyncio.gather(*(runner_mixed(i) for i in range(total_clients)))
     return summary_overall,summaries
-async def run_idle_upload_batched(  idle_clients: int,upload_clients: int, concurrency: int, host: str, port: int,
-                                    io_timeout: float, hold: float, connect_timeout: float, file_size: int,
-                                    chunk_size: int,summary_name: str):
+
+async def run_idle_upload_batched(
+    idle_clients: int,
+    upload_clients: int,
+    concurrency: int,
+    host: str,
+    port: int,
+    io_timeout: float,
+    hold: float,
+    connect_timeout: float,
+    file_size: int,
+    chunk_size: int,
+    summary_name: str,
+    run_id: str,
+    rsa_key_pool: list[RsaKeyMaterial],
+):
     sem = asyncio.Semaphore(concurrency)
     summary_overall = Summary(summary_name)
     summaries = {
@@ -838,15 +878,24 @@ async def run_idle_upload_batched(  idle_clients: int,upload_clients: int, concu
             result = await idle_connection_client(host, port, hold, connect_timeout)
             summary_overall.add(result)
             summaries["idle"].add(result)
-    async def run_upload_once():
+
+    async def run_upload_once(i: int):
         async with sem:
-            result = await upload_client(host, port, io_timeout, file_size, chunk_size)
+            result = await upload_client(
+                host,
+                port,
+                io_timeout,
+                file_size,
+                chunk_size,
+                rsa_key_for_worker(rsa_key_pool, i),
+                load_test_upload_filename(run_id, i, file_size),
+            )
             summary_overall.add(result)
             summaries["upload"].add(result)
 
     idle_tasks = [asyncio.create_task(run_idle_once()) for _ in range(idle_clients)]
     await asyncio.sleep(0.1)
-    upload_tasks = [asyncio.create_task(run_upload_once()) for _ in range(upload_clients)]
+    upload_tasks = [asyncio.create_task(run_upload_once(i)) for i in range(upload_clients)]
 
     await asyncio.gather(*(idle_tasks+upload_tasks))
     return summary_overall, summaries
@@ -893,6 +942,7 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     args.file_size,
                     args.chunk_size,
                     rsa_key_for_worker(rsa_key_pool, i),
+                    load_test_upload_filename(args.run_id, i, args.file_size),
                 ),
             )
         elif mode == "relogin":
@@ -922,7 +972,15 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                 elif r < 0.5:
                     return await register_client(args.host,args.port,args.io_timeout), "register"
                 else:
-                    return await upload_client(args.host,args.port,args.io_timeout,args.file_size,args.chunk_size ,rsa_key_for_worker(rsa_key_pool, i),) , "upload"
+                    return await upload_client(
+                        args.host,
+                        args.port,
+                        args.io_timeout,
+                        args.file_size,
+                        args.chunk_size,
+                        rsa_key_for_worker(rsa_key_pool, i),
+                        load_test_upload_filename(args.run_id, i, args.file_size),
+                    ), "upload"
 
             summary, per_operation_summaries = await run_mixed_batched(
                 total_clients=load,
@@ -952,6 +1010,8 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     f"concurrency={min(args.concurrency, load)} "
                     f"hold={args.hold} file_size={args.file_size} chunk_size={args.chunk_size}"
                 ),
+                run_id=args.run_id,
+                rsa_key_pool=rsa_key_pool,
             )
         else:
             raise RuntimeError(f"unknown mode: {mode}")
@@ -1100,6 +1160,7 @@ def build_scenario_params(args, mode: str) -> dict:
     params = {
         "io_timeout_s": args.io_timeout,
         "rsa_key_pool_size": args.rsa_key_pool_size,
+        "server_data_dir": args.server_data_dir,
     }
 
     if mode == "idle":
@@ -1134,7 +1195,7 @@ def build_final_status(reports: list[StageReport], exit_code: int) -> dict:
 
 def run_report_to_dict(args, mode: str, reports: list[StageReport], exit_code: int) -> dict:
     return {
-        "run_id": build_run_id(mode),
+        "run_id": args.run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "tool_version": "stage6-v1",
         "server": {
@@ -1182,6 +1243,8 @@ def save_run_report(run_report: dict, output_dir: str = "tools/results") -> Path
 async def run_ramp(args, mode: str) -> int:
     loads = parse_ramp(args.ramp)
     reports: list[StageReport] = []
+    run_id = build_run_id(mode)
+    args.run_id = run_id
 
     for load in loads:
         report = await run_single_stage(args, mode, load)
@@ -1208,6 +1271,9 @@ async def run_ramp(args, mode: str) -> int:
     output_path = save_run_report(run_report)
     print(f"\nSaved run report to: {output_path}")
 
+    deleted_uploads = cleanup_load_test_uploads(args.server_data_dir, args.run_id)
+    print(f"Cleaned up {deleted_uploads} load-test uploaded files")
+
     return exit_code
 
 
@@ -1228,6 +1294,8 @@ def build_common_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--stop-p95-ms", type=float, default=30000.0)
     parser.add_argument("--stop-rss-mb", type=float, default=2048.0)
     parser.add_argument("--stop-cpu-percent", type=float, default=95.0)
+
+    parser.add_argument("--server-data-dir", default="data")
 
 
 def parse_args():

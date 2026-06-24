@@ -83,3 +83,8 @@ test.txt
 me.info
 aes.key
 priv.key
+
+# SEFTP runtime server state
+server/data/server_identity.pem
+/data/seftp_server_sql.db
+/data/uploads/

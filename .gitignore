@@ -85,6 +85,6 @@ aes.key
 priv.key
 
 # SEFTP runtime server state
-/Secure-Encrypted-File-Transfer-Protocol/server/data/server_identity.pem
-/Secure-Encrypted-File-Transfer-Protocol/server/data/seftp_server_sql.db
-/Secure-Encrypted-File-Transfer-Protocol/server/data/uploads/
+/server/data/server_identity.pem
+/server/data/seftp_server_sql.db
+/server/data/uploads/

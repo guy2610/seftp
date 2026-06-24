@@ -6,6 +6,46 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
 
 ---
 
+**v0.8.0-draft - Stage 8 performance observability checkpoint**
+
+* Updated the load-test runner for Stage 7 protocol compatibility
+  * performs the required `829` / `1608` / `830` handshake before application requests
+  * parses the Stage 7 bound AES key response format used by `1602` and `1605`
+* Added per-phase timing breakdowns to benchmark JSON output
+  * connection and handshake
+  * registration
+  * RSA key generation or RSA key-pool selection
+  * AES key exchange
+  * RSA decrypt
+  * client-side encryption preparation
+  * upload packet transmission
+  * CRC confirmation
+* Added RSA key-pool support to the load-test runner
+  * avoids measuring expensive client-side RSA key generation inside each upload worker
+  * makes upload benchmarks better represent the server upload path
+* Re-established post-Stage-7 performance baselines
+  * register timing baseline
+  * relogin timing baseline
+  * upload timing baseline
+  * RSA-pool upload timing baseline
+  * upload chunk-size comparison results
+* Updated the load-test default upload chunk size to `64 * 1024`
+  * aligns benchmark behavior with the server default `max_chunk_size`
+  * reduces upload packet count compared with the previous `60000` byte default
+* Added cleanup for benchmark-created upload files
+  * load-test uploads now use run-specific filenames
+  * benchmark-created upload files are removed after the run
+  * empty upload directories are removed when possible
+* Added a benchmark result comparison CLI
+  * compares two JSON benchmark reports by load stage
+  * reports latency, throughput, success/rejection/failure counts, and timing breakdown changes
+* Added Stage 8 performance observability documentation
+  * documents benchmark methodology
+  * explains RSA key-pool measurement cleanup
+  * summarizes chunk-size findings
+  * identifies future optimization candidates such as size-aware upload backpressure and richer plotting/reporting
+
+
 **v0.7.2 - Stage 7 upload streaming pipeline**
 
 * Replaced full-file client upload buffering with incremental upload processing

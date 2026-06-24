@@ -222,6 +222,55 @@ Strengthen the cryptographic model and extend the protocol to provide authentica
 
 ### **Stage 8 - Observability & Production Behavior**
 Operational visibility, diagnostics, and runtime insight into system behavior under real-world conditions.
+Current status:
+
+Stage 8 is in progress. The first completed part focuses on benchmark observability, post-Stage-7 performance baselining, and evidence-based upload-path analysis.
+
+Completed so far:
+- Updated the load-test runner for the Stage 7 protocol flow
+  - performs `829 CLIENT_HELLO`
+  - accepts `1608 SERVER_HELLO`
+  - sends `830 CLIENT_HANDSHAKE_ACK`
+  - continues with application-level requests only after the handshake
+- Updated benchmark parsing for Stage 7 bound AES key responses (`1602` / `1605`)
+- Added per-phase timing breakdown to benchmark JSON output
+  - connection and handshake time
+  - registration time
+  - RSA key generation or key-pool selection time
+  - AES key exchange time
+  - RSA decrypt time
+  - client-side encryption preparation time
+  - upload packet transmission time
+  - CRC confirmation time
+- Added RSA key-pool support to the load runner to avoid polluting upload benchmarks with client-side RSA key generation cost
+- Re-established a post-Stage-7 upload baseline using the streaming upload pipeline
+- Added Stage 8 benchmark result artifacts for:
+  - register timing baseline
+  - relogin timing baseline
+  - upload timing baseline
+  - RSA-pool upload baseline
+  - upload chunk-size comparison
+- Updated the load-test default upload chunk size to `64 * 1024`, matching the server default `max_chunk_size`
+- Added automatic cleanup of benchmark-created upload files
+- Added a benchmark result comparison CLI for before/after JSON report analysis
+- Added `docs/performance/stage8_performance_observability.md`
+
+Key findings so far:
+- The initial post-Stage-7 upload benchmark was polluted by client-side RSA key generation inside the load runner
+- RSA key pooling exposed the real upload hot path more clearly
+- With RSA key pooling enabled, 1MB upload latency dropped from multi-second values to sub-second values in the tested scenarios
+- The upload packet phase remained mostly unchanged before/after RSA pooling, confirming that RSA pooling cleaned the measurement rather than changing server upload behavior
+- Upload chunk size materially affects upload latency because smaller chunks increase per-packet overhead
+- `64 * 1024` performed best among the tested chunk sizes (`16KB`, `60KB`, `64KB`)
+- Under the tested overload case, the server rejected excess uploads through controlled backpressure with zero upload failures
+
+Remaining Stage 8 candidates:
+- Add richer plotting or report-generation around benchmark JSON outputs
+- Add active upload and active connection visibility
+- Add protocol error counters and upload rejection counters
+- Add deeper server-side internal timing
+- Evaluate size-aware upload backpressure using active upload byte cost, not only active upload count
+- Improve client-side upload progress reporting
 
 * Metrics
   * Connection statistics (active, rejected, per-IP)
@@ -229,6 +278,8 @@ Operational visibility, diagnostics, and runtime insight into system behavior un
   * Protocol error counters (`1607` and validation failures)
   * Active connection and active upload visibility
   * Queue / executor saturation visibility (bounded executor)
+  * Benchmark timing breakdowns (DONE - client-observed per-phase timings)
+  * Benchmark before/after comparison CLI (DONE)
 
 * Logging and diagnostics
   * Structured logging (DONE)
@@ -241,6 +292,8 @@ Operational visibility, diagnostics, and runtime insight into system behavior un
   * Runtime configuration reporting (DONE)
   * Exposure of internal state for debugging and benchmarking
   * Optional lightweight metrics export (future)
+  * Load-test artifact cleanup for benchmark-created uploads (DONE)
+  * Post-Stage-7 performance baseline and benchmark methodology documentation (DONE)
 
 * Client experience improvements
   * Improved client-side progress and status reporting for uploads

@@ -21,7 +21,7 @@ from pathlib import Path
 
 RESPONSE_HEADER_LEN = 7
 VERSION = b"\x03"
-
+DEFAULT_UPLOAD_CHUNK_SIZE = 64 * 1024
 
 def build_request_frame(client_id: bytes, code: int, payload: bytes, version: bytes = VERSION) -> bytes:
     if len(client_id) != 16:
@@ -1248,12 +1248,12 @@ def parse_args():
     upload_parser = sub.add_parser("upload")
     build_common_parser(upload_parser)
     upload_parser.add_argument("--file-size", type=int, default=100_000)
-    upload_parser.add_argument("--chunk-size", type=int, default=60_000)
+    upload_parser.add_argument("--chunk-size", type=int, default=DEFAULT_UPLOAD_CHUNK_SIZE)
 
     mixed_parser = sub.add_parser("mixed")
     build_common_parser(mixed_parser)
     mixed_parser.add_argument("--file-size", type=int, default=100_000)
-    mixed_parser.add_argument("--chunk-size", type=int, default=60_000)
+    mixed_parser.add_argument("--chunk-size", type=int, default=DEFAULT_UPLOAD_CHUNK_SIZE)
 
     churn_parser = sub.add_parser("churn")
     build_common_parser(churn_parser)
@@ -1264,7 +1264,7 @@ def parse_args():
     idle_upload_parser.add_argument("--hold", type=float, default=20.0)
     idle_upload_parser.add_argument("--connect-timeout", type=float, default=10.0)
     idle_upload_parser.add_argument("--file-size", type=int, default=100_000)
-    idle_upload_parser.add_argument("--chunk-size", type=int, default=60_000)
+    idle_upload_parser.add_argument("--chunk-size", type=int, default=DEFAULT_UPLOAD_CHUNK_SIZE)
 
 
 

@@ -145,6 +145,50 @@ Conclusion:
 
 Stage 8 therefore updated the load runner default upload chunk size to `64 * 1024`.
 
+## Benchmark comparison plots
+
+Stage 8 also added comparison plots for benchmark reports.
+
+The plotting tool now supports Stage 8 comparison workflows in addition to the original Stage 6 plot generation. The new Stage 8 plotting mode can compare two benchmark JSON reports and generate visual comparisons for:
+
+- end-to-end average and p95 latency
+- rejected and failed upload counts
+- per-phase timing breakdowns such as `upload_packets_ms`, `register_ms`, and `key_exchange_ms`
+
+The generated Stage 8 internal comparison plots are stored under:
+
+- `tools/plots/stage8_rsa_pool/`
+- `tools/plots/stage8_chunk_size/`
+
+The RSA key-pool plots compare upload benchmarks before and after pre-generating RSA key material. They show that end-to-end upload latency dropped sharply after removing load-generator RSA generation overhead, while `upload_packets_ms` stayed roughly stable. This confirms that RSA pooling cleaned the measurement rather than changing the server upload hot path.
+
+The chunk-size plots compare 60KB chunks with 64KB chunks. They show that 64KB chunks reduce upload packet overhead slightly, supporting the decision to align the load-test default chunk size with the server default `max_chunk_size`.
+
+Stage 8 also adds a behavioral Stage 6 vs Stage 8 upload comparison for 1MB uploads under:
+
+- `tools/plots/stage6_vs_stage8_upload_1mb/`
+
+This comparison is not a strict apples-to-apples microbenchmark because the system changed substantially between the two stages:
+
+- Stage 7 added the mandatory server-identity handshake
+- Stage 7 added bound AES key responses
+- Stage 7 replaced full-file upload buffering with streaming upload processing
+- Stage 8 updated the load runner for the Stage 7 protocol
+- Stage 8 added RSA key pooling to remove load-generator RSA generation overhead
+- Stage 8 changed the default upload chunk size to `64 * 1024`
+
+The purpose of the Stage 6 vs Stage 8 plots is behavioral rather than absolute. They show how upload behavior changed after the Stage 7 streaming upload pipeline and the Stage 8 benchmark cleanup.
+
+Observed Stage 6 vs Stage 8 upload behavior:
+
+- Stage 8 keeps upload p95 latency below 1 second in the tested 1MB upload scenario, while Stage 6 reached multi-second behavior
+- Stage 8 preserves clean overload behavior at load 50: excess uploads are rejected, but upload failures remain at zero
+- Stage 8 shows lower RSS growth under the tested upload ramp
+- Stage 8 shows lower CPU peak under the tested upload ramp
+- Stage 8 reaches much higher measured throughput in this benchmark setup
+
+These plots support the current Stage 8 conclusion: the Stage 7 streaming upload pipeline improved upload behavior, and Stage 8 provides better tools for analyzing the remaining upload hot path.
+
 ## Interpretation
 
 After fixing the benchmark runner, the upload hot path is now clearer.
@@ -216,18 +260,33 @@ This should be implemented only after adding enough observability to compare beh
 
 ### 2. Plot and CLI comparison tooling
 
-The benchmark runner now produces richer JSON output, including timing breakdowns. The plotting tooling should be updated to compare Stage 8 runs more directly.
+The benchmark runner now produces richer JSON output, including timing breakdowns. Stage 8 added both text-based and plot-based comparison tooling on top of those JSON reports.
 
-Useful additions:
+Completed tooling:
 
-- compare two run JSON files from the CLI
-- plot end-to-end latency before and after RSA key pooling
-- plot per-phase timing breakdown
-- compare chunk-size experiments
-- show rejected, failed, and successful outcomes per stage
-- generate charts into a Stage 8-specific plots directory
+- `tools/compare_results.py`
+  - compares two benchmark JSON reports from the CLI
+  - reports latency, throughput, outcome counts, and per-phase timing changes
+  - useful for quick before/after analysis
 
-This would make the Stage 8 results easier to communicate and would support a more polished portfolio presentation.
+- `tools/plot_results.py stage8-compare`
+  - generates comparison plots between two Stage 8 benchmark reports
+  - supports RSA key-pool before/after plots
+  - supports upload chunk-size comparison plots
+  - generates per-phase timing plots from benchmark JSON
+
+- `tools/plot_results.py stage6-vs-stage8`
+  - generates behavioral comparison plots between the Stage 6 upload baseline and the Stage 8 post-streaming upload baseline
+  - currently used for 1MB upload comparison
+  - documents that the comparison is behavioral rather than a strict apples-to-apples microbenchmark
+
+Remaining possible improvements:
+
+- add a higher-level HTML or Markdown benchmark report generator
+- generate summary tables beside plots automatically
+- add plot presets for mixed workloads
+- add plot presets for future server-side internal timing metrics
+- add plot presets for active upload and active connection visibility when those metrics exist
 
 ### 3. Internal server timing
 
@@ -275,14 +334,19 @@ Completed so far:
 - upload benchmark repeated with RSA key pooling
 - chunk-size experiment completed
 - load runner default upload chunk size changed to 64KB
+- benchmark-created upload file cleanup added
+- benchmark result comparison CLI added
+- Stage 8 comparison plotting added
+  - RSA key-pool before/after plots
+  - upload chunk-size comparison plots
+  - Stage 6 upload behavioral baseline vs Stage 8 post-streaming baseline plots
 
 Remaining useful Stage 8 work:
 
-- clean up benchmark-created uploaded files
-- add Stage 8 plotting or CLI comparison for benchmark JSON files
-- document benchmark methodology and caveats
+- add higher-level benchmark report generation around the existing JSON, CLI, and plot outputs
 - decide whether size-aware upload backpressure belongs in Stage 8 implementation or Stage 9 follow-up
 - optionally add server-side internal timing and active upload metrics
+- improve client-side upload progress reporting
 
 ## Summary
 

@@ -39,6 +39,11 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
 * Added a benchmark result comparison CLI
   * compares two JSON benchmark reports by load stage
   * reports latency, throughput, success/rejection/failure counts, and timing breakdown changes
+* Added Stage 8 benchmark comparison plots
+  * RSA key-pool before/after plots for upload benchmark cleanup
+  * upload chunk-size comparison plots for 60KB vs 64KB behavior
+  * Stage 6 upload behavioral baseline vs Stage 8 post-streaming upload comparison plots
+  * documented that Stage 6 vs Stage 8 is a behavioral comparison rather than a strict apples-to-apples microbenchmark
 * Added Stage 8 performance observability documentation
   * documents benchmark methodology
   * explains RSA key-pool measurement cleanup

@@ -253,6 +253,10 @@ Completed so far:
 - Updated the load-test default upload chunk size to `64 * 1024`, matching the server default `max_chunk_size`
 - Added automatic cleanup of benchmark-created upload files
 - Added a benchmark result comparison CLI for before/after JSON report analysis
+- Added Stage 8 benchmark comparison plots
+  - RSA key-pool before/after plots
+  - upload chunk-size comparison plots
+  - Stage 6 upload behavioral baseline vs Stage 8 post-streaming baseline plots
 - Added `docs/performance/stage8_performance_observability.md`
 
 Key findings so far:
@@ -265,7 +269,7 @@ Key findings so far:
 - Under the tested overload case, the server rejected excess uploads through controlled backpressure with zero upload failures
 
 Remaining Stage 8 candidates:
-- Add richer plotting or report-generation around benchmark JSON outputs
+- Extend benchmark report generation beyond the current JSON, CLI, and plot outputs
 - Add active upload and active connection visibility
 - Add protocol error counters and upload rejection counters
 - Add deeper server-side internal timing

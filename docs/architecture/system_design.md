@@ -282,11 +282,15 @@ Stage 8 added benchmark-side observability improvements:
 - RSA key-pool support for cleaner upload measurements
 - benchmark-created upload artifact cleanup
 - benchmark JSON comparison CLI
+- Stage 8 benchmark comparison plots
+- Stage 6 upload behavioral baseline vs Stage 8 post-streaming upload comparison plots
 - post-Stage-7 performance observability documentation
 
 The most important Stage 8 finding so far is that the initial post-Stage-7 upload benchmark was polluted by client-side RSA key generation inside the load runner. After adding RSA key pooling, 1MB upload latency dropped from multi-second values to sub-second values in the tested scenarios. The upload packet phase itself stayed roughly stable, which means RSA key pooling cleaned the measurement rather than changing server upload behavior.
 
 Stage 8 also showed that upload chunk size affects latency. Smaller chunks create more 828 packets and therefore more per-packet overhead. Among the tested chunk sizes, `64 * 1024` performed best and now matches the load-test default and the server default maximum chunk size.
+
+The Stage 8 plotting work also adds visual comparisons for the key benchmark conclusions. Internal Stage 8 plots compare RSA key-pool before/after behavior and 60KB vs 64KB upload chunks. A separate Stage 6 vs Stage 8 upload plot set compares the original upload behavioral baseline with the post-Stage-7 streaming upload baseline. That comparison is not treated as a strict raw-number benchmark because the protocol and upload pipeline changed between stages, but it is useful for showing the system-level behavioral change after streaming upload processing.
 
 The current architectural takeaway remains that upload is the dominant resource-sensitive path, but Stage 8 made that conclusion more precise. The next optimization should be evidence-driven and may include size-aware upload backpressure, richer plotting/report generation, or deeper server-side internal timing.
 

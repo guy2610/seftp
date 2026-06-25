@@ -8,7 +8,7 @@ from collections import deque
 import os
 
 class ClientSession:
-    def __init__(self, writer, store, base_logger, config, upload_limiter, bounded_executor, server_identity_key=None):
+    def __init__(self, writer, store, base_logger, config, upload_limiter, bounded_executor, server_identity_key=None,runtime_metrics=None):
         self.config=config
         self.writer=writer
         self.store = store
@@ -36,6 +36,7 @@ class ClientSession:
         self.expected_orig_file_size = None
         self.received_cipher_bytes = 0
         self.upload_limiter = upload_limiter
+        self.runtime_metrics = runtime_metrics
         self.has_upload_slot = False
         self.bounded_executor = bounded_executor
         self.upload_client_id_hex = None
@@ -62,6 +63,8 @@ class ClientSession:
             await self.upload_limiter.release()
             self.has_upload_slot = False
             active_now = await self.upload_limiter.current_active()
+            if self.runtime_metrics is not None:
+                await self.runtime_metrics.set_active_uploads(active_now)
             self.log.info(
                 "released upload slot active_uploads=%d max=%d",
                 active_now,

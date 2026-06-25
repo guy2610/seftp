@@ -445,12 +445,18 @@ async def request_828(payload_info,version,client_id,session):
             if not session.has_upload_slot:
                 acquired = await session.upload_limiter.try_acquire()
                 if not acquired:
+                    runtime_metrics = getattr(session, "runtime_metrics", None)
+                    if runtime_metrics is not None:
+                        await runtime_metrics.inc_rejected_uploads()
                     session.log.info("upload rejected: max concurrent uploads reached")
                     await answers.answer_1607(client_id, version, "server busy: too many concurrent uploads", session)
                     session.reset_transfer_state("upload_rejected_backpressure")
                     return
                 session.has_upload_slot = True
                 active_now = await session.upload_limiter.current_active()
+                runtime_metrics = getattr(session, "runtime_metrics", None)
+                if runtime_metrics is not None:
+                    await runtime_metrics.set_active_uploads(active_now)
                 session.log.info(
                     "upload slot acquired file=%s active_uploads=%d max=%d",
                     file_name,

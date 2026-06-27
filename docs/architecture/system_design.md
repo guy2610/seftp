@@ -15,7 +15,9 @@ The current scope includes:
 - CRC-based integrity confirmation
 - server-side SQLite persistence
 - local client identity and key persistence
-- observability and benchmarking tooling
+- observability, benchmarking, and benchmark-comparison tooling
+- post-Stage-7 performance observability and timing breakdowns
+- benchmark hygiene for cleaning up synthetic load-test upload artifacts
 - authenticated server identity handshake before application-level protocol flows
 - TOFU and optional pinned server fingerprint trust modes
 
@@ -266,11 +268,31 @@ Using explicit server-side backpressure is preferable to best-effort overload be
 
 ## 10. Observability and Performance Findings
 
-The project includes dedicated benchmarking and plotting tooling focused primarily on server behavior under load. These tools evaluate latency, throughput, rejection rates, failure rates, CPU usage, RSS growth, and per-operation behavior under scenarios such as `register`, `relogin`, `upload`, `mixed`, `churn`, and `idle_upload`.
+The project includes dedicated benchmarking and analysis tooling focused primarily on server behavior under load. These tools evaluate latency, throughput, rejection rates, failure rates, CPU usage, RSS growth, and per-operation behavior under scenarios such as `register`, `relogin`, `upload`, `mixed`, `churn`, and `idle_upload`.
 
-The main architectural takeaway is that upload handling is the dominant cost path. Registration and relogin behave more like control-plane operations, while upload traffic drives the main resource and capacity constraints. This validates the decision to treat upload handling as a separately controlled resource domain on the server.
+Stage 6 established the first performance analysis baseline and identified upload handling as the dominant cost path. Registration and relogin behaved more like control-plane operations, while upload traffic drove the main resource and capacity constraints. This validated the decision to treat upload handling as a separately controlled resource domain on the server.
 
-Stage 7 upload streaming directly addresses the earlier upload memory-pressure concern by avoiding full-file plaintext and ciphertext buffering on both the client and server. Upload remains the dominant resource-sensitive path, but the implementation now processes upload data incrementally.
+Stage 7 changed the upload implementation substantially by moving from full-file plaintext/ciphertext buffering to streaming upload processing. Because of that, Stage 8 re-established the performance baseline after the Stage 7 protocol and upload-pipeline changes.
+
+Stage 8 added benchmark-side observability improvements:
+
+- Stage 7-compatible load-test protocol flow
+- parsing support for bound AES key responses
+- per-phase timing breakdowns in benchmark JSON
+- RSA key-pool support for cleaner upload measurements
+- benchmark-created upload artifact cleanup
+- benchmark JSON comparison CLI
+- Stage 8 benchmark comparison plots
+- Stage 6 upload behavioral baseline vs Stage 8 post-streaming upload comparison plots
+- post-Stage-7 performance observability documentation
+
+The most important Stage 8 finding so far is that the initial post-Stage-7 upload benchmark was polluted by client-side RSA key generation inside the load runner. After adding RSA key pooling, 1MB upload latency dropped from multi-second values to sub-second values in the tested scenarios. The upload packet phase itself stayed roughly stable, which means RSA key pooling cleaned the measurement rather than changing server upload behavior.
+
+Stage 8 also showed that upload chunk size affects latency. Smaller chunks create more 828 packets and therefore more per-packet overhead. Among the tested chunk sizes, `64 * 1024` performed best and now matches the load-test default and the server default maximum chunk size.
+
+The Stage 8 plotting work also adds visual comparisons for the key benchmark conclusions. Internal Stage 8 plots compare RSA key-pool before/after behavior and 60KB vs 64KB upload chunks. A separate Stage 6 vs Stage 8 upload plot set compares the original upload behavioral baseline with the post-Stage-7 streaming upload baseline. That comparison is not treated as a strict raw-number benchmark because the protocol and upload pipeline changed between stages, but it is useful for showing the system-level behavioral change after streaming upload processing.
+
+The current architectural takeaway remains that upload is the dominant resource-sensitive path, but Stage 8 made that conclusion more precise. The next optimization should be evidence-driven and may include size-aware upload backpressure, richer plotting/report generation, or deeper server-side internal timing.
 
 ## 11. Limitations and Future Work
 
@@ -282,7 +304,9 @@ Several future directions remain open:
 - stronger local storage beyond filesystem permissions for `priv.key` and `aes.key`
 - future AEAD-based chunk upload protocol for authenticated chunks, resumability, and controlled per-chunk retry
 - deployment-level abuse protection beyond application-level limits
-- deeper observability and per-phase timing
+- deeper server-side observability and internal per-phase timing
+- size-aware upload backpressure based on active upload byte cost
+- richer benchmark report generation and plotting for Stage 8 comparisons
 - runtime metrics for active connections, active uploads, and executor saturation
 - isolated profiling of the server's in-memory client index
 - optional controlled parallel upload support if justified

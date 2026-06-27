@@ -13,6 +13,9 @@ The current scope includes:
 - upload lifecycle tracking
 - connection limiting and upload backpressure
 - load-testing and plotting tooling for performance analysis
+- Stage 8 benchmark timing breakdowns for client-observed protocol phases
+- load-test RSA key pooling to avoid benchmark-runner crypto overhead
+- automatic cleanup of benchmark-created upload files
 - Stage 7 server-identity handshake using `829`, `1608`, and `830`
 - persistent server RSA identity key generation/loading
 - router gating that rejects application requests before handshake completion
@@ -310,11 +313,29 @@ Runtime behavior is controlled through `Config.load()`, which combines defaults 
 
 ## 10. Observability and Performance Tooling
 
-The project includes dedicated load-testing and plotting utilities, which are part of the server design story because they shape how capacity and bottlenecks are analyzed.
+The project includes dedicated load-testing, benchmark-comparison, and plotting utilities, which are part of the server design story because they shape how capacity and bottlenecks are analyzed.
 
 `load_test.py` supports scenarios for register, relogin, upload, mixed, churn, idle, and idle_upload. It records success, failure, rejection, latency percentiles, throughput, and sampled process metrics such as RSS, CPU usage, and thread count. For mixed and hybrid scenarios it also records per-operation summaries, which is important because overall averages can hide the fact that one operation dominates the bottleneck.
 
-`plot_results.py` turns these run reports into graphs for latency, throughput, outcome rates, CPU, RSS, upload-size comparisons, and mixed-workload per-operation comparisons. That gives a path from raw benchmark output to architecture-level conclusions about where the server saturates and which limits dominate under load.
+Stage 8 extended this tooling in several important ways.
+
+First, the load runner was updated for Stage 7 protocol compatibility. Benchmark clients now perform the required `829 CLIENT_HELLO` / `1608 SERVER_HELLO` / `830 CLIENT_HANDSHAKE_ACK` flow before sending application-level requests. The runner also understands the Stage 7 bound AES key response format used by `1602` and `1605`.
+
+Second, the load runner now records client-observed timing breakdowns for important protocol phases. Upload runs can include timing for connection and handshake, registration, RSA key generation or RSA key-pool selection, AES key exchange, RSA decrypt, client-side encryption preparation, upload packet transmission, and CRC confirmation. This makes it easier to distinguish server upload cost from benchmark-runner setup overhead.
+
+Third, the load runner supports RSA key pooling. Without key pooling, upload benchmarks generated RSA-2048 keypairs inside each upload worker. That polluted the measurement with client-side CPU work and made upload latency look much worse than the server upload path itself. With a pre-generated RSA key pool, benchmark runs better isolate the upload path and reveal the actual cost of 828 packet transmission and server-side streaming processing.
+
+Fourth, the load runner now uses run-specific upload filenames and cleans up benchmark-created upload files after the run. This keeps local upload directories from accumulating synthetic benchmark artifacts while preserving the structured JSON benchmark reports.
+
+`compare_results.py` provides a CLI for comparing two benchmark JSON reports. It compares matching load stages and reports changes in latency, throughput, success/rejection/failure counts, and per-phase timing breakdowns. This supports before/after analysis for changes such as RSA key pooling or upload chunk-size tuning.
+
+`plot_results.py` turns run reports into graphs for latency, throughput, outcome rates, CPU, RSS, upload-size comparisons, and mixed-workload per-operation comparisons. Stage 8 extends it with comparison-oriented plotting modes. The `stage8-compare` mode generates before/after plots from two Stage 8 benchmark JSON reports, including latency, rejection/failure outcomes, and per-phase timing breakdowns. The `stage6-vs-stage8` mode generates behavioral comparison plots between the Stage 6 upload baseline and the Stage 8 post-streaming upload baseline. This comparison is intentionally framed as behavioral rather than a strict apples-to-apples microbenchmark because Stage 7 changed the handshake, AES key binding, and upload pipeline.
+
+Stage 8 benchmark findings currently show that the initial post-Stage-7 upload numbers were polluted by load-generator RSA key generation. After adding timing breakdowns and RSA key pooling, 1MB upload measurements dropped from multi-second values to sub-second values in the tested scenarios, while the upload packet phase stayed roughly stable. This indicates that RSA pooling cleaned the measurement rather than changing server upload behavior.
+
+The generated Stage 8 plots support the same conclusion visually. The RSA key-pool plots show a large drop in end-to-end latency while `upload_packets_ms` remains roughly stable, confirming that the key pool removes benchmark-runner overhead rather than changing the server upload hot path. The Stage 6 vs Stage 8 upload plots show cleaner overload behavior, lower RSS growth, lower CPU peak, and higher measured throughput in the tested 1MB upload scenario.
+
+A later Stage 8 or Stage 9 optimization candidate is size-aware upload backpressure. The current upload limiter is concurrency-based and treats all uploads as equal. Earlier Stage 6 results showed that larger files create more RSS and CPU pressure, and Stage 8 confirms that upload remains the main resource-sensitive path after streaming. A future limiter could account for active upload bytes in addition to active upload count.
 
 ## 11. Current Architectural Findings
 
@@ -326,9 +347,11 @@ Another clear architectural property is controlled failure under pressure. Rathe
 
 This server is already structurally solid for a single-node engineering project, but several directions remain open.
 
-A deeper observability layer would help. Current logging and benchmarking are useful, but the server does not yet expose structured metrics endpoints, queue-depth telemetry, or more granular timing around individual phases such as frame parse, handler execution, SQLite time, and upload finalization time.
+A deeper observability layer would still help. Stage 8 improved benchmark-side observability with timing breakdowns, RSA key pooling, upload artifact cleanup, and JSON comparison tooling. However, the server itself still does not expose structured metrics endpoints, active upload state, queue-depth telemetry, protocol error counters, or detailed server-side internal timings for phases such as frame parsing, handler execution, SQLite interaction, upload packet processing, temporary file writes, and final atomic replacement.
 
 The in-memory client index is a sensible optimization, but its effect has not yet been isolated by dedicated profiling. A future step would be to measure lookup cost, DB interaction frequency, and end-to-end impact under realistic mixed workloads before deciding whether more caching or indexing is justified. The current code already contains the index, so the next move should be evidence-driven evaluation, not optimization by assumption.
+
+Upload admission control could also become more nuanced. The current upload limiter is based on the number of active uploads. That keeps overload behavior simple and predictable, but it does not account for the fact that larger uploads consume more CPU, disk IO, and memory pressure over time. A future size-aware upload limiter could combine active upload count with active upload byte cost.
 
 Upload persistence could also evolve. Today, metadata is persisted, while in-progress upload stream state remains session-bound until completion. If resumable uploads or reconnect continuation were needed, the protocol and persistence model would need explicit upload sessions, durable chunk-level state, and recovery semantics beyond the current per-session design.
 

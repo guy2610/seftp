@@ -219,6 +219,8 @@ async def answer_1607(client_id,version,text,session):
     Also prints the most recent state of the client in clients_info.
     """
     session.log.debug("inside answer 1607")
+    if getattr(session, "runtime_metrics", None) is not None:
+        await session.runtime_metrics.inc_protocol_errors_1607()
     store = session.store
     payload = client_id + text.encode("utf-8")
     message = message_answer(version, "1607", str(len(payload)), payload,session)

@@ -21,7 +21,41 @@ from pathlib import Path
 
 RESPONSE_HEADER_LEN = 7
 VERSION = b"\x03"
+DEFAULT_UPLOAD_CHUNK_SIZE = 64 * 1024
 
+def safe_run_prefix(run_id: str) -> str:
+    return run_id.replace("/", "-").replace(":", "-")
+
+
+def load_test_upload_filename(run_id: str, worker_index: int, file_size: int) -> str:
+    return f"loadtest_{safe_run_prefix(run_id)}_{worker_index}_{file_size}.bin"
+
+def cleanup_load_test_uploads(server_data_dir: str, run_id: str) -> int:
+    uploads_dir = Path(server_data_dir) / "uploads"
+    if not uploads_dir.exists():
+        return 0
+
+    prefix = f"loadtest_{safe_run_prefix(run_id)}_"
+    deleted = 0
+
+    for path in uploads_dir.rglob(f"{prefix}*"):
+        if not path.is_file():
+            continue
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError:
+            pass
+
+    for path in sorted(uploads_dir.rglob("*"), reverse=True):
+        if not path.is_dir():
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+
+    return deleted
 
 def build_request_frame(client_id: bytes, code: int, payload: bytes, version: bytes = VERSION) -> bytes:
     if len(client_id) != 16:
@@ -53,10 +87,52 @@ async def try_read_response_frame(reader: asyncio.StreamReader, timeout: float):
     except asyncio.TimeoutError:
         return None
 
+async def perform_stage7_handshake(reader, writer, io_timeout: float) -> None:
+    client_nonce = secrets.token_bytes(32)
+    payload = b"\x01" + client_nonce + b"\x00"
+
+    writer.write(build_request_frame(b"\x00" * 16, 829, payload))
+    await writer.drain()
+
+    _, code, _server_payload = await read_response_frame(reader, io_timeout)
+    if code != 1608:
+        raise RuntimeError(f"handshake_failed_{code}")
+
+    writer.write(build_request_frame(b"\x00" * 16, 830, b""))
+    await writer.drain()
+
 def decode_1607_message(payload: bytes) -> str:
     if len(payload) < 16:
         return "<short_1607_payload>"
     return payload[16:].decode("utf-8", errors="replace")
+
+def parse_stage7_aes_key_response(payload: bytes, expected_client_id: bytes, response_name: str):
+    if len(payload) < 20:
+        raise RuntimeError(f"bad_{response_name}_payload_len")
+
+    returned_client_id = payload[:16]
+    if returned_client_id != expected_client_id:
+        raise RuntimeError(f"client_id_mismatch_after_{response_name}")
+
+    enc_key_len = int.from_bytes(payload[16:18], "little")
+    enc_key_start = 18
+    enc_key_end = enc_key_start + enc_key_len
+
+    if len(payload) < enc_key_end + 2:
+        raise RuntimeError(f"bad_{response_name}_enc_key_len")
+
+    encrypted_aes = payload[enc_key_start:enc_key_end]
+
+    sig_len = int.from_bytes(payload[enc_key_end:enc_key_end + 2], "little")
+    sig_start = enc_key_end + 2
+    sig_end = sig_start + sig_len
+
+    if len(payload) != sig_end:
+        raise RuntimeError(f"bad_{response_name}_sig_len")
+
+    signature = payload[sig_start:sig_end]
+
+    return returned_client_id, encrypted_aes, signature
 
 def random_username(prefix: str = "load") -> str:
     return f"{prefix}_{secrets.token_hex(6)}"
@@ -108,6 +184,8 @@ def percentile(values: list[float], p: int) -> float:
     idx = max(0, min(idx, len(ordered) - 1))
     return ordered[idx]
 
+def elapsed_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000
 
 @dataclass
 class Result:
@@ -115,6 +193,7 @@ class Result:
     duration_ms: float
     error: Optional[str] = None
     rejected: bool = False
+    timings_ms: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -126,6 +205,7 @@ class Summary:
     durations_ms: list[float] = field(default_factory=list)
     errors: dict[str, int] = field(default_factory=dict)
     rejected: int = 0
+    timings_ms: dict[str, list[float]] = field(default_factory=dict)
 
     def add(self, r: Result):
         self.total += 1
@@ -140,6 +220,9 @@ class Summary:
             self.failed += 1
             key = r.error or "unknown"
             self.errors[key] = self.errors.get(key, 0) + 1
+
+        for name, value in r.timings_ms.items():
+            self.timings_ms.setdefault(name, []).append(value)
 
     @property
     def success_rate(self) -> float:
@@ -218,7 +301,20 @@ def summary_to_dict(summary: Summary) -> dict:
       "p99": summary.p99_ms,
       "max": summary.max_ms}
     result["errors"] = dict(summary.errors)
+    result["timings_ms"] = {
+        name: timing_summary_to_dict(values)
+        for name, values in summary.timings_ms.items()
+    }
     return result
+
+def timing_summary_to_dict(values: list[float]) -> dict:
+    return {
+        "avg": statistics.mean(values) if values else 0.0,
+        "p50": percentile(values, 50),
+        "p95": percentile(values, 95),
+        "p99": percentile(values, 99),
+        "max": max(values) if values else 0.0,
+    }
 
 @dataclass
 class MetricsSnapshot:
@@ -237,6 +333,10 @@ def metrics_snapshot_to_dict(snapshot: MetricsSnapshot) -> dict:
               "num_threads" : snapshot.num_threads}
     return result
 
+@dataclass(frozen=True)
+class RsaKeyMaterial:
+    private_key: RSA.RsaKey
+    public_der_b64: bytes
 
 @dataclass
 class StageReport:
@@ -378,10 +478,16 @@ async def idle_connection_client(host: str, port: int, hold_seconds: float, conn
 
 
 async def register_client(host: str, port: int, io_timeout: float) -> Result:
+    timings: dict[str, float] = {}
     started = time.perf_counter()
     writer = None
     try:
+        phase = time.perf_counter()
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
+        timings["connect_handshake_ms"] = elapsed_ms(phase)
+
+        phase = time.perf_counter()
         username = random_username("reg")
         frame = build_request_frame(
             client_id=b"\x00" * 16,
@@ -398,9 +504,11 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
         if code == 1600 and len(payload) != 16:
             raise RuntimeError("bad_1600_payload_len")
 
+        timings["register_ms"] = elapsed_ms(phase)
+
         writer.close()
         await writer.wait_closed()
-        return Result(ok=True, duration_ms=(time.perf_counter() - started) * 1000)
+        return Result(ok=True, duration_ms=elapsed_ms(started), timings_ms=timings)
     except Exception as e:
         if writer:
             try:
@@ -408,7 +516,12 @@ async def register_client(host: str, port: int, io_timeout: float) -> Result:
                 await writer.wait_closed()
             except Exception:
                 pass
-        return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
+        return Result(
+            ok=False,
+            duration_ms=elapsed_ms(started),
+            error=f"{type(e).__name__}: {e}",
+            timings_ms=timings,
+        )
 
 async def churn_client(host: str, port: int, io_timeout: float,connections_per_worker:int) -> Result:
     started = time.perf_counter()
@@ -416,6 +529,7 @@ async def churn_client(host: str, port: int, io_timeout: float,connections_per_w
     try:
         for i in range(connections_per_worker):
             reader, writer = await asyncio.open_connection(host, port)
+            await perform_stage7_handshake(reader, writer, io_timeout)
             username = random_username("reg")
             frame = build_request_frame(
                 client_id=b"\x00" * 16,
@@ -444,11 +558,17 @@ async def churn_client(host: str, port: int, io_timeout: float,connections_per_w
                 pass
         return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
 
-async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
+async def relogin_client(
+    host: str,
+    port: int,
+    io_timeout: float,
+    rsa_material: Optional[RsaKeyMaterial] = None,
+) -> Result:
     writer = None
     try:
         # setup phase: create a valid existing user with stored public key
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
 
         username = random_username("relogin")
         zero_id = b"\x00" * 16
@@ -464,9 +584,13 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
         client_id = payload
 
         # 826 store public key + get AES
-        rsa_key = RSA.generate(2048)
-        public_der = rsa_key.publickey().export_key(format="DER")
-        public_b64 = base64.b64encode(public_der)
+        if rsa_material is None:
+            rsa_key = RSA.generate(2048)
+            public_der = rsa_key.publickey().export_key(format="DER")
+            public_b64 = base64.b64encode(public_der)
+        else:
+            rsa_key = rsa_material.private_key
+            public_b64 = rsa_material.public_der_b64
 
         writer.write(build_request_frame(client_id, 826, build_826_payload(username, public_b64)))
         await writer.drain()
@@ -474,12 +598,12 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
         _, code, payload = await read_response_frame(reader, io_timeout)
         if code != 1602:
             raise RuntimeError(f"relogin_setup_key_exchange_failed_{code}")
-        if len(payload) < 16:
-            raise RuntimeError("relogin_setup_bad_1602_payload_len")
 
-        returned_client_id = payload[-16:]
-        if returned_client_id != client_id:
-            raise RuntimeError("relogin_setup_client_id_mismatch_after_1602")
+        parse_stage7_aes_key_response(
+            payload,
+            client_id,
+            "1602",
+        )
 
         writer.close()
         await writer.wait_closed()
@@ -489,18 +613,19 @@ async def relogin_client(host: str, port: int, io_timeout: float) -> Result:
         started = time.perf_counter()
 
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
+
         writer.write(build_request_frame(client_id, 827, build_825_payload(username)))
         await writer.drain()
 
         _, code, payload = await read_response_frame(reader, io_timeout)
         if code != 1605:
             raise RuntimeError(f"relogin_failed_{code}")
-        if len(payload) < 16:
-            raise RuntimeError("bad_1605_payload_len")
-
-        returned_client_id = payload[-16:]
-        if returned_client_id != client_id:
-            raise RuntimeError("client_id_mismatch_after_1605")
+        parse_stage7_aes_key_response(
+            payload,
+            client_id,
+            "1605",
+        )
 
         writer.close()
         await writer.wait_closed()
@@ -526,49 +651,70 @@ async def upload_client(
     io_timeout: float,
     file_size: int,
     chunk_size: int,
+    rsa_material: Optional[RsaKeyMaterial] = None,
+    upload_filename: Optional[str] = None,
 ) -> Result:
     started = time.perf_counter()
     writer = None
+    timings: dict[str, float] = {}
     try:
+        phase = time.perf_counter()
         reader, writer = await asyncio.open_connection(host, port)
+        await perform_stage7_handshake(reader, writer, io_timeout)
+        timings["connect_handshake_ms"] = elapsed_ms(phase)
 
+        phase = time.perf_counter()
         username = random_username("up")
         zero_id = b"\x00" * 16
 
         writer.write(build_request_frame(zero_id, 825, build_825_payload(username)))
         await writer.drain()
         _, code, payload = await read_response_frame(reader, io_timeout)
+        timings["register_ms"] = elapsed_ms(phase)
         if code != 1600 or len(payload) != 16:
             raise RuntimeError(f"register_failed_{code}")
         client_id = payload
 
-        rsa_key = RSA.generate(2048)
-        public_der = rsa_key.publickey().export_key(format="DER")
-        public_b64 = base64.b64encode(public_der)
+        phase = time.perf_counter()
+        if rsa_material is None:
+            rsa_key = RSA.generate(2048)
+            public_der = rsa_key.publickey().export_key(format="DER")
+            public_b64 = base64.b64encode(public_der)
+            timings["rsa_generate_ms"] = elapsed_ms(phase)
+        else:
+            rsa_key = rsa_material.private_key
+            public_b64 = rsa_material.public_der_b64
+            timings["rsa_key_select_ms"] = elapsed_ms(phase)
 
+        phase = time.perf_counter()
         writer.write(build_request_frame(client_id, 826, build_826_payload(username, public_b64)))
         await writer.drain()
         _, code, payload = await read_response_frame(reader, io_timeout)
+        timings["key_exchange_ms"] = elapsed_ms(phase)
         if code != 1602:
             raise RuntimeError(f"key_exchange_failed_{code}")
-        if len(payload) < 16:
-            raise RuntimeError("bad_1602_payload_len")
 
-        encrypted_aes = payload[:-16]
-        returned_client_id = payload[-16:]
-        if returned_client_id != client_id:
-            raise RuntimeError("client_id_mismatch_after_1602")
+        _, encrypted_aes, _ = parse_stage7_aes_key_response(
+            payload,
+            client_id,
+            "1602",
+        )
 
+        phase = time.perf_counter()
         cipher_rsa = PKCS1_OAEP.new(rsa_key)
         aes_key = cipher_rsa.decrypt(encrypted_aes)
+        timings["rsa_decrypt_ms"] = elapsed_ms(phase)
         if len(aes_key) != 32:
             raise RuntimeError("bad_aes_len")
 
+        phase = time.perf_counter()
         plaintext = os.urandom(file_size)
-        file_name = f"load_{secrets.token_hex(4)}.bin"
+        file_name = upload_filename or f"load_test_{file_size}.bin"
         iv, ciphertext = encrypt_file_for_828(plaintext, aes_key)
         total_packets = math.ceil(len(ciphertext) / chunk_size)
+        timings["client_encrypt_prepare_ms"] = elapsed_ms(phase)
 
+        phase = time.perf_counter()
         packet0 = build_828_packet(
             content_size=len(ciphertext),
             orig_file_size=len(plaintext),
@@ -592,8 +738,9 @@ async def upload_client(
                 return Result(
                     ok=False,
                     rejected=True,
-                    duration_ms=(time.perf_counter() - started) * 1000,
+                    duration_ms=elapsed_ms(started),
                     error=f"rejected_early_1607: {text}",
+                    timings_ms=timings,
                 )
             elif early_code == 1603:
                 early_crc_received = True
@@ -626,8 +773,9 @@ async def upload_client(
                     return Result(
                         ok=False,
                         rejected=True,
-                        duration_ms=(time.perf_counter() - started) * 1000,
+                        duration_ms=elapsed_ms(started),
                         error=f"rejected_by_backpressure: {text}",
+                        timings_ms=timings,
                     )
 
                 if early_code == 1603:
@@ -648,22 +796,26 @@ async def upload_client(
                 return Result(
                     ok=False,
                     rejected=True,
-                    duration_ms=(time.perf_counter() - started) * 1000,
+                    duration_ms=elapsed_ms(started),
                     error=f"rejected_final_1607: {text}",
+                    timings_ms=timings,
                 )
             else:
                 raise RuntimeError(f"upload_crc_response_failed_{code}")
 
+        timings["upload_packets_ms"] = elapsed_ms(phase)
+        phase = time.perf_counter()
         writer.write(build_request_frame(client_id, 900, file_name.encode("utf-8") + b"\x00"))
         await writer.drain()
 
         _, code, _ = await read_response_frame(reader, io_timeout)
+        timings["confirm_ms"] = elapsed_ms(phase)
         if code != 1604:
             raise RuntimeError(f"final_confirm_failed_{code}")
 
         writer.close()
         await writer.wait_closed()
-        return Result(ok=True, duration_ms=(time.perf_counter() - started) * 1000)
+        return Result(ok=True, duration_ms=elapsed_ms(started), timings_ms=timings)
     except Exception as e:
         if writer:
             try:
@@ -671,7 +823,12 @@ async def upload_client(
                 await writer.wait_closed()
             except Exception:
                 pass
-        return Result(ok=False, duration_ms=(time.perf_counter() - started) * 1000, error=f"{type(e).__name__}: {e}")
+        return Result(
+            ok=False,
+            duration_ms=elapsed_ms(started),
+            error=f"{type(e).__name__}: {e}",
+            timings_ms=timings,
+        )
 
 
 async def run_batched(total_clients: int, concurrency: int, worker_coro_factory, summary_name: str) -> Summary:
@@ -702,9 +859,22 @@ async def run_mixed_batched(total_clients: int, concurrency: int, worker_coro_fa
 
     await asyncio.gather(*(runner_mixed(i) for i in range(total_clients)))
     return summary_overall,summaries
-async def run_idle_upload_batched(  idle_clients: int,upload_clients: int, concurrency: int, host: str, port: int,
-                                    io_timeout: float, hold: float, connect_timeout: float, file_size: int,
-                                    chunk_size: int,summary_name: str):
+
+async def run_idle_upload_batched(
+    idle_clients: int,
+    upload_clients: int,
+    concurrency: int,
+    host: str,
+    port: int,
+    io_timeout: float,
+    hold: float,
+    connect_timeout: float,
+    file_size: int,
+    chunk_size: int,
+    summary_name: str,
+    run_id: str,
+    rsa_key_pool: list[RsaKeyMaterial],
+):
     sem = asyncio.Semaphore(concurrency)
     summary_overall = Summary(summary_name)
     summaries = {
@@ -716,20 +886,31 @@ async def run_idle_upload_batched(  idle_clients: int,upload_clients: int, concu
             result = await idle_connection_client(host, port, hold, connect_timeout)
             summary_overall.add(result)
             summaries["idle"].add(result)
-    async def run_upload_once():
+
+    async def run_upload_once(i: int):
         async with sem:
-            result = await upload_client(host, port, io_timeout, file_size, chunk_size)
+            result = await upload_client(
+                host,
+                port,
+                io_timeout,
+                file_size,
+                chunk_size,
+                rsa_key_for_worker(rsa_key_pool, i),
+                load_test_upload_filename(run_id, i, file_size),
+            )
             summary_overall.add(result)
             summaries["upload"].add(result)
 
     idle_tasks = [asyncio.create_task(run_idle_once()) for _ in range(idle_clients)]
     await asyncio.sleep(0.1)
-    upload_tasks = [asyncio.create_task(run_upload_once()) for _ in range(upload_clients)]
+    upload_tasks = [asyncio.create_task(run_upload_once(i)) for i in range(upload_clients)]
 
     await asyncio.gather(*(idle_tasks+upload_tasks))
     return summary_overall, summaries
 
 async def run_single_stage(args, mode: str, load: int) -> StageReport:
+    rsa_key_pool = build_rsa_key_pool(args.rsa_key_pool_size)
+
     started = time.perf_counter()
 
     monitor = ServerMonitor(args.server_pid, sample_interval=args.sample_interval)
@@ -762,12 +943,14 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     f"upload load={load} concurrency={min(args.concurrency, load)} "
                     f"file_size={args.file_size} chunk_size={args.chunk_size}"
                 ),
-                worker_coro_factory=lambda _: upload_client(
+                worker_coro_factory=lambda i: upload_client(
                     args.host,
                     args.port,
                     args.io_timeout,
                     args.file_size,
                     args.chunk_size,
+                    rsa_key_for_worker(rsa_key_pool, i),
+                    load_test_upload_filename(args.run_id, i, args.file_size),
                 ),
             )
         elif mode == "relogin":
@@ -775,10 +958,11 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                 total_clients=load,
                 concurrency=min(args.concurrency, load),
                 summary_name=f"relogin load={load} concurrency={min(args.concurrency, load)}",
-                worker_coro_factory=lambda _: relogin_client(
+                worker_coro_factory=lambda i: relogin_client(
                     args.host,
                     args.port,
                     args.io_timeout,
+                    rsa_key_for_worker(rsa_key_pool, i),
                 ),
             )
         elif mode == "churn":
@@ -792,11 +976,19 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
             async def mixed_worker(i: int):
                 r = random.random()
                 if r < 0.25:
-                    return await relogin_client(args.host,args.port,args.io_timeout), "relogin"
+                    return await relogin_client(args.host,args.port,args.io_timeout,rsa_key_for_worker(rsa_key_pool, i),), "relogin"
                 elif r < 0.5:
                     return await register_client(args.host,args.port,args.io_timeout), "register"
                 else:
-                    return await upload_client(args.host,args.port,args.io_timeout,args.file_size,args.chunk_size) , "upload"
+                    return await upload_client(
+                        args.host,
+                        args.port,
+                        args.io_timeout,
+                        args.file_size,
+                        args.chunk_size,
+                        rsa_key_for_worker(rsa_key_pool, i),
+                        load_test_upload_filename(args.run_id, i, args.file_size),
+                    ), "upload"
 
             summary, per_operation_summaries = await run_mixed_batched(
                 total_clients=load,
@@ -826,6 +1018,8 @@ async def run_single_stage(args, mode: str, load: int) -> StageReport:
                     f"concurrency={min(args.concurrency, load)} "
                     f"hold={args.hold} file_size={args.file_size} chunk_size={args.chunk_size}"
                 ),
+                run_id=args.run_id,
+                rsa_key_pool=rsa_key_pool,
             )
         else:
             raise RuntimeError(f"unknown mode: {mode}")
@@ -944,6 +1138,26 @@ def parse_ramp(ramp_str: str) -> list[int]:
     if not values:
         raise ValueError("ramp must contain at least one integer")
     return values
+def build_rsa_key_pool(count: int) -> list[RsaKeyMaterial]:
+    if count <= 0:
+        return []
+
+    pool = []
+    for _ in range(count):
+        key = RSA.generate(2048)
+        public_der = key.publickey().export_key(format="DER")
+        pool.append(
+            RsaKeyMaterial(
+                private_key=key,
+                public_der_b64=base64.b64encode(public_der),
+            )
+        )
+    return pool
+
+def rsa_key_for_worker(pool: list[RsaKeyMaterial], worker_index: int) -> Optional[RsaKeyMaterial]:
+    if not pool:
+        return None
+    return pool[worker_index % len(pool)]
 
 def build_run_id(mode: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -953,6 +1167,8 @@ def build_run_id(mode: str) -> str:
 def build_scenario_params(args, mode: str) -> dict:
     params = {
         "io_timeout_s": args.io_timeout,
+        "rsa_key_pool_size": args.rsa_key_pool_size,
+        "server_data_dir": args.server_data_dir,
     }
 
     if mode == "idle":
@@ -987,7 +1203,7 @@ def build_final_status(reports: list[StageReport], exit_code: int) -> dict:
 
 def run_report_to_dict(args, mode: str, reports: list[StageReport], exit_code: int) -> dict:
     return {
-        "run_id": build_run_id(mode),
+        "run_id": args.run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "tool_version": "stage6-v1",
         "server": {
@@ -1035,6 +1251,8 @@ def save_run_report(run_report: dict, output_dir: str = "tools/results") -> Path
 async def run_ramp(args, mode: str) -> int:
     loads = parse_ramp(args.ramp)
     reports: list[StageReport] = []
+    run_id = build_run_id(mode)
+    args.run_id = run_id
 
     for load in loads:
         report = await run_single_stage(args, mode, load)
@@ -1061,6 +1279,9 @@ async def run_ramp(args, mode: str) -> int:
     output_path = save_run_report(run_report)
     print(f"\nSaved run report to: {output_path}")
 
+    deleted_uploads = cleanup_load_test_uploads(args.server_data_dir, args.run_id)
+    print(f"Cleaned up {deleted_uploads} load-test uploaded files")
+
     return exit_code
 
 
@@ -1075,11 +1296,14 @@ def build_common_parser(parser: argparse.ArgumentParser):
 
     parser.add_argument("--server-pid", type=int, default=None)
     parser.add_argument("--sample-interval", type=float, default=0.1)
+    parser.add_argument("--rsa-key-pool-size", type=int, default=0)
 
     parser.add_argument("--stop-failure-rate", type=float, default=0.10)
     parser.add_argument("--stop-p95-ms", type=float, default=30000.0)
     parser.add_argument("--stop-rss-mb", type=float, default=2048.0)
     parser.add_argument("--stop-cpu-percent", type=float, default=95.0)
+
+    parser.add_argument("--server-data-dir", default="data")
 
 
 def parse_args():
@@ -1100,12 +1324,12 @@ def parse_args():
     upload_parser = sub.add_parser("upload")
     build_common_parser(upload_parser)
     upload_parser.add_argument("--file-size", type=int, default=100_000)
-    upload_parser.add_argument("--chunk-size", type=int, default=60_000)
+    upload_parser.add_argument("--chunk-size", type=int, default=DEFAULT_UPLOAD_CHUNK_SIZE)
 
     mixed_parser = sub.add_parser("mixed")
     build_common_parser(mixed_parser)
     mixed_parser.add_argument("--file-size", type=int, default=100_000)
-    mixed_parser.add_argument("--chunk-size", type=int, default=60_000)
+    mixed_parser.add_argument("--chunk-size", type=int, default=DEFAULT_UPLOAD_CHUNK_SIZE)
 
     churn_parser = sub.add_parser("churn")
     build_common_parser(churn_parser)
@@ -1116,7 +1340,7 @@ def parse_args():
     idle_upload_parser.add_argument("--hold", type=float, default=20.0)
     idle_upload_parser.add_argument("--connect-timeout", type=float, default=10.0)
     idle_upload_parser.add_argument("--file-size", type=int, default=100_000)
-    idle_upload_parser.add_argument("--chunk-size", type=int, default=60_000)
+    idle_upload_parser.add_argument("--chunk-size", type=int, default=DEFAULT_UPLOAD_CHUNK_SIZE)
 
 
 

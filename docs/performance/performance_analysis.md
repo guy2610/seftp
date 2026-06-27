@@ -294,3 +294,24 @@ At this stage, the server already shows meaningful differentiated behavior acros
 - evaluate size-aware upload backpressure for larger files
 - defer deeper runtime observability improvements such as active upload visibility, queue depth, and internal timing breakdown to Stage 8
 
+## Stage 8 follow-up
+
+Stage 8 continues this performance work after the Stage 7 security and streaming-upload changes.
+
+Because Stage 7 changed both the protocol flow and the upload implementation, the Stage 6 raw benchmark numbers should not be treated as directly comparable to Stage 8 raw numbers. Instead, Stage 6 should be read as the original behavioral baseline: it identified upload as the dominant cost path, showed that larger uploads increase RSS and CPU pressure, and motivated deeper observability around upload behavior.
+
+The Stage 8 follow-up is documented separately in:
+
+- `stage8_performance_observability.md`
+
+That document covers:
+
+- Stage 7-compatible benchmark execution
+- per-phase timing breakdowns
+- RSA key-pool support for cleaner upload measurements
+- post-Stage-7 upload baselines
+- upload chunk-size comparison
+- benchmark-created upload artifact cleanup
+- benchmark JSON comparison tooling
+- future optimization candidates such as size-aware upload backpressure
+

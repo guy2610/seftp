@@ -12,6 +12,7 @@ from src.connection_limiter import ConnectionLimiter
 from src.bounded_executor import BoundedExecutor
 from src.server_identity import load_or_create_server_identity
 from pathlib import Path
+from src.runtime_metrics import RuntimeMetrics
 
 CONTROL_PLANE_RATE_LIMITED_CODES = {
     825,  # register
@@ -51,6 +52,7 @@ async def main():
 
     upload_limiter = UploadLimiter(config.max_concurrent_uploads)
     connection_limiter = ConnectionLimiter(config.max_connections, config.max_connections_per_ip)
+    runtime_metrics = RuntimeMetrics()
     bounded_executor = BoundedExecutor(config.cpu_worker_threads, config.cpu_max_in_flight)
 
     logger.info(
@@ -75,16 +77,25 @@ async def main():
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
         peer_ip = addr[0] if isinstance(addr, tuple) and len(addr) >= 1 else str(addr)
-        session = ClientSession(writer, store, logger,config,upload_limiter, bounded_executor, server_identity_key)
+        session = ClientSession(writer, store, logger,config,upload_limiter, bounded_executor, server_identity_key,runtime_metrics)
         session.peer = addr
         connection_acquired = False
         try:
             allowed, connection_reason = await connection_limiter.try_acquire(peer_ip)
             if not allowed:
+                await runtime_metrics.inc_rejected_connections()
+                snapshot = await runtime_metrics.snapshot()
                 session.disconnect_reason = "connection_rejected"
-                session.log.info("connection rejected peer=%s reason=%s", addr, connection_reason)
+                session.log.info(
+                    "connection rejected peer=%s reason=%s metrics=%s",
+                    addr,
+                    connection_reason,
+                    snapshot,
+                )
                 return
             connection_acquired = True
+            active_total, _active_by_ip = await connection_limiter.current_active()
+            await runtime_metrics.set_active_connections(active_total)
             session.log.info("Got connection from %s", addr)
             while True:
                 now = time.monotonic()
@@ -125,6 +136,7 @@ async def main():
                     client_id, version, code = _parse_frame_identity(frame)
                     if _is_control_plane_rate_limited(code) and not session.allow_request_now(now):
                         session.disconnect_reason = "request_rate_limited"
+                        await runtime_metrics.inc_rate_limited_requests()
                         session.log.warning(
                             "request rate limit exceeded code=%s",
                             code,
@@ -163,6 +175,8 @@ async def main():
 
             if connection_acquired:
                 await connection_limiter.release(peer_ip)
+                active_total, _active_by_ip = await connection_limiter.current_active()
+                await runtime_metrics.set_active_connections(active_total)
                 session.log.info("released connection slot peer=%s", peer_ip)
             try:
                 writer.close()
@@ -170,8 +184,9 @@ async def main():
             except Exception:
                 pass
 
+            metrics_snapshot = await runtime_metrics.snapshot()
             session.log.info(
-                "disconnect summary peer=%s reason=%s duration_ms=%d bytes_in=%d bytes_out=%d frames_ok=%d frames_bad=%d",
+                "disconnect summary peer=%s reason=%s duration_ms=%d bytes_in=%d bytes_out=%d frames_ok=%d frames_bad=%d metrics=%s",
                 addr,
                 session.disconnect_reason,
                 duration_ms,
@@ -179,6 +194,7 @@ async def main():
                 session.bytes_out,
                 session.frames_ok,
                 session.frames_bad,
+                metrics_snapshot,
             )
 
     server_identity_path = Path(config.data_path).parent / "server_identity.pem"

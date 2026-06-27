@@ -83,3 +83,11 @@ test.txt
 me.info
 aes.key
 priv.key
+
+# SEFTP runtime server state
+/server/data/server_identity.pem
+/server/data/seftp_server_sql.db
+/server/data/uploads/
+
+# Root-level runtime/test data created by pytest/manual server runs
+/data/

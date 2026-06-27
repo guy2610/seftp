@@ -320,6 +320,49 @@ Stage 8 should eventually expose runtime state such as:
 
 This would make overload behavior easier to explain and debug.
 
+## Runtime visibility validation
+
+The runtime visibility counters were validated manually with an upload backpressure scenario.
+
+Validation setup:
+
+```text
+SEFTP_MAX_CONNECTIONS=100
+SEFTP_MAX_CONNECTIONS_PER_IP=100
+SEFTP_MAX_CONCURRENT_UPLOADS=10
+```
+
+Load-test scenario:
+
+```text
+upload load=50
+concurrency=50
+file_size=1,000,000 bytes
+chunk_size=65,536 bytes
+rsa_key_pool_size=50
+```
+
+Observed client-side result:
+
+```text
+total=50
+ok=10
+rejected=40
+failed=0
+rejection reason: rejected_by_backpressure: server busy: too many concurrent uploads
+```
+
+Observed server-side runtime metrics:
+
+```text
+rejected_connections=0
+rejected_uploads=40
+protocol_errors_1607=40
+rate_limited_requests=0
+```
+
+This confirms that upload backpressure is reported as controlled rejection rather than connection failure, and that the runtime counters distinguish upload rejection from connection rejection.
+
 ## Current Stage 8 status
 
 Completed so far:

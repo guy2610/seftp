@@ -258,6 +258,18 @@ Completed so far:
   - upload chunk-size comparison plots
   - Stage 6 upload behavioral baseline vs Stage 8 post-streaming baseline plots
 - Added `docs/performance/stage8_performance_observability.md`
+- Added server-side runtime visibility counters
+  - active connections
+  - active uploads
+  - rejected connections
+  - upload backpressure rejections
+  - `1607` protocol-error responses
+  - rate-limited requests
+- Added runtime metric snapshots to server disconnect summaries
+- Validated runtime visibility with an upload backpressure load test
+  - 50 concurrent upload workers
+  - 10 allowed concurrent upload slots
+  - 10 successful uploads, 40 controlled upload rejections, and 0 failures
 
 Key findings so far:
 - The initial post-Stage-7 upload benchmark was polluted by client-side RSA key generation inside the load runner
@@ -270,17 +282,16 @@ Key findings so far:
 
 Remaining Stage 8 candidates:
 - Extend benchmark report generation beyond the current JSON, CLI, and plot outputs
-- Add active upload and active connection visibility
-- Add protocol error counters and upload rejection counters
+- Add richer runtime metrics export beyond log-based snapshots
 - Add deeper server-side internal timing
 - Evaluate size-aware upload backpressure using active upload byte cost, not only active upload count
 - Improve client-side upload progress reporting
 
 * Metrics
-  * Connection statistics (active, rejected, per-IP)
-  * Upload statistics (throughput, duration, success/failure rates)
-  * Protocol error counters (`1607` and validation failures)
-  * Active connection and active upload visibility
+  * Connection statistics (active and rejected counters implemented; per-IP reporting remains future work)
+  * Upload statistics (active upload and rejected upload counters implemented; throughput, duration, and richer success/failure metrics remain future work)
+  * Protocol error counters (`1607` response counter implemented; deeper validation-failure categorization remains future work)
+  * Active connection and active upload visibility (DONE - exposed through runtime metric snapshots in disconnect summaries)
   * Queue / executor saturation visibility (bounded executor)
   * Benchmark timing breakdowns (DONE - client-observed per-phase timings)
   * Benchmark before/after comparison CLI (DONE)

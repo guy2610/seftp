@@ -44,6 +44,15 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
   * upload chunk-size comparison plots for 60KB vs 64KB behavior
   * Stage 6 upload behavioral baseline vs Stage 8 post-streaming upload comparison plots
   * documented that Stage 6 vs Stage 8 is a behavioral comparison rather than a strict apples-to-apples microbenchmark
+* Added server-side runtime visibility counters
+  * tracks active connections and active uploads
+  * tracks rejected connections and upload backpressure rejections
+  * tracks `1607` protocol-error responses and rate-limited requests
+  * includes runtime metric snapshots in disconnect summaries
+* Validated upload backpressure runtime visibility
+  * ran 50 concurrent upload workers with 10 allowed concurrent upload slots
+  * observed 10 successful uploads, 40 controlled upload rejections, and 0 failures
+  * confirmed server-side counters reported `rejected_uploads=40`, `protocol_errors_1607=40`, and `rejected_connections=0`
 * Added Stage 8 performance observability documentation
   * documents benchmark methodology
   * explains RSA key-pool measurement cleanup

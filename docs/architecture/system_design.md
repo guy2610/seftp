@@ -18,6 +18,7 @@ The current scope includes:
 - observability, benchmarking, and benchmark-comparison tooling
 - post-Stage-7 performance observability and timing breakdowns
 - benchmark hygiene for cleaning up synthetic load-test upload artifacts
+- server-side runtime visibility counters and disconnect-summary metric snapshots
 - authenticated server identity handshake before application-level protocol flows
 - TOFU and optional pinned server fingerprint trust modes
 
@@ -285,12 +286,19 @@ Stage 8 added benchmark-side observability improvements:
 - Stage 8 benchmark comparison plots
 - Stage 6 upload behavioral baseline vs Stage 8 post-streaming upload comparison plots
 - post-Stage-7 performance observability documentation
+- server-side runtime visibility counters
+- disconnect-summary runtime metric snapshots
+- upload backpressure runtime validation
 
 The most important Stage 8 finding so far is that the initial post-Stage-7 upload benchmark was polluted by client-side RSA key generation inside the load runner. After adding RSA key pooling, 1MB upload latency dropped from multi-second values to sub-second values in the tested scenarios. The upload packet phase itself stayed roughly stable, which means RSA key pooling cleaned the measurement rather than changing server upload behavior.
 
 Stage 8 also showed that upload chunk size affects latency. Smaller chunks create more 828 packets and therefore more per-packet overhead. Among the tested chunk sizes, `64 * 1024` performed best and now matches the load-test default and the server default maximum chunk size.
 
 The Stage 8 plotting work also adds visual comparisons for the key benchmark conclusions. Internal Stage 8 plots compare RSA key-pool before/after behavior and 60KB vs 64KB upload chunks. A separate Stage 6 vs Stage 8 upload plot set compares the original upload behavioral baseline with the post-Stage-7 streaming upload baseline. That comparison is not treated as a strict raw-number benchmark because the protocol and upload pipeline changed between stages, but it is useful for showing the system-level behavioral change after streaming upload processing.
+
+Stage 8 also adds a lightweight server-side runtime visibility layer. The server now tracks active connections, active uploads, rejected connections, upload backpressure rejections, `1607` responses, and rate-limited requests. These counters are exposed through disconnect-summary metric snapshots, which makes controlled overload behavior easier to debug and explain without adding a full metrics export endpoint yet.
+
+The runtime visibility path was validated with an upload backpressure scenario: 50 concurrent upload workers, 10 allowed concurrent upload slots, 10 successful uploads, 40 controlled upload rejections, and 0 failures. The corresponding server metrics reported rejected uploads and `1607` responses while keeping rejected connections at zero.
 
 The current architectural takeaway remains that upload is the dominant resource-sensitive path, but Stage 8 made that conclusion more precise. The next optimization should be evidence-driven and may include size-aware upload backpressure, richer plotting/report generation, or deeper server-side internal timing.
 
@@ -307,7 +315,8 @@ Several future directions remain open:
 - deeper server-side observability and internal per-phase timing
 - size-aware upload backpressure based on active upload byte cost
 - richer benchmark report generation and plotting for Stage 8 comparisons
-- runtime metrics for active connections, active uploads, and executor saturation
+- richer runtime metrics export beyond disconnect-summary snapshots
+- executor saturation visibility and queue-depth telemetry
 - isolated profiling of the server's in-memory client index
 - optional controlled parallel upload support if justified
 - optional GUI client

@@ -220,11 +220,15 @@ Strengthen the cryptographic model and extend the protocol to provide authentica
   * Document deployment-level abuse protection options (TCP proxy, firewall, OS limits) (FUTURE)
 ---
 
-### **Stage 8 - Observability & Production Behavior**
+### **Stage 8 - Observability & Production Behavior** DONE
 Operational visibility, diagnostics, and runtime insight into system behavior under real-world conditions.
 Current status:
 
-Stage 8 is in progress. The first completed part focuses on benchmark observability, post-Stage-7 performance baselining, and evidence-based upload-path analysis.
+Stage 8 is complete through the `v0.8.0-draft` observability checkpoint.
+
+The completed work focuses on benchmark observability, post-Stage-7 performance baselining, evidence-based upload-path analysis, comparison plots, and lightweight server-side runtime visibility.
+
+Additional observability and production-behavior ideas are tracked as Stage 9 / future follow-up work rather than as required Stage 8 work.
 
 Completed so far:
 - Updated the load-test runner for the Stage 7 protocol flow
@@ -280,21 +284,19 @@ Key findings so far:
 - `64 * 1024` performed best among the tested chunk sizes (`16KB`, `60KB`, `64KB`)
 - Under the tested overload case, the server rejected excess uploads through controlled backpressure with zero upload failures
 
-Remaining Stage 8 candidates:
-- Extend benchmark report generation beyond the current JSON, CLI, and plot outputs
-- Add richer runtime metrics export beyond log-based snapshots
-- Add deeper server-side internal timing
-- Evaluate size-aware upload backpressure using active upload byte cost, not only active upload count
-- Improve client-side upload progress reporting
+Stage 8 is considered complete at the current observability checkpoint.
+
+Follow-up work such as richer metrics export, deeper server-side internal timing, executor saturation visibility, size-aware upload backpressure, richer report generation, and improved client-side progress reporting is tracked under Stage 9 / future work.
 
 * Metrics
-  * Connection statistics (active and rejected counters implemented; per-IP reporting remains future work)
-  * Upload statistics (active upload and rejected upload counters implemented; throughput, duration, and richer success/failure metrics remain future work)
-  * Protocol error counters (`1607` response counter implemented; deeper validation-failure categorization remains future work)
+  * Connection statistics (DONE - active and rejected counters)
+  * Upload statistics (DONE - active upload and rejected upload counters)
+  * Protocol error counters (DONE - `1607` response counter)
+  * Rate-limit visibility (DONE - rate-limited request counter)
   * Active connection and active upload visibility (DONE - exposed through runtime metric snapshots in disconnect summaries)
-  * Queue / executor saturation visibility (bounded executor)
   * Benchmark timing breakdowns (DONE - client-observed per-phase timings)
   * Benchmark before/after comparison CLI (DONE)
+  * Per-IP runtime reporting, executor saturation, queue-depth telemetry, and dedicated metrics export moved to Stage 9 / future work
 
 * Logging and diagnostics
   * Structured logging (DONE)
@@ -305,13 +307,38 @@ Remaining Stage 8 candidates:
 * Runtime behavior
   * Configuration validation (DONE)
   * Runtime configuration reporting (DONE)
-  * Exposure of internal state for debugging and benchmarking
-  * Optional lightweight metrics export (future)
+  * Exposure of internal state for debugging and benchmarking (DONE - log-based runtime metric snapshots)
+  * Optional lightweight metrics export (moved to Stage 9 / future work)
   * Load-test artifact cleanup for benchmark-created uploads (DONE)
   * Post-Stage-7 performance baseline and benchmark methodology documentation (DONE)
 
-* Client experience improvements
-  * Improved client-side progress and status reporting for uploads
+---
+
+### **Stage 9 - Extensions & Portfolio Polish**
+Future work and optional extensions.
+
+* Upload model extensions
+  * Evaluate resumable uploads across reconnects (protocol and persistence implications)
+  * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
+    * Design a future chunked AEAD upload protocol
+    * Independent authenticated encryption per chunk
+    * Per-upload nonce / key derivation strategy
+    * Chunk index and metadata bound as AEAD associated data
+    * Optional upload session lifecycle (`UPLOAD_BEGIN`, `UPLOAD_CHUNK`, `UPLOAD_FINISH`)
+    * Foundation for resumable uploads, retries, and controlled parallel chunk transmission
+
+* Storage and performance exploration
+  * Evaluate additional caching / indexing strategies on the server (based on measured bottlenecks)
+
+* Observability follow-ups
+  * Add richer runtime metrics export beyond disconnect-summary snapshots
+  * Evaluate a lightweight metrics endpoint or export format
+  * Add per-IP runtime reporting for connection pressure analysis
+  * Add executor saturation visibility and queue-depth telemetry
+  * Add deeper server-side internal timing for frame parsing, router dispatch, handler execution, SQLite interaction, upload packet processing, temporary file writes, and atomic finalization
+  * Evaluate size-aware upload backpressure using active upload byte cost in addition to active upload count
+  * Improve benchmark report generation beyond the current JSON, CLI, and plot outputs
+  * Improve client-side upload progress and status reporting
 
 * Production Deployment Hardening
   * Deployment-level abuse protection
@@ -341,25 +368,7 @@ Remaining Stage 8 candidates:
       * proxy limits
       * firewall limits
       * kernel limits
-
----
-
-### **Stage 9 - Extensions & Portfolio Polish**
-Future work and optional extensions.
-
-* Upload model extensions
-  * Evaluate resumable uploads across reconnects (protocol and persistence implications)
-  * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
-    * Design a future chunked AEAD upload protocol
-    * Independent authenticated encryption per chunk
-    * Per-upload nonce / key derivation strategy
-    * Chunk index and metadata bound as AEAD associated data
-    * Optional upload session lifecycle (`UPLOAD_BEGIN`, `UPLOAD_CHUNK`, `UPLOAD_FINISH`)
-    * Foundation for resumable uploads, retries, and controlled parallel chunk transmission
-
-* Storage and performance exploration
-  * Evaluate additional caching / indexing strategies on the server (based on measured bottlenecks)
-
+  
 * System extensions
   * Optional C++ server implementation
   * Cross-client communication (relay / messaging)

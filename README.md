@@ -10,9 +10,20 @@ The system is not intended for production use. It is a portfolio-grade systems p
 
 ## Current Status
 
-Current stable baseline: v0.7.2
+Current development baseline: v0.8.0-draft
 
-v0.7.2 completes Stage 7 security hardening and protocol evolution:
+v0.8.0 is the Stage 8 observability checkpoint. It builds on the completed Stage 7 security and streaming-upload baseline with:
+
+- Stage 7-compatible load testing
+- per-phase benchmark timing breakdowns
+- RSA key-pool support for cleaner upload measurements
+- benchmark result comparison tooling
+- Stage 8 benchmark plots and Stage 6 vs Stage 8 behavioral comparison plots
+- runtime visibility counters for active connections, active uploads, controlled rejections, `1607` responses, and rate-limited requests
+- runtime metric snapshots in server disconnect summaries
+- documented upload backpressure validation with 10 successful uploads, 40 controlled rejections, and 0 failures under a 50-client load scenario
+
+Stage 7 remains the completed security baseline:
 - authenticated server identity verification
 - signed server handshake transcript
 - TOFU trust model
@@ -181,6 +192,12 @@ Main design boundary:
 - optional pinned trust mode (`server.pin`)
 - signed AES key responses bound to Stage 7 handshake nonces
 - end-to-end streaming upload pipeline without full-file plaintext or ciphertext buffering
+- Stage 8 benchmark timing breakdowns for connection, handshake, registration, RSA, AES key exchange, upload packet transmission, and CRC confirmation
+- RSA key-pool benchmark mode to avoid measuring client-side RSA key generation inside upload workers
+- benchmark JSON comparison CLI for before/after performance analysis
+- Stage 8 comparison plots for RSA key-pool behavior, upload chunk-size behavior, and Stage 6 vs Stage 8 upload behavior
+- server-side runtime visibility counters for active connections, active uploads, rejections, `1607` responses, and rate-limited requests
+- runtime metrics snapshots in server disconnect summaries
 
 ---
 
@@ -246,7 +263,8 @@ Protocol:
 - `docs/protocol/protocol_extension_design.md` - Stage 7 handshake design and implementation notes
 
 Performance:
-- `docs/performance/performance_analysis.md` - Stage 6 benchmark findings
+- `docs/performance/performance_analysis.md` - Stage 6 benchmark findings and post-Stage-7 analysis context
+- `docs/performance/stage8_performance_observability.md` - Stage 8 benchmark methodology, timing breakdowns, comparison plots, runtime visibility, and validation notes
 
 Operations:
 - `docs/operations/setup_and_usage.md` - detailed setup, runtime configuration, server limits, and client usage
@@ -347,7 +365,12 @@ Main findings:
 - mixed workloads are primarily constrained by upload pressure
 
 Stage 7 upload streaming addresses the earlier upload memory-pressure concern by avoiding full-file plaintext and ciphertext buffering on both the client and server while preserving the same 828 wire protocol.
-See `docs/performance/performance_analysis.md`.
+
+Stage 8 re-established performance observability after the Stage 7 protocol and upload-pipeline changes. It added Stage 7-compatible load testing, per-phase timing breakdowns, RSA key-pool benchmark cleanup, benchmark comparison tooling, generated comparison plots, and server-side runtime visibility counters. The Stage 8 upload backpressure validation showed controlled overload behavior: 50 concurrent upload workers with 10 allowed upload slots produced 10 successful uploads, 40 controlled rejections, and 0 failures.
+
+See:
+- `docs/performance/performance_analysis.md`
+- `docs/performance/stage8_performance_observability.md`
 
 ---
 
@@ -391,9 +414,10 @@ Completed:
 - Stage 5: scalability and persistence
 - Stage 6: performance analysis, observability, and design documentation
 - Stage 7: security hardening and protocol evolution
+- Stage 8: performance observability checkpoint
 
 Future:
-- Stage 8: observability and production behavior
+- Stage 8 follow-up: richer metrics export, deeper server-side timing, executor saturation visibility, and size-aware upload backpressure
 - Stage 9: extensions and portfolio polish
 
 See `docs/roadmap/ROADMAP.md`.

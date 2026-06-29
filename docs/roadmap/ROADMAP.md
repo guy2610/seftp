@@ -314,10 +314,52 @@ Follow-up work such as richer metrics export, deeper server-side internal timing
 
 ---
 
-### **Stage 9 - Extensions & Portfolio Polish**
-Future work and optional extensions.
+### **Stage 9 - Production Hardening & C++ Server Foundation**
+Focused follow-up stage for production-facing observability, deployment hardening, and an experimental C++ server foundation.
 
-* Upload model extensions
+Current status:
+
+Stage 9 is planned as a focused follow-up to the Stage 8 observability checkpoint.
+
+The goal is to improve production-facing runtime visibility and deployment hardening while starting an experimental C++ server foundation without replacing the stable Python asyncio server.
+
+Primary scope:
+- Lightweight runtime metrics export beyond disconnect-summary snapshots
+- Runtime metric naming cleanup and optional executor / queue visibility
+- Production deployment hardening documentation
+- Optional protected Docker Compose deployment demo
+- Experimental C++ server foundation for protocol parsing and response building
+
+Out of scope for Stage 9:
+- Full C++ server feature parity
+- Replacing the Python server
+- SQLite persistence parity in C++
+- Streaming upload (`828`) implementation in C++
+- Resumable uploads
+- Parallel upload protocol
+- Chunked AEAD upload redesign
+- GUI client
+- Cross-client messaging
+
+* Track A - Production hardening and metrics
+  * Rename `protocol_errors_1607` to `responses_1607`
+  * Add local-only runtime metrics JSON export
+  * Add tests for metrics export
+  * Add executor saturation and queue-depth visibility only if the implementation remains simple and low-risk
+  * Extend production abuse/deployment documentation
+  * Optionally add a protected Docker Compose deployment demo
+  * Sync README / CHANGELOG / architecture docs after implementation
+
+* Track B - Experimental C++ server foundation
+  * Add `server_cpp/` skeleton
+  * Add CMake/build integration
+  * Add C++ protocol constants and frame structures
+  * Add binary frame parser
+  * Add response builders for basic protocol responses
+  * Add C++ unit tests for parser and builders
+  * Add `server_cpp/README.md` documenting current limitations and migration path
+
+* Future upload model extensions
   * Evaluate resumable uploads across reconnects (protocol and persistence implications)
   * Evaluate controlled parallel uploads from the client (tradeoff between throughput and complexity)
     * Design a future chunked AEAD upload protocol
@@ -368,9 +410,9 @@ Future work and optional extensions.
       * proxy limits
       * firewall limits
       * kernel limits
-  
-* System extensions
-  * Optional C++ server implementation
+
+* Future system extensions
+  * Full C++ server implementation beyond the Stage 9 foundation
   * Cross-client communication (relay / messaging)
   * Optional GUI client (Qt / ImGui / DearPyGui)
 

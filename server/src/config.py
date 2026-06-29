@@ -31,19 +31,26 @@ class Config:
 
     @classmethod
     def load(cls):
-        host = '127.0.0.1'
-        port=1256
+        host = os.getenv("SEFTP_HOST", "127.0.0.1")
+        port = 1256
         data_path = "data/seftp_server_sql.db"
-        log_level="INFO"
-        try:
-            with open("port.info", "r") as port_file:
-                port=int(port_file.readline().strip())
-            if port>65535 or port<1:
-                raise ValueError
-        except FileNotFoundError:
-            pass
-        except ValueError:
-            raise ValueError("invalid port.info: expected integer port")
+        log_level = "INFO"
+
+        env_port = os.getenv("SEFTP_PORT")
+        if env_port is not None and env_port != "":
+            port = int(env_port)
+            if port > 65535 or port < 1:
+                raise ValueError("invalid SEFTP_PORT: expected integer port")
+        else:
+            try:
+                with open("port.info", "r") as port_file:
+                    port = int(port_file.readline().strip())
+                if port > 65535 or port < 1:
+                    raise ValueError
+            except FileNotFoundError:
+                pass
+            except ValueError:
+                raise ValueError("invalid port.info: expected integer port")
         def env_int(name: str, default: int) -> int:
             v = os.getenv(name)
             if v is None or v == "":

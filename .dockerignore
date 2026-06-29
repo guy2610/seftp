@@ -1,0 +1,11 @@
+.git
+.venv
+server/.venv
+**/__pycache__
+**/*.pyc
+server/data
+server/tools/results
+server/tools/plots
+build
+cmake-build-*
+.DS_Store

@@ -19,6 +19,10 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
   * exposes `GET /metrics`
 * Added tests for runtime metrics export and the HTTP metrics handler
 * Manually validated the metrics endpoint with `curl`
+* Extended deployment-level abuse protection guidance
+  * documents application-level vs infrastructure-level protection boundaries
+  * covers TCP proxy placement, firewall recommendations, OS/kernel limits, and metrics endpoint exposure guidance
+  * keeps large-scale public DDoS mitigation explicitly out of scope
 
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 

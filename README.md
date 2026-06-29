@@ -18,7 +18,7 @@ v0.9.0 starts Stage 9 as a focused production-hardening and C++ server foundatio
 - runtime metrics JSON export
 - optional local-only HTTP metrics endpoint for development and benchmark visibility
 - tests for metrics export and the HTTP metrics handler
-- planned production deployment hardening documentation
+- deployment-level abuse protection and hardening guidance
 - planned experimental C++ server foundation
 
 v0.8.0 is the Stage 8 observability checkpoint. It builds on the completed Stage 7 security and streaming-upload baseline with:
@@ -170,6 +170,7 @@ Main design boundary:
         stage7_threat_model.md
       operations/
         setup_and_usage.md
+        abuse_protection_deployment.md
 
     tests/
       client/
@@ -278,6 +279,7 @@ Performance:
 
 Operations:
 - `docs/operations/setup_and_usage.md` - detailed setup, runtime configuration, server limits, and client usage
+- `docs/operations/abuse_protection_deployment.md` - deployment-level abuse protection and hardening guidance
 
 Roadmap:
 - `docs/roadmap/ROADMAP.md` - completed and planned stages

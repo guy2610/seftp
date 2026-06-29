@@ -14,7 +14,7 @@ async def test_runtime_metrics_initial_snapshot():
         "active_uploads": 0,
         "rejected_connections": 0,
         "rejected_uploads": 0,
-        "protocol_errors_1607": 0,
+        "responses_1607": 0,
         "rate_limited_requests": 0,
     }
 
@@ -27,7 +27,7 @@ async def test_runtime_metrics_updates_and_counters():
     await metrics.set_active_uploads(2)
     await metrics.inc_rejected_connections()
     await metrics.inc_rejected_uploads()
-    await metrics.inc_protocol_errors_1607()
+    await metrics.inc_responses_1607()
     await metrics.inc_rate_limited_requests()
 
     snapshot = await metrics.snapshot()
@@ -36,7 +36,7 @@ async def test_runtime_metrics_updates_and_counters():
     assert snapshot["active_uploads"] == 2
     assert snapshot["rejected_connections"] == 1
     assert snapshot["rejected_uploads"] == 1
-    assert snapshot["protocol_errors_1607"] == 1
+    assert snapshot["responses_1607"] == 1
     assert snapshot["rate_limited_requests"] == 1
 
 
@@ -46,11 +46,11 @@ async def test_runtime_metrics_counters_accumulate():
 
     await metrics.inc_rejected_uploads()
     await metrics.inc_rejected_uploads()
-    await metrics.inc_protocol_errors_1607()
-    await metrics.inc_protocol_errors_1607()
-    await metrics.inc_protocol_errors_1607()
+    await metrics.inc_responses_1607()
+    await metrics.inc_responses_1607()
+    await metrics.inc_responses_1607()
 
     snapshot = await metrics.snapshot()
 
     assert snapshot["rejected_uploads"] == 2
-    assert snapshot["protocol_errors_1607"] == 3
+    assert snapshot["responses_1607"] == 3

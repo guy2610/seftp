@@ -52,7 +52,7 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
 * Validated upload backpressure runtime visibility
   * ran 50 concurrent upload workers with 10 allowed concurrent upload slots
   * observed 10 successful uploads, 40 controlled upload rejections, and 0 failures
-  * confirmed server-side counters reported `rejected_uploads=40`, `protocol_errors_1607=40`, and `rejected_connections=0`
+  * confirmed server-side counters reported `rejected_uploads=40`, `responses_1607=40`, and `rejected_connections=0`
 * Added Stage 8 performance observability documentation
   * documents benchmark methodology
   * explains RSA key-pool measurement cleanup

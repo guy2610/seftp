@@ -220,7 +220,7 @@ async def answer_1607(client_id,version,text,session):
     """
     session.log.debug("inside answer 1607")
     if getattr(session, "runtime_metrics", None) is not None:
-        await session.runtime_metrics.inc_protocol_errors_1607()
+        await session.runtime_metrics.inc_responses_1607()
     store = session.store
     payload = client_id + text.encode("utf-8")
     message = message_answer(version, "1607", str(len(payload)), payload,session)

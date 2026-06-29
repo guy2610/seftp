@@ -298,6 +298,17 @@ Roadmap:
 
 The server initializes SQLite storage under `server/data/` if needed.
 
+### Protected Docker Compose demo
+
+A minimal protected deployment demo is available under `docker/protected/`. It runs the Python SEFTP server behind an HAProxy TCP proxy and exposes only the proxy port to the host.
+
+```bash
+docker compose -f docker/protected/docker-compose.yml build
+docker compose -f docker/protected/docker-compose.yml up
+```
+
+See `docs/operations/abuse_protection_deployment.md` for details and limitations.
+
 ### Optional runtime metrics endpoint
 
 The server can expose a local-only HTTP metrics endpoint for development and benchmark visibility.

@@ -348,7 +348,7 @@ Out of scope for Stage 9:
   * Add tests for metrics export and HTTP endpoint (DONE)
   * Add executor saturation and queue-depth visibility only if the implementation remains simple and low-risk
   * Extend production abuse/deployment documentation (DONE)
-  * Optionally add a protected Docker Compose deployment demo
+  * Add a protected Docker Compose deployment demo (DONE)
   * Sync README / CHANGELOG / architecture docs after implementation
 
 * Track B - Experimental C++ server foundation

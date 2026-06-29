@@ -23,6 +23,14 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
   * documents application-level vs infrastructure-level protection boundaries
   * covers TCP proxy placement, firewall recommendations, OS/kernel limits, and metrics endpoint exposure guidance
   * keeps large-scale public DDoS mitigation explicitly out of scope
+* Added protected Docker Compose deployment demo
+  * includes a Python SEFTP server container
+  * places HAProxy in front as a TCP proxy
+  * exposes only the proxy port to the host
+  * keeps server data in a Docker volume
+  * keeps the metrics endpoint internal to the server container
+* Added `SEFTP_HOST` and `SEFTP_PORT` environment-variable overrides for containerized deployment
+  * preserves `port.info` fallback for local runs
 
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 

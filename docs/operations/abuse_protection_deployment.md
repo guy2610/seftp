@@ -119,6 +119,54 @@ The metrics endpoint should not be published publicly. If enabled, it should rem
 
 This is useful for demonstration and local hardening, not as a complete production deployment model.
 
+### Running the Protected Docker Compose Demo
+
+The repository includes a minimal protected deployment demo under:
+
+```text
+docker/protected/
+```
+
+It starts:
+
+- `seftp-server`, the Python asyncio SEFTP server
+- `tcp-proxy`, an HAProxy TCP proxy in front of the server
+- an isolated Docker network
+- a named volume for server data
+
+Run it from the repository root:
+
+```bash
+docker compose -f docker/protected/docker-compose.yml build
+docker compose -f docker/protected/docker-compose.yml up
+```
+
+In another terminal, smoke-test the exposed proxy port:
+
+```bash
+python3 - <<'PY'
+import socket
+
+s = socket.create_connection(("127.0.0.1", 1256), timeout=3)
+print("connected")
+s.close()
+PY
+```
+
+Stop the demo:
+
+```bash
+docker compose -f docker/protected/docker-compose.yml down
+```
+
+Expected topology:
+
+```text
+host:1256 -> tcp-proxy:1256 -> seftp-server:1256
+```
+
+The SEFTP server binds to `0.0.0.0:1256` inside the container so the proxy can reach it over the internal Docker network. The metrics endpoint remains bound to `127.0.0.1:9100` inside the server container and is not published to the host.
+
 ---
 
 ## OS / Kernel Limits

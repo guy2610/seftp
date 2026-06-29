@@ -4,7 +4,8 @@ class Config:
     def __init__(self,host,port,data_path,log_level,idle_timeout_s=60, upload_inactivity_timeout_s=20,handshake_timeout_s=5,
                  max_file_size=100* 1024 * 1024,max_packets=65535,max_chunk_size=64* 1024,
                  max_payload_size=10_000_000,read_timeout_s=10,max_concurrent_uploads=10, max_connections=10, max_connections_per_ip=10,
-                 cpu_worker_threads=4, cpu_max_in_flight=8,max_req_per_window=50,req_window_s=5):
+                 cpu_worker_threads=4, cpu_max_in_flight=8,max_req_per_window=50,req_window_s=5,metrics_enabled=False,
+                 metrics_host="127.0.0.1", metrics_port=9100):
         self.host=host
         self.port=port
         self.data_path=data_path
@@ -24,6 +25,9 @@ class Config:
         self.handshake_timeout_s = handshake_timeout_s
         self.max_req_per_window = max_req_per_window
         self.req_window_s = req_window_s
+        self.metrics_enabled = metrics_enabled
+        self.metrics_host = metrics_host
+        self.metrics_port = metrics_port
 
     @classmethod
     def load(cls):
@@ -50,6 +54,11 @@ class Config:
             if v is None or v == "":
                 return default
             return float(v)
+        def env_bool(name: str, default: bool) -> bool:
+            v = os.getenv(name)
+            if v is None or v == "":
+                return default
+            return v.lower() in {"1", "true", "yes", "on"}
 
         return cls(
             host=host,
@@ -70,5 +79,8 @@ class Config:
             cpu_worker_threads=env_int("SEFTP_CPU_WORKER_THREADS",4),
             cpu_max_in_flight=env_int("SEFTP_CPU_MAX_IN_FLIGHT",8),
             max_req_per_window=env_int("SEFTP_MAX_REQUESTS_PER_WINDOW",50),
-            req_window_s=env_int("SEFTP_REQUEST_WINDOW_SECONDS",5)
+            req_window_s=env_int("SEFTP_REQUEST_WINDOW_SECONDS",5),
+            metrics_enabled=env_bool("SEFTP_METRICS_ENABLED", False),
+            metrics_host=os.getenv("SEFTP_METRICS_HOST", "127.0.0.1"),
+            metrics_port=env_int("SEFTP_METRICS_PORT", 9100),
         )

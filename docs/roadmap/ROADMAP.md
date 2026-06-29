@@ -342,9 +342,10 @@ Out of scope for Stage 9:
 - Cross-client messaging
 
 * Track A - Production hardening and metrics
-  * Rename the Stage 8 `1607` runtime metric to `responses_1607`
-  * Add local-only runtime metrics JSON export
-  * Add tests for metrics export
+  * Rename the Stage 8 `1607` runtime metric to `responses_1607` (DONE)
+  * Add local-only runtime metrics JSON export (DONE)
+  * Add local-only runtime metrics HTTP endpoint (DONE)
+  * Add tests for metrics export and HTTP endpoint (DONE)
   * Add executor saturation and queue-depth visibility only if the implementation remains simple and low-risk
   * Extend production abuse/deployment documentation
   * Optionally add a protected Docker Compose deployment demo

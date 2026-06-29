@@ -6,6 +6,20 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
 
 ---
 
+**v0.9.0-draft - Stage 9 Production Hardening & C++ Server Foundation**
+
+* Defined Stage 9 scope around production hardening, runtime metrics export, and an experimental C++ server foundation
+* Renamed the Stage 8 `1607` runtime metric from `protocol_errors_1607` to `responses_1607`
+  * reflects that `1607` responses include protocol errors, upload backpressure, and rate-limit responses
+* Added runtime metrics JSON export
+* Added an optional local-only HTTP metrics endpoint
+  * disabled by default
+  * enabled with `SEFTP_METRICS_ENABLED=1`
+  * binds to `127.0.0.1:9100` by default
+  * exposes `GET /metrics`
+* Added tests for runtime metrics export and the HTTP metrics handler
+* Manually validated the metrics endpoint with `curl`
+
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 
 * Updated the load-test runner for Stage 7 protocol compatibility

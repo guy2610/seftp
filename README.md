@@ -10,7 +10,16 @@ The system is not intended for production use. It is a portfolio-grade systems p
 
 ## Current Status
 
-Current development baseline: v0.8.0-draft
+Current development baseline: v0.9.0-draft
+
+v0.9.0 starts Stage 9 as a focused production-hardening and C++ server foundation stage. Current Stage 9 work includes:
+
+- runtime metric naming cleanup from `protocol_errors_1607` to `responses_1607`
+- runtime metrics JSON export
+- optional local-only HTTP metrics endpoint for development and benchmark visibility
+- tests for metrics export and the HTTP metrics handler
+- deployment-level abuse protection and hardening guidance
+- planned experimental C++ server foundation
 
 v0.8.0 is the Stage 8 observability checkpoint. It builds on the completed Stage 7 security and streaming-upload baseline with:
 
@@ -161,6 +170,7 @@ Main design boundary:
         stage7_threat_model.md
       operations/
         setup_and_usage.md
+        abuse_protection_deployment.md
 
     tests/
       client/
@@ -198,6 +208,7 @@ Main design boundary:
 - Stage 8 comparison plots for RSA key-pool behavior, upload chunk-size behavior, and Stage 6 vs Stage 8 upload behavior
 - server-side runtime visibility counters for active connections, active uploads, rejections, `1607` responses, and rate-limited requests
 - runtime metrics snapshots in server disconnect summaries
+- optional local-only HTTP metrics endpoint exposing runtime metrics as JSON
 
 ---
 
@@ -268,6 +279,7 @@ Performance:
 
 Operations:
 - `docs/operations/setup_and_usage.md` - detailed setup, runtime configuration, server limits, and client usage
+- `docs/operations/abuse_protection_deployment.md` - deployment-level abuse protection and hardening guidance
 
 Roadmap:
 - `docs/roadmap/ROADMAP.md` - completed and planned stages
@@ -285,6 +297,53 @@ Roadmap:
     python3 server_async.py
 
 The server initializes SQLite storage under `server/data/` if needed.
+
+### Protected Docker Compose demo
+
+A minimal protected deployment demo is available under `docker/protected/`. It runs the Python SEFTP server behind an HAProxy TCP proxy and exposes only the proxy port to the host.
+
+```bash
+docker compose -f docker/protected/docker-compose.yml build
+docker compose -f docker/protected/docker-compose.yml up
+```
+
+See `docs/operations/abuse_protection_deployment.md` for details and limitations.
+
+### Optional runtime metrics endpoint
+
+The server can expose a local-only HTTP metrics endpoint for development and benchmark visibility.
+
+```bash
+cd server
+
+SEFTP_METRICS_ENABLED=1 \
+SEFTP_METRICS_HOST=127.0.0.1 \
+SEFTP_METRICS_PORT=9100 \
+python3 server_async.py
+```
+
+Query the endpoint:
+
+```bash
+curl -i http://127.0.0.1:9100/metrics
+```
+
+Example response:
+
+```json
+{
+  "runtime_metrics": {
+    "active_connections": 0,
+    "active_uploads": 0,
+    "rejected_connections": 0,
+    "rejected_uploads": 0,
+    "responses_1607": 0,
+    "rate_limited_requests": 0
+  }
+}
+```
+
+The endpoint is disabled by default and should remain bound to localhost unless protected by deployment-level controls.
 
 ### Prepare client configuration
 
@@ -416,9 +475,10 @@ Completed:
 - Stage 7: security hardening and protocol evolution
 - Stage 8: performance observability checkpoint
 
-Future:
-- Stage 8 follow-up: richer metrics export, deeper server-side timing, executor saturation visibility, and size-aware upload backpressure
-- Stage 9: extensions and portfolio polish
+Current / next:
+- Stage 9: production hardening and C++ server foundation
+- Stage 9 follow-up work: production deployment documentation, executor saturation visibility, queue-depth telemetry, and experimental C++ server skeleton
+- Future protocol work: resumable uploads, parallel upload protocol, and chunked AEAD upload redesign
 
 See `docs/roadmap/ROADMAP.md`.
 

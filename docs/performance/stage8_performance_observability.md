@@ -357,7 +357,7 @@ Observed server-side runtime metrics:
 ```text
 rejected_connections=0
 rejected_uploads=40
-protocol_errors_1607=40
+responses_1607=40
 rate_limited_requests=0
 ```
 

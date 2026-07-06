@@ -1,0 +1,39 @@
+services:
+  seftp-server:
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    environment:
+      SEFTP_HOST: 0.0.0.0
+      SEFTP_PORT: 1256
+      SEFTP_LOG_LEVEL: INFO
+      SEFTP_MAX_CONNECTIONS: 100
+      SEFTP_MAX_CONNECTIONS_PER_IP: 50
+      SEFTP_MAX_CONCURRENT_UPLOADS: 10
+      SEFTP_METRICS_ENABLED: "1"
+      SEFTP_METRICS_HOST: 127.0.0.1
+      SEFTP_METRICS_PORT: 9100
+    volumes:
+      - seftp-data:/app/server/data
+    networks:
+      - seftp-internal
+    expose:
+      - "1256"
+
+  tcp-proxy:
+    image: haproxy:2.9-alpine
+    depends_on:
+      - seftp-server
+    ports:
+      - "1256:1256"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - seftp-internal
+
+volumes:
+  seftp-data:
+
+networks:
+  seftp-internal:
+    driver: bridge

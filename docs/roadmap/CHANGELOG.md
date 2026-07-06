@@ -6,6 +6,32 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
 
 ---
 
+**v0.9.0-draft - Stage 9 Production Hardening & C++ Server Foundation**
+
+* Defined Stage 9 scope around production hardening, runtime metrics export, and an experimental C++ server foundation
+* Renamed the Stage 8 `1607` runtime metric from `protocol_errors_1607` to `responses_1607`
+  * reflects that `1607` responses include protocol errors, upload backpressure, and rate-limit responses
+* Added runtime metrics JSON export
+* Added an optional local-only HTTP metrics endpoint
+  * disabled by default
+  * enabled with `SEFTP_METRICS_ENABLED=1`
+  * binds to `127.0.0.1:9100` by default
+  * exposes `GET /metrics`
+* Added tests for runtime metrics export and the HTTP metrics handler
+* Manually validated the metrics endpoint with `curl`
+* Extended deployment-level abuse protection guidance
+  * documents application-level vs infrastructure-level protection boundaries
+  * covers TCP proxy placement, firewall recommendations, OS/kernel limits, and metrics endpoint exposure guidance
+  * keeps large-scale public DDoS mitigation explicitly out of scope
+* Added protected Docker Compose deployment demo
+  * includes a Python SEFTP server container
+  * places HAProxy in front as a TCP proxy
+  * exposes only the proxy port to the host
+  * keeps server data in a Docker volume
+  * keeps the metrics endpoint internal to the server container
+* Added `SEFTP_HOST` and `SEFTP_PORT` environment-variable overrides for containerized deployment
+  * preserves `port.info` fallback for local runs
+
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 
 * Updated the load-test runner for Stage 7 protocol compatibility
@@ -52,7 +78,7 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
 * Validated upload backpressure runtime visibility
   * ran 50 concurrent upload workers with 10 allowed concurrent upload slots
   * observed 10 successful uploads, 40 controlled upload rejections, and 0 failures
-  * confirmed server-side counters reported `rejected_uploads=40`, `protocol_errors_1607=40`, and `rejected_connections=0`
+  * confirmed server-side counters reported `rejected_uploads=40`, `responses_1607=40`, and `rejected_connections=0`
 * Added Stage 8 performance observability documentation
   * documents benchmark methodology
   * explains RSA key-pool measurement cleanup

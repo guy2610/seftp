@@ -13,6 +13,7 @@ from src.bounded_executor import BoundedExecutor
 from src.server_identity import load_or_create_server_identity
 from pathlib import Path
 from src.runtime_metrics import RuntimeMetrics
+from src.metrics_http import handle_metrics_http
 
 CONTROL_PLANE_RATE_LIMITED_CODES = {
     825,  # register
@@ -201,6 +202,15 @@ async def main():
     server_identity_key = load_or_create_server_identity(str(server_identity_path))
     logger.info("server identity key loaded")
     server = await asyncio.start_server(handle_client, config.host, config.port)
+    metrics_server = None
+    if config.metrics_enabled:
+        metrics_server = await asyncio.start_server(
+            lambda reader, writer: handle_metrics_http(reader, writer, runtime_metrics),
+            config.metrics_host,
+            config.metrics_port,
+        )
+        metrics_addrs = ", ".join(str(sock.getsockname()) for sock in metrics_server.sockets)
+        logger.info("metrics endpoint listening on %s", metrics_addrs)
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     logger.info("async server listening on %s", addrs)
     loop = asyncio.get_running_loop()
@@ -221,6 +231,9 @@ async def main():
             logger.info("shutdown initiated")
             server.close()
             await server.wait_closed()
+            if metrics_server is not None:
+                metrics_server.close()
+                await metrics_server.wait_closed()
             bounded_executor.shutdown()
             try:
                 store.close()

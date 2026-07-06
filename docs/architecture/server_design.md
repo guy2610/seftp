@@ -187,9 +187,13 @@ Logging is structured around a base server logger and a session-aware logger ada
 
 Stage 8 adds a lightweight server-side runtime metrics object shared by the connection lifecycle and request handlers. It tracks active connections, active uploads, rejected connections, upload backpressure rejections, `1607` responses, and rate-limited requests.
 
-These metrics are currently exposed through log-based snapshots in disconnect summaries rather than through a dedicated metrics endpoint. This keeps the implementation simple while still making overload behavior visible during manual runs and benchmark validation.
+Stage 9 adds an optional local-only HTTP metrics endpoint on top of these runtime counters. The endpoint is disabled by default and can be enabled with `SEFTP_METRICS_ENABLED=1`. By default it binds to `127.0.0.1:9100` and exposes `GET /metrics`, returning the current runtime metrics snapshot as JSON.
 
-The runtime metrics are intentionally process-local. They are useful for debugging and benchmark interpretation, but they are not yet a production metrics export mechanism.
+The metrics endpoint is intentionally separate from the SEFTP binary protocol so observability traffic does not affect protocol semantics.
+
+The endpoint is intended for local development, benchmarking, and protected deployments. It should not be exposed directly to the public internet.
+
+The runtime metrics are process-local. They are useful for debugging, benchmark interpretation, and single-node operational visibility, but they are not a distributed metrics system.
 
 ## 4. Request and Data Flows
 
@@ -345,9 +349,9 @@ Stage 8 benchmark findings currently show that the initial post-Stage-7 upload n
 
 The generated Stage 8 plots support the same conclusion visually. The RSA key-pool plots show a large drop in end-to-end latency while `upload_packets_ms` remains roughly stable, confirming that the key pool removes benchmark-runner overhead rather than changing the server upload hot path. The Stage 6 vs Stage 8 upload plots show cleaner overload behavior, lower RSS growth, lower CPU peak, and higher measured throughput in the tested 1MB upload scenario.
 
-Stage 8 also adds server-side runtime visibility counters. Disconnect summaries now include a runtime metrics snapshot with active connection count, active upload count, rejected connection count, rejected upload count, `1607` response count, and rate-limited request count. A manual upload backpressure validation run confirmed that 50 concurrent upload workers with 10 allowed upload slots produced 10 successful uploads, 40 controlled upload rejections, and 0 failures, while the server metrics reported `rejected_uploads=40`, `protocol_errors_1607=40`, and `rejected_connections=0`.
+Stage 8 also adds server-side runtime visibility counters. Disconnect summaries now include a runtime metrics snapshot with active connection count, active upload count, rejected connection count, rejected upload count, `1607` response count, and rate-limited request count. A manual upload backpressure validation run confirmed that 50 concurrent upload workers with 10 allowed upload slots produced 10 successful uploads, 40 controlled upload rejections, and 0 failures, while the server metrics reported `rejected_uploads=40`, `responses_1607=40`, and `rejected_connections=0`.
 
-This gives the server a basic runtime view of controlled overload behavior without introducing a full metrics endpoint yet.
+This gives the server a basic runtime view of controlled overload behavior. Stage 9 extends that visibility with an optional local-only HTTP metrics endpoint that exposes the same process-local runtime snapshot as JSON.
 
 A later Stage 8 or Stage 9 optimization candidate is size-aware upload backpressure. The current upload limiter is concurrency-based and treats all uploads as equal. Earlier Stage 6 results showed that larger files create more RSS and CPU pressure, and Stage 8 confirms that upload remains the main resource-sensitive path after streaming. A future limiter could account for active upload bytes in addition to active upload count.
 
@@ -361,7 +365,7 @@ Another clear architectural property is controlled failure under pressure. Rathe
 
 This server is already structurally solid for a single-node engineering project, but several directions remain open.
 
-A deeper observability layer would still help. Stage 8 improved benchmark-side observability with timing breakdowns, RSA key pooling, upload artifact cleanup, JSON comparison tooling, comparison plots, and server-side runtime metric snapshots. However, the server still does not expose a dedicated metrics endpoint, per-IP runtime reporting, executor saturation telemetry, queue-depth telemetry, or detailed server-side internal timings for phases such as frame parsing, handler execution, SQLite interaction, upload packet processing, temporary file writes, and final atomic replacement.
+A deeper observability layer would still help. Stage 8 improved benchmark-side observability with timing breakdowns, RSA key pooling, upload artifact cleanup, JSON comparison tooling, comparison plots, and server-side runtime metric snapshots. Stage 9 adds a local-only HTTP metrics endpoint for process-local runtime counters, but the server still does not expose per-IP runtime reporting, executor saturation telemetry, queue-depth telemetry, or detailed server-side internal timings for phases such as frame parsing, handler execution, SQLite interaction, upload packet processing, temporary file writes, and final atomic replacement.
 
 The in-memory client index is a sensible optimization, but its effect has not yet been isolated by dedicated profiling. A future step would be to measure lookup cost, DB interaction frequency, and end-to-end impact under realistic mixed workloads before deciding whether more caching or indexing is justified. The current code already contains the index, so the next move should be evidence-driven evaluation, not optimization by assumption.
 

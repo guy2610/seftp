@@ -9,7 +9,7 @@ class RuntimeMetrics:
     active_uploads: int = 0
     rejected_connections: int = 0
     rejected_uploads: int = 0
-    protocol_errors_1607: int = 0
+    responses_1607: int = 0
     rate_limited_requests: int = 0
 
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -30,9 +30,9 @@ class RuntimeMetrics:
         async with self._lock:
             self.rejected_uploads += 1
 
-    async def inc_protocol_errors_1607(self) -> None:
+    async def inc_responses_1607(self) -> None:
         async with self._lock:
-            self.protocol_errors_1607 += 1
+            self.responses_1607 += 1
 
     async def inc_rate_limited_requests(self) -> None:
         async with self._lock:
@@ -45,6 +45,6 @@ class RuntimeMetrics:
                 "active_uploads": self.active_uploads,
                 "rejected_connections": self.rejected_connections,
                 "rejected_uploads": self.rejected_uploads,
-                "protocol_errors_1607": self.protocol_errors_1607,
+                "responses_1607": self.responses_1607,
                 "rate_limited_requests": self.rate_limited_requests,
             }

@@ -14,12 +14,12 @@ namespace seftp::server::protocol {
     inline constexpr std::size_t kCodeSize = 2;
     inline constexpr std::size_t kPayloadSizeFieldSize = 4;
 
-    inline constexpr std::size_t kRequestHeaderLen = kClientIdSize + kVersionSize + kCodeSize + kPayloadSizeFieldSize; // 23
-    inline constexpr std::size_t kResponseHeaderLen = kVersionSize + kCodeSize + kPayloadSizeFieldSize; //7
+    inline constexpr std::size_t kRequestHeaderSize = kClientIdSize + kVersionSize + kCodeSize + kPayloadSizeFieldSize; // 23
+    inline constexpr std::size_t kResponseHeaderSize = kVersionSize + kCodeSize + kPayloadSizeFieldSize; //7
 
     inline constexpr std::size_t kDefaultMaxFileSize = 100 * 1024 * 1024; //100MB
 
-    enum class ReqCode : std::uint16_t {
+    enum class RequestCode : std::uint16_t {
         Register = 825,
         SendPublicKey = 826,
         Reconnect = 827,
@@ -28,7 +28,7 @@ namespace seftp::server::protocol {
         ClientHandshakeAck = 830
     };
 
-    enum class ResCode : uint16_t {
+    enum class ResponseCode : uint16_t {
         RegistrationOk = 1600,
         RegistrationFailed = 1601,
         PublicKeyAccepted = 1602,

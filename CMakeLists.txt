@@ -90,4 +90,17 @@ if (BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(seftp_tests)
+    add_executable(seftp_server_cpp_tests
+            server_cpp/tests/protocol_constants_test.cpp
+    )
+
+    target_include_directories(seftp_server_cpp_tests PRIVATE
+            server_cpp/include
+    )
+
+    target_link_libraries(seftp_server_cpp_tests PRIVATE
+            GTest::gtest_main
+    )
+
+    gtest_discover_tests(seftp_server_cpp_tests)
 endif()

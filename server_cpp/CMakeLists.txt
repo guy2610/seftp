@@ -1,3 +1,6 @@
+# Intentionally unused for now.
+# The C++ server foundation tests are currently wired through the root CMakeLists.txt.
+
 cmake_minimum_required(VERSION 3.20)
 
 project(seftp_server_cpp LANGUAGES CXX)

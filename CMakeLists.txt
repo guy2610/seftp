@@ -90,10 +90,11 @@ if (BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(seftp_tests)
+
     add_executable(seftp_server_cpp_tests
             server_cpp/tests/protocol_constants_test.cpp
+            server_cpp/tests/request_frame_test.cpp
     )
-
     target_include_directories(seftp_server_cpp_tests PRIVATE
             server_cpp/include
     )

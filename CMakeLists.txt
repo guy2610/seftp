@@ -95,6 +95,7 @@ if (BUILD_TESTING)
             server_cpp/tests/protocol_constants_test.cpp
             server_cpp/tests/request_frame_test.cpp
             server_cpp/tests/response_frame_test.cpp
+            server_cpp/tests/router_test.cpp
     )
     target_include_directories(seftp_server_cpp_tests PRIVATE
             server_cpp/include

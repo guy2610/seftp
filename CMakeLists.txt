@@ -97,6 +97,7 @@ if (BUILD_TESTING)
             server_cpp/tests/response_frame_test.cpp
             server_cpp/tests/router_test.cpp
             server_cpp/tests/session_test.cpp
+            server_cpp/tests/frame_io_test.cpp
     )
     target_include_directories(seftp_server_cpp_tests PRIVATE
             server_cpp/include
@@ -104,6 +105,8 @@ if (BUILD_TESTING)
 
     target_link_libraries(seftp_server_cpp_tests PRIVATE
             GTest::gtest_main
+            Boost::system
+            Boost::asio
     )
 
     gtest_discover_tests(seftp_server_cpp_tests)

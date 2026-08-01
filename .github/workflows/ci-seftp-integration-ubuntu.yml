@@ -1,0 +1,368 @@
+name: CI - SEFTP Integration - Ubuntu (E2E)
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install server deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pycryptodome
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "vcpkg.json"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+
+      - name: Configure client
+        run: >
+          cmake -S . -B build/seftp
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build client
+        run: cmake --build build/seftp --config Release
+
+      - name: Start server (background)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/server
+        run: |
+          set -e
+          cd server
+          echo "1234" > port.info
+          nohup python -u server_async.py > ../server_e2e.log 2>&1 &
+          echo $! > ../server_e2e.pid
+          sleep 1
+
+      - name: Wait for server port
+        run: |
+          python - <<'PY'
+          import socket, time, sys
+          host, port = "127.0.0.1", 1234
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection((host, port), timeout=1):
+                      print("server is up")
+                      sys.exit(0)
+              except OSError:
+                  time.sleep(0.5)
+          print("server did not open port in time")
+          sys.exit(1)
+          PY
+
+      - name: Run first client (register + upload)
+        run: |
+          set -e
+          WORKDIR="$(pwd)/e2e_workdir"
+          mkdir -p "$WORKDIR"
+          echo "127.0.0.1:1234" > "$WORKDIR/transfer.info"
+          echo "ci_user" >> "$WORKDIR/transfer.info"
+          echo "hello from ci" > "$WORKDIR/test.txt"
+
+          CLIENT_BIN="$(pwd)/build/seftp/seftp_client"
+          cp "$CLIENT_BIN" "$WORKDIR/"
+
+          cd "$WORKDIR"
+          ./seftp_client --info --files=test.txt
+          
+          if [ ! -f server.fingerprint ]; then
+            echo "server.fingerprint was not created by Stage 7 TOFU"
+            exit 1
+          fi
+
+          if [ ! -s server.fingerprint ]; then
+            echo "server.fingerprint is empty"
+            exit 1
+          fi
+
+          echo "Stage 7 TOFU fingerprint:"
+          cat server.fingerprint
+
+      - name: Run second client (relogin)
+        run: |
+          set -e
+          cd e2e_workdir
+          ./seftp_client --info --files=test.txt > second_run.log
+
+          echo "==== Second run output ===="
+          cat second_run.log
+
+          if grep -q "request_825" second_run.log; then
+            echo "Unexpected registration on relogin"
+            exit 1
+          fi
+
+          if ! grep -q "request_827" second_run.log; then
+            echo "Relogin (827) not detected"
+            exit 1
+          fi
+
+      - name: Multi-file upload
+        run: |
+          set -e
+          echo "another file" > e2e_workdir/test2.txt
+          cd e2e_workdir
+          ./seftp_client --info --files=test.txt,test2.txt
+      
+      - name: Streaming upload boundary files
+        run: |
+          set -euo pipefail
+
+          cd e2e_workdir
+
+          python - <<'PY'
+          from pathlib import Path
+          Path("stream_15.bin").write_bytes(b"A" * 15)
+          Path("stream_16.bin").write_bytes(b"B" * 16)
+          Path("stream_17.bin").write_bytes(b"C" * 17)
+          Path("stream_65536.bin").write_bytes(b"D" * 65536)
+          Path("stream_random_1mb.bin").write_bytes(bytes((i % 251 for i in range(1024 * 1024))))
+          PY
+
+          ./seftp_client --info --files=stream_15.bin,stream_16.bin,stream_17.bin,stream_65536.bin,stream_random_1mb.bin
+
+          cd ..
+
+          for f in stream_15.bin stream_16.bin stream_17.bin stream_65536.bin stream_random_1mb.bin; do
+            SRC="e2e_workdir/$f"
+            DST="server/data/uploads/ci_user/$f"
+
+            if [ ! -f "$DST" ]; then
+              echo "Missing uploaded file: $DST"
+              echo "==== server log tail ===="
+              tail -n 250 server_e2e.log || true
+              exit 1
+            fi
+
+            if ! cmp -s "$SRC" "$DST"; then
+              echo "Uploaded file mismatch: $f"
+              exit 1
+            fi
+          done
+
+          echo "Streaming boundary uploads matched byte-for-byte"
+
+      - name: Parallel clients upload (5 clients)
+        run: |
+          set -euo pipefail
+          CLIENT_BIN="$(pwd)/build/seftp/seftp_client"
+
+          BASE="$(pwd)/e2e_parallel"
+          rm -rf "$BASE"
+          mkdir -p "$BASE"
+
+          N=5
+          for i in $(seq 1 $N); do
+            W="$BASE/u$i"
+            mkdir -p "$W"
+            echo "127.0.0.1:1234" > "$W/transfer.info"
+            echo "ci_user_$i" >> "$W/transfer.info"
+            echo "hello from client $i" > "$W/file_$i.txt"
+            cp "$CLIENT_BIN" "$W/"
+          done
+
+          pids=""
+          for i in $(seq 1 $N); do
+            (
+              cd "$BASE/u$i"
+              ./seftp_client --info --files="file_$i.txt" > "run.log" 2>&1
+            ) &
+            pids="$pids $!"
+          done
+
+          fail=0
+          for p in $pids; do
+            if ! wait "$p"; then
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "At least one client failed. Dump logs:"
+            for i in $(seq 1 $N); do
+              echo "==== client $i log ===="
+              cat "$BASE/u$i/run.log" || true
+            done
+            exit 1
+          fi
+
+      - name: Restart server with small limits (for A)
+        env:
+          SEFTP_MAX_FILE_SIZE: "64"
+          PYTHONPATH: ${{ github.workspace }}/server
+        run: |
+          set +e
+          PID=$(cat server_e2e.pid 2>/dev/null)
+          if [ -n "$PID" ]; then
+            kill -INT "$PID" 2>/dev/null
+            for ((attempt = 0; attempt < 50; attempt++)); do
+              kill -0 "$PID" 2>/dev/null || break
+              sleep 0.2
+            done
+            kill -KILL "$PID" 2>/dev/null || true
+          fi
+          pkill -f "python .*server_async\.py" 2>/dev/null || true
+          sleep 0.2
+
+          rm -f server_e2e.pid || true
+          : > "${{ github.workspace }}/server_e2e.log"
+
+      - name: Start server (background) with SEFTP_MAX_FILE_SIZE=64
+        env:
+          SEFTP_MAX_FILE_SIZE: "64"
+          PYTHONPATH: "${{ github.workspace }}/server"
+        run: |
+          set -e
+          cd server
+          echo "1234" > port.info
+          nohup python -u server_async.py > ../server_e2e.log 2>&1 &
+          echo $! > ../server_e2e.pid
+          sleep 1
+
+      - name: "Limit (client): oversize file rejected"
+        run: |
+          set -euo pipefail
+          WORKDIR="$(pwd)/e2e_workdir_limits"
+          rm -rf "$WORKDIR"
+          mkdir -p "$WORKDIR"
+
+          echo "127.0.0.1:1234" > "$WORKDIR/transfer.info"
+          echo "ci_limits_user" >> "$WORKDIR/transfer.info"
+
+          CLIENT_BIN="$(pwd)/build/seftp/seftp_client"
+          cp "$CLIENT_BIN" "$WORKDIR/"
+          cd "$WORKDIR"
+
+          # create file > 64 bytes (max)
+          python -c "from pathlib import Path; Path('big.bin').write_bytes(b'A'*200)"
+
+          # expect failure
+          set +e
+          ./seftp_client --info --files=big.bin > run.log 2>&1
+          code=$?
+          set -e
+
+          echo "exit_code=$code"
+          cat run.log || true
+
+          #client-side assertion: got server rejection (1607)
+          if ! grep -Eq "answer_1607|general error \{bad 828:" run.log; then
+          echo "Expected client to observe 1607 / bad 828 error"
+          exit 1
+          fi
+
+          echo "==== server log tail ===="
+          tail -n 250 ../server_e2e.log || true
+
+          if ! grep -q "bad_828_limits" ../server_e2e.log; then
+            echo "Expected bad_828_limits reset reason"
+            exit 1
+          fi
+
+          if ! grep -Eq "orig_file_size too large|content_size too large" ../server_e2e.log; then
+            echo "Expected size-too-large log"
+            exit 1
+          fi
+
+      - name: Assert parallel uploads exist on disk
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 5); do
+            P="server/data/uploads/ci_user_$i/file_$i.txt"
+            if [ ! -f "$P" ]; then
+              echo "Missing: $P"
+              echo "==== server log tail ===="
+              tail -n 250 server_e2e.log || true
+              echo "==== uploads tree ===="
+              find server/data/uploads -maxdepth 3 -type f -print || true
+              exit 1
+            fi
+          done
+          echo "parallel uploads exist"
+
+      - name: Stop server (graceful + fallback)
+        if: always()
+        run: |
+          set +e
+          PID=$(cat server_e2e.pid 2>/dev/null)
+
+          echo "Stopping server PID=$PID"
+
+          if [ -n "$PID" ]; then
+            ps -p "$PID" -o pid,ppid,pgid,sid,cmd || true
+
+            kill -INT "$PID" 2>/dev/null
+
+            for ((attempt = 0; attempt < 80; attempt++)); do
+              kill -0 "$PID" 2>/dev/null || { echo "server stopped cleanly"; break; }
+              sleep 0.2
+            done
+
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "Escalating kill"
+              kill -TERM "$PID" 2>/dev/null
+              sleep 0.5
+              kill -KILL "$PID" 2>/dev/null
+            fi
+          fi
+
+          # Ensure nothing remains
+          pkill -f "python .*server_async\.py" 2>/dev/null || true
+          sleep 0.2
+
+          if pgrep -f "python .*server_async\.py" >/dev/null; then
+            echo "Server still running"
+            pgrep -af "python .*server_async\.py"
+            exit 1
+          fi
+
+          echo "Server fully stopped"
+          tail -n 200 server_e2e.log || true
+
+      - name: Assert SQLite DB persisted
+        run: |
+          set -e
+          FILE="server/data/seftp_server_sql.db"
+
+          if [ ! -f "$FILE" ]; then
+            echo "SQLite DB not found"
+            exit 1
+          fi
+
+          python - <<PY
+          import sqlite3
+          import pathlib
+
+          p = pathlib.Path("server/data/seftp_server_sql.db")
+          con = sqlite3.connect(p)
+          cur = con.cursor()
+
+          cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Clients'")
+          assert cur.fetchone() is not None, "Clients table missing"
+
+          cur.execute("SELECT COUNT(*) FROM Clients")
+          count = cur.fetchone()[0]
+          print("clients rows:", count)
+
+          con.close()
+          PY

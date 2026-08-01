@@ -484,10 +484,10 @@ See `docs/roadmap/ROADMAP.md`.
 
 ---
 
-## Prebuilt Client
+## Releases
 
-A prebuilt Windows x64 client binary exists for an earlier release, v0.5.0.
-Release:
-https://github.com/guy2610/Portfolio/releases/tag/v0.5.0-win-x64
+Release history and source archives are available on GitHub:
 
-See the GitHub Releases page for available binaries.
+https://github.com/guy2610/seftp/releases
+
+No prebuilt client binary is currently attached to the releases. Build the client from source using the instructions in `docs/operations/setup_and_usage.md`.

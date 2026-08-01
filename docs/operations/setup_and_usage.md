@@ -6,24 +6,15 @@ The top-level README is intentionally kept as a short project overview. This fil
 
 ---
 
-## Prebuilt Client (Windows x64)
+## Windows Client
 
-A prebuilt Windows x64 client binary is available.
+No prebuilt Windows client binary is currently attached to the GitHub releases.
 
-- No build required
-- Includes example runtime configuration
-- Built in Release mode
+Release history and source archives are available at:
 
-Download:
-A prebuilt Windows x64 client binary is currently available for v0.5.0.
+https://github.com/guy2610/seftp/releases
 
-https://github.com/guy2610/Portfolio/releases/tag/v0.5.0-win-x64
-
-Run:
-1. Start the server (see below)
-2. Extract the zip
-3. Edit `transfer.info`
-4. Run `SEFTP-CLIENT.exe`
+Build the client from source using the instructions below.
 
 ---
 
@@ -181,12 +172,8 @@ Interactive batch mode accepts space-separated file paths.
 
 ### Clone Project
 ```
-To clone only this project without downloading the entire portfolio:
-git clone --depth 1 --filter=blob:none --sparse https://github.com/guy2610/Portfolio.git
-cd Portfolio
-git sparse-checkout init --cone
-git sparse-checkout set Secure-Encrypted-File-Transfer-Protocol
-cd Secure-Encrypted-File-Transfer-Protocol
+git clone https://github.com/guy2610/seftp.git
+cd seftp
 ```
 
 ### Setup vcpkg

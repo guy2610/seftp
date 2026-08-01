@@ -1,0 +1,200 @@
+name: CI - SEFTP Integration - Windows (E2E)
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install server deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pycryptodome
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "vcpkg.json"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+
+      - name: Configure client (Release)
+        shell: pwsh
+        run: |
+          cmake -S . -B build/seftp `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="${env:GITHUB_WORKSPACE}\vcpkg\scripts\buildsystems\vcpkg.cmake"
+
+      - name: Build client (Release)
+        shell: pwsh
+        run: |
+          cmake --build build/seftp --config Release --target seftp_client
+
+      - name: E2E (Windows) - server + clients
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}\server
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Run-Checked([string]$cmd, [string]$why) {
+            Write-Host "RUN: $cmd"
+            cmd /c $cmd
+            if ($LASTEXITCODE -ne 0) { throw "Command failed (exit=$LASTEXITCODE): $why" }
+          }
+
+          function Stop-Server($proc) {
+            try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+            Start-Sleep -Seconds 1
+          }
+
+          function Wait-Port([string]$hostname, [int]$port, [int]$seconds) {
+            $deadline = (Get-Date).AddSeconds($seconds)
+            while ((Get-Date) -lt $deadline) {
+              try {
+                $c = New-Object System.Net.Sockets.TcpClient
+                $c.Connect($hostname, $port)
+                $c.Close()
+                return
+              } catch {
+                Start-Sleep -Milliseconds 300
+              }
+            }
+            throw "server did not open port in time"
+          }
+
+          $root = $env:GITHUB_WORKSPACE
+
+          # Resolve client exe
+          $candidates = @(
+            (Join-Path $root "build\seftp\Release\seftp_client.exe"),
+            (Join-Path $root "build\seftp\seftp_client.exe")
+          )
+          $clientExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $clientExe) {
+            $found = Get-ChildItem -Path (Join-Path $root "build\seftp") -Recurse -Filter "seftp_client.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $clientExe = $found.FullName }
+          }
+          if (-not $clientExe) {
+            Write-Host "Listing build\seftp:"
+            Get-ChildItem -Path (Join-Path $root "build\seftp") -Recurse -ErrorAction SilentlyContinue | Select-Object FullName | Out-String | Write-Host
+            throw "seftp_client.exe not found"
+          }
+          Write-Host "CLIENT_EXE=$clientExe"
+
+          $ServerDir = Join-Path $root "server"
+
+          # ---------- Start normal server ----------
+          Set-Location $ServerDir
+          "1234" | Set-Content -NoNewline -Path ".\port.info"
+
+          $OutLog = Join-Path $root "server_win.out.log"
+          $ErrLog = Join-Path $root "server_win.err.log"
+          Remove-Item $OutLog,$ErrLog -Force -ErrorAction SilentlyContinue
+
+          $p = Start-Process -FilePath "python" -ArgumentList "-u","server_async.py" -WorkingDirectory $ServerDir `
+                -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog -PassThru
+
+          try {
+            Wait-Port "127.0.0.1" 1234 30
+
+            $work = Join-Path $root "e2e_workdir"
+            Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Path $work | Out-Null
+
+            "127.0.0.1:1234`nci_user" | Out-File -Encoding ascii -NoNewline (Join-Path $work "transfer.info")
+            "hello from ci" | Out-File -Encoding ascii -NoNewline (Join-Path $work "test.txt")
+            Copy-Item $clientExe (Join-Path $work "seftp_client.exe")
+
+            Push-Location $work
+            Run-Checked ".\seftp_client.exe --info --files=test.txt" "first upload failed"
+            $fingerprintPath = Join-Path $work "server.fingerprint"
+            if (-not (Test-Path $fingerprintPath)) {
+              throw "server.fingerprint was not created by Stage 7 TOFU"
+            }
+
+            if ((Get-Item $fingerprintPath).Length -eq 0) {
+              throw "server.fingerprint is empty"
+            }
+
+            Write-Host "Stage 7 TOFU fingerprint:"
+            Get-Content $fingerprintPath
+            Run-Checked ".\seftp_client.exe --info --files=test.txt > second_run.log 2>&1" "relogin run failed"
+            $txt = Get-Content second_run.log -Raw
+            if ($txt -match "request_825") { throw "Unexpected registration on relogin" }
+            if ($txt -notmatch "request_827") { throw "Relogin not detected" }
+
+            "another file" | Out-File -Encoding ascii -NoNewline (Join-Path $work "test2.txt")
+            Run-Checked ".\seftp_client.exe --info --files=test.txt,test2.txt" "multi-file upload failed"
+            Pop-Location
+          }
+          finally {
+            Stop-Server $p
+            Write-Host "==== server stdout tail ===="
+            if (Test-Path $OutLog) { Get-Content $OutLog -Tail 200 }
+            Write-Host "==== server stderr tail ===="
+            if (Test-Path $ErrLog) { Get-Content $ErrLog -Tail 200 }
+          }
+
+          Start-Sleep -Seconds 1
+
+          # ---------- Limits server ----------
+          $env:SEFTP_MAX_FILE_SIZE = "64"
+          Set-Location $ServerDir
+          "1234" | Set-Content -NoNewline -Path ".\port.info"
+
+          $OutLog2 = Join-Path $root "server_win_limits.out.log"
+          $ErrLog2 = Join-Path $root "server_win_limits.err.log"
+          Remove-Item $OutLog2,$ErrLog2 -Force -ErrorAction SilentlyContinue
+
+          $p2 = Start-Process -FilePath "python" -ArgumentList "-u","server_async.py" -WorkingDirectory $ServerDir `
+                -RedirectStandardOutput $OutLog2 -RedirectStandardError $ErrLog2 -PassThru
+
+          try {
+            Wait-Port "127.0.0.1" 1234 30
+
+            $work2 = Join-Path $root "e2e_workdir_limits"
+            Remove-Item -Recurse -Force $work2 -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Path $work2 | Out-Null
+
+            "127.0.0.1:1234`nci_limits_user" | Out-File -Encoding ascii -NoNewline (Join-Path $work2 "transfer.info")
+            Copy-Item $clientExe (Join-Path $work2 "seftp_client.exe")
+            python -c "from pathlib import Path; Path(r'$work2\big.bin').write_bytes(b'A'*200)"
+
+            Push-Location $work2
+            cmd /c ".\seftp_client.exe --info --files=big.bin > run.log 2>&1"
+            Pop-Location
+
+            $clientLog = Get-Content (Join-Path $work2 "run.log") -Raw
+            if ($clientLog -notmatch "answer_1607|general error \{bad 828:") {
+              throw "Expected client to observe 1607 / bad 828 error"
+            }
+
+            $slog = ""
+            if (Test-Path $OutLog2) { $slog += (Get-Content $OutLog2 -Raw) }
+            if (Test-Path $ErrLog2) { $slog += (Get-Content $ErrLog2 -Raw) }
+            if ($slog -notmatch "bad 828: orig_file_size too large") { throw "Expected oversize rejection in server log" }
+            if ($slog -notmatch "reset transfer state reason=bad_828_limits") { throw "Expected bad_828_limits reset reason" }
+          }
+          finally {
+            Stop-Server $p2
+            Write-Host "==== limits server stdout tail ===="
+            if (Test-Path $OutLog2) { Get-Content $OutLog2 -Tail 200 }
+            Write-Host "==== limits server stderr tail ===="
+            if (Test-Path $ErrLog2) { Get-Content $ErrLog2 -Tail 200 }
+          }

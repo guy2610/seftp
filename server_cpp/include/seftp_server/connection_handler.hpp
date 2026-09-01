@@ -66,4 +66,14 @@ namespace seftp::server::connection_handler {
         return ConnectionResult::ResponseSent;
     }
 
+
+    inline ConnectionResult handle_connection(boost::asio::ip::tcp::socket& socket) {
+        session::Session session;
+        while (true) {
+            const auto result = handle_one_request(socket, session);
+            if (result != ConnectionResult::ResponseSent) {
+                return result;
+            }
+        }
+    }
 }

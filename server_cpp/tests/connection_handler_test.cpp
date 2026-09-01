@@ -4,6 +4,7 @@
 #include "seftp_server/router.hpp"
 #include "seftp_server/session.hpp"
 
+#include <future>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,7 @@ using tcp = asio::ip::tcp;
 
 using seftp::server::connection_handler::ConnectionResult;
 using seftp::server::connection_handler::handle_one_request;
+    using seftp::server::connection_handler::handle_connection;
 
 using seftp::server::protocol::Byte;
 using seftp::server::protocol::RequestCode;
@@ -406,5 +408,163 @@ TEST(ConnectionHandlerTest, ClosedConnectionReturnsConnectionLost) {
         SessionState::AwaitingClientHello
     );
 }
+
+    TEST(ConnectionHandlerTest, HandlesMultipleRequestsOnSameConnection) {
+    ConnectedSockets sockets;
+
+    auto server_result = std::async(
+        std::launch::async,
+        [&sockets] {
+            return handle_connection(sockets.server);
+        }
+    );
+
+    // Request #1: ClientHello
+    send_request(
+        sockets.client,
+        RequestCode::ClientHello
+    );
+
+    EXPECT_EQ(
+        read_empty_response(sockets.client),
+        expected_empty_response(
+            ResponseCode::ServerHello
+        )
+    );
+
+    // Request #2: handshake acknowledgement
+    send_request(
+        sockets.client,
+        RequestCode::ClientHandshakeAck
+    );
+
+    EXPECT_EQ(
+        read_empty_response(sockets.client),
+        expected_empty_response(
+            ResponseCode::MessageReceived
+        )
+    );
+
+    // Request #3: application request.
+    // This succeeds only if the same Session survived
+    // the previous two requests.
+    send_request(
+        sockets.client,
+        RequestCode::Upload
+    );
+
+    EXPECT_EQ(
+        read_empty_response(sockets.client),
+        expected_empty_response(
+            ResponseCode::MessageReceived
+        )
+    );
+
+    boost::system::error_code shutdown_error;
+
+    sockets.client.shutdown(
+        tcp::socket::shutdown_send,
+        shutdown_error
+    );
+
+    EXPECT_EQ(
+        server_result.get(),
+        ConnectionResult::ConnectionLost
+    );
+}
+
+    TEST(ConnectionHandlerTest, ContinuesAfterRejectedRequest) {
+    ConnectedSockets sockets;
+
+    auto server_result = std::async(
+        std::launch::async,
+        [&sockets] {
+            return handle_connection(sockets.server);
+        }
+    );
+
+    // Valid frame, but invalid for current session state.
+    send_request(
+        sockets.client,
+        RequestCode::Upload
+    );
+
+    EXPECT_EQ(
+        read_empty_response(sockets.client),
+        expected_empty_response(
+            ResponseCode::ServerError
+        )
+    );
+
+    // The connection should still be alive,
+    // and the session should still expect ClientHello.
+    send_request(
+        sockets.client,
+        RequestCode::ClientHello
+    );
+
+    EXPECT_EQ(
+        read_empty_response(sockets.client),
+        expected_empty_response(
+            ResponseCode::ServerHello
+        )
+    );
+
+    boost::system::error_code shutdown_error;
+
+    sockets.client.shutdown(
+        tcp::socket::shutdown_send,
+        shutdown_error
+    );
+
+    EXPECT_EQ(
+        server_result.get(),
+        ConnectionResult::ConnectionLost
+    );
+}
+
+    TEST(ConnectionHandlerTest, StopsOnProtocolError) {
+    ConnectedSockets sockets;
+
+    auto server_result = std::async(
+        std::launch::async,
+        [&sockets] {
+            return handle_connection(sockets.server);
+        }
+    );
+
+    constexpr std::uint16_t unknown_code = 9999;
+
+    const auto bytes =
+        make_request_bytes(unknown_code);
+
+    asio::write(
+        sockets.client,
+        asio::buffer(bytes)
+    );
+
+    EXPECT_EQ(
+        server_result.get(),
+        ConnectionResult::ProtocolError
+    );
+}
+
+    TEST(ConnectionHandlerTest, ReturnsConnectionLostWhenClientClosesConnection) {
+    ConnectedSockets sockets;
+
+    boost::system::error_code shutdown_error;
+
+    sockets.client.shutdown(
+        tcp::socket::shutdown_send,
+        shutdown_error
+    );
+
+    EXPECT_EQ(
+        handle_connection(sockets.server),
+        ConnectionResult::ConnectionLost
+    );
+}
+
+    
 
 }

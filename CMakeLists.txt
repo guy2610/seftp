@@ -98,6 +98,7 @@ if (BUILD_TESTING)
             server_cpp/tests/router_test.cpp
             server_cpp/tests/session_test.cpp
             server_cpp/tests/frame_io_test.cpp
+            server_cpp/tests/connection_handler_test.cpp
     )
     target_include_directories(seftp_server_cpp_tests PRIVATE
             server_cpp/include

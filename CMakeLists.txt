@@ -90,4 +90,39 @@ if (BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(seftp_tests)
+
+    add_executable(seftp_server_cpp_tests
+            server_cpp/tests/protocol_constants_test.cpp
+            server_cpp/tests/request_frame_test.cpp
+            server_cpp/tests/response_frame_test.cpp
+            server_cpp/tests/router_test.cpp
+            server_cpp/tests/session_test.cpp
+            server_cpp/tests/frame_io_test.cpp
+            server_cpp/tests/connection_handler_test.cpp
+            server_cpp/tests/listener_test.cpp
+    )
+    target_include_directories(seftp_server_cpp_tests PRIVATE
+            server_cpp/include
+    )
+
+    target_link_libraries(seftp_server_cpp_tests PRIVATE
+            GTest::gtest_main
+            Boost::system
+            Boost::asio
+    )
+
+    add_executable(seftp_server_cpp
+            server_cpp/src/server_main.cpp
+    )
+
+    target_include_directories(seftp_server_cpp PRIVATE
+            server_cpp/include
+    )
+
+    target_link_libraries(seftp_server_cpp PRIVATE
+            Boost::system
+            Boost::asio
+    )
+
+    gtest_discover_tests(seftp_server_cpp_tests)
 endif()

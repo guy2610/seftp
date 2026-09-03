@@ -47,7 +47,7 @@ Violations of size or sequencing constraints result in a `1607` error response.
 
 ## Requirements
 
-### Server
+### Stable Python Server
 
 * Python 3.9+
 * PyCryptodome
@@ -55,6 +55,14 @@ Violations of size or sequencing constraints result in a `1607` error response.
 ```
 pip install pycryptodome
 ```
+
+### Experimental C++ Server
+
+* C++17 compiler
+* CMake 3.21+
+* vcpkg
+* Boost.Asio / Boost.System
+* GoogleTest for tests
 
 ### Client (Build from source)
 
@@ -72,11 +80,40 @@ pip install pycryptodome
 
 ### Quickstart
 
-#### Start Server
+#### Start Stable Python Server
 ```
 cd server
 python server_async.py
 ```
+
+#### Start Experimental C++ Server
+
+From the repository root on macOS:
+
+```bash
+cmake --preset macos-arm64
+cmake --build build/macos-arm64
+./build/macos-arm64/seftp_server_cpp
+```
+
+The current Stage 9B development executable listens only on:
+
+```text
+127.0.0.1:1234
+```
+
+Verify the TCP listener with:
+
+```bash
+nc -vz 127.0.0.1 1234
+lsof -nP -iTCP:1234 -sTCP:LISTEN
+```
+
+The C++ server is currently a synchronous foundation implementation. It does
+not yet provide full Stage 7 cryptographic handshake behavior, SQLite
+persistence, registration/key-exchange business logic, streaming upload
+handling, or full compatibility with the stable Python server.
+
 #### Run Client
 
 Place `transfer.info` in the same directory as the executable, then run:
@@ -94,7 +131,7 @@ The client will:
 
 ### Detailed Setup
 
-#### 1. Start the server
+#### 1. Start the stable Python server
 
 ```
 Prerequisites (persistence)

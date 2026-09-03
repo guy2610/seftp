@@ -319,16 +319,19 @@ Focused follow-up stage for production-facing observability, deployment hardenin
 
 Current status:
 
-Stage 9 is planned as a focused follow-up to the Stage 8 observability checkpoint.
+Stage 9A production hardening is complete, and Stage 9B has now completed the first runnable synchronous C++ server foundation.
 
-The goal is to improve production-facing runtime visibility and deployment hardening while starting an experimental C++ server foundation without replacing the stable Python asyncio server.
+The stable Python asyncio server remains the feature-complete implementation. The C++ server is an experimental systems-oriented implementation that is being developed incrementally rather than through a direct Python-to-C++ file translation.
+
+The next C++ milestone is Stage 9C: an async Boost.Asio evolution focused on event-driven networking, explicit connection and buffer lifetime management, concurrent clients, timeouts, cancellation/shutdown behavior, and bounded resource usage.
 
 Primary scope:
 - Lightweight runtime metrics export beyond disconnect-summary snapshots
 - Runtime metric naming cleanup and optional executor / queue visibility
 - Production deployment hardening documentation
-- Optional protected Docker Compose deployment demo
-- Experimental C++ server foundation for protocol parsing and response building
+- Protected Docker Compose deployment demo
+- Runnable synchronous C++ server foundation
+- Async C++ networking and lifetime-management follow-up
 
 Out of scope for Stage 9:
 - Full C++ server feature parity
@@ -349,16 +352,42 @@ Out of scope for Stage 9:
   * Add executor saturation and queue-depth visibility only if the implementation remains simple and low-risk
   * Extend production abuse/deployment documentation (DONE)
   * Add a protected Docker Compose deployment demo (DONE)
-  * Sync README / CHANGELOG / architecture docs after implementation
+  * Sync README / CHANGELOG / architecture docs after implementation (DONE)
 
-* Track B - Experimental C++ server foundation
-  * Add `server_cpp/` skeleton
-  * Add CMake/build integration
-  * Add C++ protocol constants and frame structures
-  * Add binary frame parser
-  * Add response builders for basic protocol responses
-  * Add C++ unit tests for parser and builders
-  * Add `server_cpp/README.md` documenting current limitations and migration path
+* Track B - Experimental C++ server foundation (Stage 9B - DONE)
+  * Add `server_cpp/` skeleton (DONE)
+  * Add CMake/build integration (DONE)
+  * Add C++ protocol constants and typed frame structures (DONE)
+  * Add little-endian binary request-frame parser (DONE)
+  * Add response-frame builder (DONE)
+  * Add handshake-aware request router (DONE)
+  * Add per-connection session state machine (DONE)
+  * Add synchronous Boost.Asio frame IO (DONE)
+  * Add TCP framing tests, including partial reads and connection-close paths (DONE)
+  * Add one-request connection handler (DONE)
+  * Add multi-request connection lifetime loop with persistent session state (DONE)
+  * Add TCP listener / acceptor layer (DONE)
+  * Add synchronous server accept loop (DONE)
+  * Add runnable `seftp_server_cpp` executable (DONE)
+  * Add localhost-only development binding and manual TCP smoke validation (DONE)
+  * Add C++ unit/integration-style tests across parser, routing, session, frame IO, connection handling, and listener layers (DONE)
+  * Add `server_cpp/README.md` documenting current limitations and migration path (DONE)
+
+* Track C - Async C++ server evolution (Stage 9C - NEXT)
+  * Replace blocking accept flow with `async_accept`
+  * Introduce explicit connection objects for async lifetime ownership
+  * Replace synchronous framed reads with `async_read`
+  * Replace synchronous response writes with `async_write`
+  * Practice `std::shared_ptr` and `std::enable_shared_from_this` for connection lifetime
+  * Make buffer lifetime explicit across asynchronous operations
+  * Support multiple concurrent clients on a single event loop
+  * Add connection / handshake read timeouts using `steady_timer`
+  * Add cancellation-aware cleanup paths
+  * Add graceful `SIGINT` / `SIGTERM` shutdown
+  * Add bounded active-connection admission
+  * Add async integration tests
+  * Optionally run one `io_context` from multiple worker threads
+  * If multi-threaded execution is added, evaluate `boost::asio::strand` for per-connection handler serialization
 
 * Future upload model extensions
   * Evaluate resumable uploads across reconnects (protocol and persistence implications)

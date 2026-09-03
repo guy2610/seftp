@@ -2,7 +2,7 @@
 
 ## 1. Purpose and Scope
 
-This project implements a secure file transfer system composed of a C++ client and a Python `asyncio` server communicating over a custom binary TCP protocol. The system is designed to support registration, relogin, key exchange, encrypted file upload, CRC-based completion, and durable server-side metadata tracking.
+This project implements a secure file transfer system whose stable end-to-end path is composed of a C++ client and a Python `asyncio` server communicating over a custom binary TCP protocol. Stage 9B also adds a separate experimental C++17 server foundation for systems-oriented networking and server architecture work. The system is designed to support registration, relogin, key exchange, encrypted file upload, CRC-based completion, and durable server-side metadata tracking.
 
 The implementation focuses on protocol correctness, cryptographic separation of responsibilities, explicit persistence boundaries, controlled resource usage, and architecture clarity. It is intended as a serious engineering project rather than a production deployment.
 
@@ -21,6 +21,7 @@ The current scope includes:
 - server-side runtime visibility counters and disconnect-summary metric snapshots
 - authenticated server identity handshake before application-level protocol flows
 - TOFU and optional pinned server fingerprint trust modes
+- experimental synchronous C++ server foundation with protocol framing, routing, session state, TCP connection handling, listening, and a runnable server executable
 
 The current scope does not include:
 - distributed deployment
@@ -42,10 +43,14 @@ This creates a clear end-to-end separation:
 
 ## 3. High-Level Architecture
 
-The system is composed of three major boundaries:
+The stable production-style system path is composed of three major boundaries:
 - a C++ client
 - a shared protocol boundary over TCP
 - a Python `asyncio` server
+
+Stage 9B adds a fourth, experimental implementation path: a separate C++ server
+that consumes the same protocol model but currently implements only the
+synchronous transport/protocol/session foundation.
 
 The client is responsible for local orchestration, persistence, cryptographic preparation, and request emission. The protocol boundary defines the binary frame format and request/response semantics. The server is responsible for framed request handling, validation, admission control, persistence, and upload completion.
 
@@ -94,6 +99,24 @@ data/uploads/..."]
     SEXEC --> SFILES
     SSTORE --> SFILES
 ```
+
+### 3.1 Experimental C++ Server Path
+
+The C++ server foundation is intentionally developed alongside, rather than in
+place of, the Python server. Its Stage 9B baseline includes typed protocol
+constants, request parsing, response building, routing, session state,
+synchronous Boost.Asio frame IO, connection lifetime handling, a TCP listener,
+a server accept loop, and a runnable `seftp_server_cpp` executable.
+
+The current C++ executable is a development implementation bound to
+`127.0.0.1:1234`. It does not yet implement the complete cryptographic,
+persistence, registration, relogin, upload, or CRC behavior of the Python
+server.
+
+Stage 9C will evolve the C++ path toward asynchronous Boost.Asio with explicit
+object and buffer lifetime management, concurrent clients, timeouts,
+cancellation, graceful shutdown, bounded resources, and optionally
+multi-threaded event-loop execution.
 
 ## 4. End-to-End Flows
 
@@ -320,7 +343,7 @@ Several future directions remain open:
 - isolated profiling of the server's in-memory client index
 - optional controlled parallel upload support if justified
 - optional GUI client
-- possible future server implementation in C++
+- experimental C++ server foundation now exists; full feature parity remains future work after the async networking and lifetime-management milestone
 
 These are future improvements, not missing correctness requirements for the current project.
 

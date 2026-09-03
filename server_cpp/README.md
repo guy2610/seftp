@@ -1,47 +1,173 @@
-# SEFTP C++ Server Foundation
+# SEFTP C++ Server
 
-This directory contains an experimental C++ server foundation for SEFTP.
+This directory contains the experimental C++ server implementation for SEFTP.
 
-The stable SEFTP server remains the Python asyncio implementation under `server/`.
-This C++ implementation is not intended to replace it during Stage 9B.
+The stable, feature-complete SEFTP server remains the Python `asyncio`
+implementation under `server/`.
 
-## Stage 9B Scope
+The C++ implementation is being developed incrementally as a separate
+systems-oriented architecture exercise rather than as a line-by-line
+translation of the Python server.
 
-Current scope:
+## Stage 9B - Synchronous Foundation
 
-- Define C++ protocol constants and frame types
-- Parse binary SEFTP request frames
-- Build binary SEFTP response frames
-- Add unit tests for protocol parsing and response building
-- Add a minimal router/session skeleton after the protocol layer is tested
+Stage 9B establishes a runnable synchronous C++ server baseline.
 
-Out of scope for Stage 9B:
+Implemented:
 
-- Full Python server feature parity
-- Replacing the Python asyncio server
+- C++ protocol constants and typed request / response codes
+- Request and response frame structures
+- Little-endian binary request-frame parsing
+- Response-frame construction
+- Protocol-code validation
+- Handshake-aware request routing
+- Per-connection session state
+- Synchronous Boost.Asio framed reads and writes
+- Partial TCP read handling
+- Oversized-payload rejection before payload allocation
+- Connection-level request orchestration
+- Multiple requests over the same TCP connection
+- TCP listener / acceptor handling
+- Synchronous server accept loop
+- Runnable `seftp_server_cpp` executable
+- GoogleTest coverage across protocol, framing, routing, session,
+  frame IO, connection handling, and listener behavior
+
+The current development server binds only to:
+
+```text
+127.0.0.1:1234
+```
+
+Build and run on macOS:
+
+```bash
+cmake --preset macos-arm64
+cmake --build build/macos-arm64
+./build/macos-arm64/seftp_server_cpp
+```
+
+A basic TCP listener smoke test can be performed from another terminal:
+
+```bash
+nc -vz 127.0.0.1 1234
+lsof -nP -iTCP:1234 -sTCP:LISTEN
+```
+
+## Current Execution Model
+
+The Stage 9B server is deliberately synchronous.
+
+At a high level:
+
+```text
+server_main
+    |
+    v
+run_server
+    |
+    v
+accept_one_connection
+    |
+    v
+handle_connection
+    |
+    +--> read request frame
+    +--> route / update session
+    +--> build response
+    +--> write response
+    |
+    +--> repeat until the connection terminates
+```
+
+One accepted client is handled until its connection ends before the server
+accepts and handles the next client.
+
+This behavior provides a simple known-good baseline before introducing
+asynchronous lifetime and concurrency concerns.
+
+## Current Limitations
+
+The C++ server is not yet feature-compatible with the stable Python server.
+
+Not yet implemented:
+
+- Real Stage 7 cryptographic handshake payloads
+- RSA server identity and transcript signing
 - SQLite persistence
+- Registration business logic
+- Public-key exchange business logic
+- Reconnect / relogin business logic
 - Streaming upload request `828`
-- Full Stage 7 cryptographic handshake implementation
-- Production TCP server behavior
-- Resumable uploads
-- Parallel uploads
-- GUI or cross-client messaging
+- AES upload decryption
+- CRC retry / final-failure lifecycle parity
+- Production-grade connection admission and abuse controls
+- Runtime metrics parity
+- Graceful shutdown
+- Concurrent client handling
+
+The current success responses after the handshake are intentionally minimal
+foundation behavior rather than the final application handlers.
+
+## Stage 9C - Async Boost.Asio Evolution
+
+The next milestone keeps the protocol/session foundation while replacing the
+blocking networking model with asynchronous Boost.Asio.
+
+Planned hands-on topics:
+
+1. `async_accept`
+2. Explicit connection objects
+3. `async_read`
+4. `async_write`
+5. `std::shared_ptr`
+6. `std::enable_shared_from_this`
+7. Asynchronous buffer lifetime
+8. Multiple concurrent clients on one event loop
+9. `boost::asio::steady_timer` timeouts
+10. Cancellation-aware cleanup
+11. Graceful `SIGINT` / `SIGTERM` shutdown
+12. Bounded active-connection admission
+13. Async integration tests
+14. Optional multi-threaded `io_context`
+15. `boost::asio::strand` if per-connection handler serialization becomes necessary
+
+The goal of Stage 9C is not feature parity yet. It is to establish a sound
+asynchronous C++ networking and ownership model before adding the heavier
+application, persistence, cryptographic, and upload features.
 
 ## Design Direction
 
-The C++ server foundation is built by responsibility, not by translating Python files one-to-one.
+The C++ server is organized by responsibility:
 
-The intended layering is:
+```text
+protocol
+    |
+    v
+frame parsing / building
+    |
+    v
+router
+    |
+    v
+session
+    |
+    v
+frame IO
+    |
+    v
+connection handler
+    |
+    v
+listener
+    |
+    v
+server loop
+    |
+    v
+server executable
+```
 
-1. Protocol constants and typed frame structures
-2. Request frame parser
-3. Response frame builder
-4. Minimal router/session state machine
-5. Minimal transport integration
-
-This avoids a Python-shaped C++ rewrite and keeps the early implementation testable without sockets.
-
-## Current Status
-
-Skeleton only.
-No runtime server is implemented yet.
+This layering keeps protocol logic separate from transport and connection
+lifetime concerns and provides a clean baseline for the Stage 9C async
+refactor.

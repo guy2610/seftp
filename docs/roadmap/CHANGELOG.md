@@ -31,6 +31,23 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
   * keeps the metrics endpoint internal to the server container
 * Added `SEFTP_HOST` and `SEFTP_PORT` environment-variable overrides for containerized deployment
   * preserves `port.info` fallback for local runs
+* Added the Stage 9B experimental C++ server foundation
+  * added separate `server_cpp/` implementation and CMake integration
+  * added C++ protocol constants and typed request/response frame structures
+  * added little-endian request-frame parsing and response-frame building
+  * added protocol-code validation and malformed-frame handling
+  * added handshake-aware router and per-connection session state machine
+  * added synchronous Boost.Asio request-frame reading and response-frame writing
+  * added TCP partial-read, connection-close, oversized-payload, and response-write tests
+  * added request orchestration through a connection handler
+  * added connection lifetime handling across multiple requests on the same TCP connection
+  * added TCP listener/acceptor handling with typed listener results
+  * added synchronous server accept loop
+  * added runnable `seftp_server_cpp` executable
+  * added localhost-only development binding on `127.0.0.1:1234`
+  * validated the executable with local `nc` and `lsof` TCP smoke tests
+  * kept cryptographic handshake payloads, persistence, real application handlers, and upload parity out of the synchronous foundation
+* Defined the next C++ server step as an async Boost.Asio evolution focused on connection lifetime, concurrent clients, buffer lifetime, timeouts, graceful shutdown, bounded resources, and optional multi-threaded execution
 
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 

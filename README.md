@@ -1,4 +1,4 @@
-# Secure File Transfer - C++ Client & Python Server
+# Secure File Transfer - C++ Client, Python Server & Experimental C++ Server
 
 Secure File Transfer Protocol, SEFTP, is an independent engineering project that implements encrypted file transfer over a custom binary TCP protocol.
 
@@ -19,7 +19,9 @@ v0.9.0 starts Stage 9 as a focused production-hardening and C++ server foundatio
 - optional local-only HTTP metrics endpoint for development and benchmark visibility
 - tests for metrics export and the HTTP metrics handler
 - deployment-level abuse protection and hardening guidance
-- planned experimental C++ server foundation
+- completed synchronous experimental C++ server foundation under `server_cpp/`
+- C++ protocol/frame parsing, response building, routing, session state, synchronous Boost.Asio frame IO, connection lifetime handling, TCP listener, server loop, and runnable server executable
+- next C++ server step: async Boost.Asio evolution with explicit connection lifetime, concurrent clients, timeouts, graceful shutdown, and bounded resources
 
 v0.8.0 is the Stage 8 observability checkpoint. It builds on the completed Stage 7 security and streaming-upload baseline with:
 
@@ -78,12 +80,18 @@ Client:
 - CMake
 - GoogleTest
 
-Server:
+Stable server:
 - Python
 - asyncio
 - PyCryptodome
 - SQLite
 - pytest
+
+Experimental C++ server:
+- C++17
+- Boost.Asio
+- CMake
+- GoogleTest
 
 Protocol / crypto:
 - custom binary TCP protocol
@@ -298,6 +306,35 @@ Roadmap:
 
 The server initializes SQLite storage under `server/data/` if needed.
 
+### Start the experimental C++ server
+
+The Stage 9B C++ server is a synchronous foundation implementation. It currently
+covers TCP accept/connection handling, binary framing, protocol parsing and
+response building, routing, session state, and a runnable server loop.
+
+It is not yet feature-compatible with the stable Python server: real Stage 7
+cryptographic handshake payloads, persistence, registration/key-exchange
+handlers, and upload handling are not implemented yet.
+
+```bash
+cmake --preset macos-arm64
+cmake --build build/macos-arm64
+./build/macos-arm64/seftp_server_cpp
+```
+
+The current development entrypoint binds to:
+
+```text
+127.0.0.1:1234
+```
+
+A basic TCP smoke test can be performed with:
+
+```bash
+nc -vz 127.0.0.1 1234
+lsof -nP -iTCP:1234 -sTCP:LISTEN
+```
+
 ### Protected Docker Compose demo
 
 A minimal protected deployment demo is available under `docker/protected/`. It runs the Python SEFTP server behind an HAProxy TCP proxy and exposes only the proxy port to the host.
@@ -397,7 +434,7 @@ Server tests:
 
     python3 -m pytest
 
-Client tests are implemented with GoogleTest and run through the CMake build/test setup.
+C++ client and experimental C++ server tests are implemented with GoogleTest and run through the CMake build/test setup.
 
 CI validates:
 - protocol correctness
@@ -476,8 +513,10 @@ Completed:
 - Stage 8: performance observability checkpoint
 
 Current / next:
-- Stage 9: production hardening and C++ server foundation
-- Stage 9 follow-up work: production deployment documentation, executor saturation visibility, queue-depth telemetry, and experimental C++ server skeleton
+- Stage 9A: production hardening, runtime metrics export, and protected deployment demo completed
+- Stage 9B: synchronous experimental C++ server foundation completed
+- Stage 9C: async Boost.Asio server evolution, connection lifetime management, concurrent clients, timeouts, graceful shutdown, bounded resources, and optional multi-threaded execution
+- Later C++ work: functional parity with the stable Python server
 - Future protocol work: resumable uploads, parallel upload protocol, and chunked AEAD upload redesign
 
 See `docs/roadmap/ROADMAP.md`.

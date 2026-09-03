@@ -111,5 +111,18 @@ if (BUILD_TESTING)
             Boost::asio
     )
 
+    add_executable(seftp_server_cpp
+            server_cpp/src/server_main.cpp
+    )
+
+    target_include_directories(seftp_server_cpp PRIVATE
+            server_cpp/include
+    )
+
+    target_link_libraries(seftp_server_cpp PRIVATE
+            Boost::system
+            Boost::asio
+    )
+
     gtest_discover_tests(seftp_server_cpp_tests)
 endif()

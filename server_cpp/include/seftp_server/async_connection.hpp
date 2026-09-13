@@ -2,10 +2,13 @@
 
 #include "seftp_server/protocol.hpp"
 #include "seftp_server/request_frame.hpp"
+#include "seftp_server/session.hpp"
+#include "seftp_server/response_frame.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
+#include <boost/asio/write.hpp>
 
 #include <algorithm>
 #include <array>
@@ -26,6 +29,8 @@ namespace seftp::server {
         boost::asio::ip::tcp::socket socket_;
         std::array< protocol::Byte,protocol::kRequestHeaderSize > header_buffer_{};
         std::vector<protocol::Byte> frame_buffer_;
+        session::Session session_;
+        std::vector<protocol::Byte> write_buffer_;
 
         void read_header() {
             auto self = shared_from_this();
@@ -96,12 +101,53 @@ namespace seftp::server {
         void process_frame() {
             const auto result = protocol::parse_request_frame(frame_buffer_);
 
-            if (result.error.has_value()) {
+            if (result.error.has_value() || !result.frame.has_value()) {
                 std::cerr << "Frame parse failed\n";
                 return;
             }
 
             std::cout << "Frame parsed successfully\n";
+            const auto& request = *result.frame;
+            const bool allowed = session_.apply_request(request.code);
+            protocol::ResponseFrame response{
+                request.version,
+                protocol::ResponseCode::MessageReceived,
+                {}
+            };
+
+            if (!allowed) {
+                response.code = protocol::ResponseCode::ServerError;
+            }
+            else if (request.code == protocol::RequestCode::ClientHello) {
+                response.code =
+                    protocol::ResponseCode::ServerHello;
+            }
+            write_response(response);
+        }
+
+        void write_response(const protocol::ResponseFrame& response) {
+            write_buffer_ = protocol::build_response_frame(response);
+            auto self = shared_from_this();
+            boost::asio::async_write(
+                socket_,
+                boost::asio::buffer(write_buffer_),
+                [self](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                    if (ec) {
+                        std::cerr
+                            << "Write response failed: "
+                            << ec.message()
+                            << '\n';
+                        return;
+                    }
+                    std::cout
+                        << "Wrote "
+                        << bytes_transferred
+                        << " response bytes\n";
+                    self->read_header();
+                }
+                );
+
+
         }
     };
 }

@@ -2,6 +2,10 @@
 
 #include <boost/asio/ip/tcp.hpp>
 #include <iostream>
+#include <memory>
+#include <utility>
+
+#include "seftp_server/async_connection.hpp"
 
 namespace seftp::server {
     class AsyncServer {
@@ -19,7 +23,8 @@ namespace seftp::server {
                         std::cerr << "Accept failed: " << ec.message() << '\n';
                         return;
                     }
-                    std::cout << "Client connected\n";
+                    auto connections = std::make_shared<AsyncConnection>(std::move(socket));
+                    connections->start();
                     accept_next();
                 });
         }

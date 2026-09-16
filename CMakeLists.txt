@@ -101,6 +101,7 @@ if (BUILD_TESTING)
             server_cpp/tests/connection_handler_test.cpp
             server_cpp/tests/listener_test.cpp
             server_cpp/tests/async_connection_test.cpp
+            server_cpp/tests/async_server_test.cpp
     )
     target_include_directories(seftp_server_cpp_tests PRIVATE
             server_cpp/include

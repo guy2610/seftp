@@ -10,6 +10,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <chrono>
 
 namespace {
 
@@ -134,17 +135,23 @@ ReceivedResponse read_response(tcp::socket& client) {
     };
 }
 
-void run_request_cycle(
-    boost::asio::io_context& io_context
-) {
-    // Handler #1:
-    // async header read completes -> process_frame()
-    // -> starts async_write().
-    ASSERT_EQ(io_context.run_one(), 1u);
+    void run_until_response_available(
+        boost::asio::io_context& io_context,
+        tcp::socket& client
+    ) {
+    using namespace std::chrono_literals;
 
-    // Handler #2:
-    // async write completes -> starts next read_header().
-    ASSERT_EQ(io_context.run_one(), 1u);
+    const auto deadline =
+        std::chrono::steady_clock::now() + 1s;
+
+    while (client.available() < protocol::kResponseHeaderSize) {
+        ASSERT_LT(
+            std::chrono::steady_clock::now(),
+            deadline
+        ) << "Timed out waiting for server response";
+
+        io_context.run_one_for(10ms);
+    }
 }
 
 TEST(
@@ -310,9 +317,11 @@ TEST(
         boost::asio::buffer(header)
     );
 
-    // Wait until the pending header read actually completes.
-    // The header callback should reject the oversized payload and
-    // must not start another asynchronous read.
+    // Header read callback.
+    ASSERT_EQ(io_context.run_one(), 1u);
+
+    // The header callback cancelled its timeout. The cancelled timer
+    // handler still has to run and release its captured shared_ptr.
     ASSERT_EQ(io_context.run_one(), 1u);
 
     EXPECT_TRUE(weak_connection.expired());
@@ -344,7 +353,10 @@ TEST(
         boost::asio::buffer(request)
     );
 
-    run_request_cycle(io_context);
+    run_until_response_available(
+    io_context,
+    sockets.client
+);
 
     const auto response =
         read_response(sockets.client);
@@ -391,7 +403,10 @@ TEST(
         boost::asio::buffer(request)
     );
 
-    run_request_cycle(io_context);
+    run_until_response_available(
+    io_context,
+    sockets.client
+);
 
     const auto response =
         read_response(sockets.client);
@@ -435,7 +450,10 @@ TEST(
         boost::asio::buffer(hello)
     );
 
-    run_request_cycle(io_context);
+    run_until_response_available(
+    io_context,
+    sockets.client
+);
 
     const auto hello_response =
         read_response(sockets.client);
@@ -461,7 +479,10 @@ TEST(
         boost::asio::buffer(ack)
     );
 
-    run_request_cycle(io_context);
+    run_until_response_available(
+    io_context,
+    sockets.client
+);
 
     const auto ack_response =
         read_response(sockets.client);
@@ -484,7 +505,10 @@ TEST(
         boost::asio::buffer(upload)
     );
 
-    run_request_cycle(io_context);
+    run_until_response_available(
+    io_context,
+    sockets.client
+);
 
     const auto upload_response =
         read_response(sockets.client);
@@ -546,10 +570,15 @@ TEST(
         boost::asio::buffer(upload_b)
     );
 
-    // Two header callbacks + two write callbacks.
-    for (int i = 0; i < 4; ++i) {
-        ASSERT_EQ(io_context.run_one(), 1u);
-    }
+    run_until_response_available(
+        io_context,
+        sockets_a.client
+    );
+
+    run_until_response_available(
+        io_context,
+        sockets_b.client
+    );
 
     const auto response_a =
         read_response(sockets_a.client);
@@ -593,9 +622,15 @@ TEST(
         boost::asio::buffer(hello_b)
     );
 
-    for (int i = 0; i < 4; ++i) {
-        ASSERT_EQ(io_context.run_one(), 1u);
-    }
+    run_until_response_available(
+        io_context,
+        sockets_a.client
+    );
+
+    run_until_response_available(
+        io_context,
+        sockets_b.client
+    );
 
     const auto second_response_a =
         read_response(sockets_a.client);
@@ -626,4 +661,257 @@ TEST(
 }
     
 
+
+    TEST(
+    AsyncConnectionTest,
+    HeaderReadTimeoutReleasesConnection
+) {
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(
+            std::move(sockets.server),
+            std::chrono::milliseconds(20)
+        );
+
+    std::weak_ptr<seftp::server::AsyncConnection>
+        weak_connection = connection;
+
+    connection->start();
+    connection.reset();
+
+    // Client stays connected but sends nothing.
+    //
+    // The timer should expire, close the server socket,
+    // and cause the pending async_read to complete with
+    // an error.
+    io_context.run();
+
+    EXPECT_TRUE(weak_connection.expired());
+
+    boost::system::error_code ec;
+    sockets.client.close(ec);
+}
+
+
+TEST(
+    AsyncConnectionTest,
+    PayloadReadTimeoutReleasesConnection
+) {
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(
+            std::move(sockets.server),
+            std::chrono::milliseconds(20)
+        );
+
+    std::weak_ptr<seftp::server::AsyncConnection>
+        weak_connection = connection;
+
+    connection->start();
+    connection.reset();
+
+    constexpr std::uint32_t kPayloadSize = 3;
+
+    const auto header =
+        make_header(kPayloadSize);
+
+    // Send the complete header but intentionally never
+    // send the three payload bytes.
+    boost::asio::write(
+        sockets.client,
+        boost::asio::buffer(header)
+    );
+
+    // Header read succeeds and starts read_payload().
+    // Then the payload timer should expire.
+    io_context.run();
+
+    EXPECT_TRUE(weak_connection.expired());
+
+    boost::system::error_code ec;
+    sockets.client.close(ec);
+}
+
+
+TEST(
+    AsyncConnectionTest,
+    RequestBeforeTimeoutReceivesResponseNormally
+) {
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(
+            std::move(sockets.server),
+            std::chrono::milliseconds(100)
+        );
+
+    std::weak_ptr<seftp::server::AsyncConnection>
+        weak_connection = connection;
+
+    connection->start();
+    connection.reset();
+
+    const auto request =
+        make_request(
+            protocol::RequestCode::ClientHello
+        );
+
+    boost::asio::write(
+        sockets.client,
+        boost::asio::buffer(request)
+    );
+
+    run_until_response_available(
+        io_context,
+        sockets.client
+    );
+
+    const auto response =
+        read_response(sockets.client);
+
+    EXPECT_EQ(
+        response.code,
+        static_cast<std::uint16_t>(
+            protocol::ResponseCode::ServerHello
+        )
+    );
+
+    EXPECT_FALSE(weak_connection.expired());
+
+    // End the connection explicitly instead of waiting
+    // for the timeout of the next request.
+    boost::system::error_code ec;
+    sockets.client.close(ec);
+
+    io_context.run();
+
+    EXPECT_TRUE(weak_connection.expired());
+}
+    TEST(
+    AsyncConnectionTest,
+    StopWhileHeaderReadIsPendingReleasesConnection
+) {
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(std::move(sockets.server));
+
+    std::weak_ptr<seftp::server::AsyncConnection>
+        weak_connection = connection;
+
+    connection->start();
+
+    // Header read + timeout are now pending.
+    connection->stop();
+    connection.reset();
+
+    // stop() closes the socket and cancels the timer.
+    // Their callbacks still need to be dispatched.
+    io_context.run();
+
+    EXPECT_TRUE(weak_connection.expired());
+
+    boost::system::error_code ec;
+    sockets.client.close(ec);
+}
+
+
+TEST(
+    AsyncConnectionTest,
+    StopIsIdempotent
+) {
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(std::move(sockets.server));
+
+    connection->start();
+
+    // Multiple stop calls must be harmless.
+    EXPECT_NO_THROW(connection->stop());
+    EXPECT_NO_THROW(connection->stop());
+    EXPECT_NO_THROW(connection->stop());
+
+    connection.reset();
+
+    io_context.run();
+
+    boost::system::error_code ec;
+    sockets.client.close(ec);
+}
+
+
+TEST(
+    AsyncConnectionTest,
+    StopPreventsPendingRequestFromBeingProcessed
+) {
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(std::move(sockets.server));
+
+    connection->start();
+
+    const auto request =
+        make_request(
+            protocol::RequestCode::ClientHello
+        );
+
+    // Put a valid request on the TCP stream.
+    boost::asio::write(
+        sockets.client,
+        boost::asio::buffer(request)
+    );
+
+    // Stop before the io_context gets a chance to run
+    // the server-side read completion handler.
+    connection->stop();
+
+    io_context.run();
+
+    // The connection must not have processed the request
+    // and produced a response after stop().
+    boost::system::error_code ec;
+
+    const auto available =
+        sockets.client.available(ec);
+
+    if (!ec) {
+        EXPECT_EQ(available, 0u);
+    }
+
+    sockets.client.close(ec);
+}
 } // namespace

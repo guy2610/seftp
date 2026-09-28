@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdint>
 #include <vector>
+#include <thread>
 
 namespace {
 
@@ -68,6 +69,35 @@ using tcp = boost::asio::ip::tcp;
 
         return client.available() >=
                protocol::kResponseHeaderSize;
+    }
+
+    bool wait_for_response_available(
+    tcp::socket& client,
+    std::chrono::milliseconds timeout =
+        std::chrono::milliseconds(1000)
+) {
+        const auto deadline =
+            std::chrono::steady_clock::now() + timeout;
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            boost::system::error_code ec;
+
+            const auto available = client.available(ec);
+
+            if (ec) {
+                return false;
+            }
+
+            if (available >= protocol::kResponseHeaderSize) {
+                return true;
+            }
+
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1)
+            );
+        }
+
+        return false;
     }
 
 TEST(
@@ -413,5 +443,121 @@ TEST(
 
     server.stop();
     io_context.run();
+}
+
+    TEST(
+    AsyncServerTest,
+    HandlesMultipleClientsWithMultiThreadedIoContext
+) {
+    boost::asio::io_context server_io_context;
+    boost::asio::io_context client_io_context;
+
+    tcp::acceptor acceptor(
+        server_io_context,
+        tcp::endpoint(
+            boost::asio::ip::address_v4::loopback(),
+            0
+        )
+    );
+
+    seftp::server::AsyncServer server(
+        acceptor,
+        16
+    );
+
+    server.start();
+
+    constexpr std::size_t kWorkerCount = 4;
+    constexpr std::size_t kClientCount = 8;
+
+    std::vector<std::thread> workers;
+    workers.reserve(kWorkerCount);
+
+    for (std::size_t i = 0; i < kWorkerCount; ++i) {
+        workers.emplace_back(
+            [&server_io_context]() {
+                server_io_context.run();
+            }
+        );
+    }
+
+    std::vector<tcp::socket> clients;
+    clients.reserve(kClientCount);
+
+    const auto hello =
+        make_request(
+            protocol::RequestCode::ClientHello
+        );
+
+    for (std::size_t i = 0; i < kClientCount; ++i) {
+        clients.emplace_back(client_io_context);
+
+        clients.back().connect(
+            acceptor.local_endpoint()
+        );
+
+        boost::asio::write(
+            clients.back(),
+            boost::asio::buffer(hello)
+        );
+    }
+
+    for (auto& client : clients) {
+        EXPECT_TRUE(
+            wait_for_response_available(client)
+        );
+    }
+
+    for (auto& client : clients) {
+        boost::system::error_code ec;
+
+        std::array<
+            protocol::Byte,
+            protocol::kResponseHeaderSize
+        > header{};
+
+        const auto bytes_read =
+            boost::asio::read(
+                client,
+                boost::asio::buffer(header),
+                ec
+            );
+
+        EXPECT_FALSE(ec);
+        EXPECT_EQ(
+            bytes_read,
+            protocol::kResponseHeaderSize
+        );
+
+        if (!ec &&
+            bytes_read == protocol::kResponseHeaderSize) {
+
+            const std::uint16_t response_code =
+                static_cast<std::uint16_t>(header[1])
+                |
+                (
+                    static_cast<std::uint16_t>(header[2])
+                    << 8
+                );
+
+            EXPECT_EQ(
+                response_code,
+                static_cast<std::uint16_t>(
+                    protocol::ResponseCode::ServerHello
+                )
+            );
+        }
+    }
+
+    server.stop();
+
+    for (auto& client : clients) {
+        boost::system::error_code ignored;
+        client.close(ignored);
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
 }
 } // namespace

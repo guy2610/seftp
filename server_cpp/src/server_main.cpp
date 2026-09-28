@@ -4,10 +4,15 @@
 #include <exception>
 #include <iostream>
 #include <csignal>
+#include <thread>
+#include <vector>
+#include <cstddef>
 
 #include "seftp_server/async_server.hpp"
 
 constexpr std::uint16_t kServerPort = 1234;
+constexpr std::size_t kIoThreadCount = 4;
+
 int main() {
     try {
         boost::asio::io_context io_context;
@@ -26,7 +31,19 @@ int main() {
                 std::cout << "Received signal "<< signal_number<< ", shutting down\n";
                 server.stop();
             });
-        io_context.run();
+
+        std::vector<std::thread> workers;
+        workers.reserve(kIoThreadCount);
+
+        for (std::size_t i = 0; i < kIoThreadCount; ++i) {
+            workers.emplace_back(
+                [&io_context]() {
+                    io_context.run();
+                });
+        }
+        for (auto& worker : workers) {
+            worker.join();
+        }
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Server error: " << e.what() << std::endl;

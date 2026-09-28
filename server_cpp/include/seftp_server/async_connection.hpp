@@ -19,6 +19,10 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <boost/asio/bind_executor.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/dispatch.hpp>
 
 namespace seftp::server {
     class AsyncConnection : public std::enable_shared_from_this<AsyncConnection> {
@@ -27,25 +31,21 @@ namespace seftp::server {
             std::chrono::milliseconds read_timeout = std::chrono::seconds(5)
             ): socket_(std::move(socket)),
             read_timer_(socket_.get_executor()),
-            read_timeout_(read_timeout) {}
+            read_timeout_(read_timeout),
+            strand_(boost::asio::make_strand(socket_.get_executor())){}
         void start() {
-            if (stopped_) {
-                return;
-            }
-
-            read_header();
+            auto self = shared_from_this();
+            boost::asio::post(strand_,
+                [self]() {
+                    self->start_impl();
+                });
         }
         void stop() {
-            if (stopped_) {
-                return;
-            }
-            stopped_ = true;
-            read_timer_.cancel();
-            boost::system::error_code ignored;
-
-            socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored);
-
-            socket_.cancel(ignored);
+            auto self = shared_from_this();
+            boost::asio::dispatch(strand_,
+                [self]() {
+                    self->stop_impl();
+                });
         }
 
         private:
@@ -56,6 +56,7 @@ namespace seftp::server {
         std::vector<protocol::Byte> write_buffer_;
         boost::asio::steady_timer read_timer_;
         std::chrono::milliseconds read_timeout_;
+        boost::asio::strand<boost::asio::ip::tcp::socket::executor_type> strand_;
         bool stopped_{false};
 
         void read_header() {
@@ -69,6 +70,7 @@ namespace seftp::server {
             boost::asio::async_read(
                 socket_,
                 boost::asio::buffer(header_buffer_),
+                boost::asio::bind_executor(strand_,
                 [self](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     self->cancel_read_timeout();
                         if (ec) {
@@ -103,7 +105,7 @@ namespace seftp::server {
                     }
                     self->read_payload(payload_size);
 
-            });
+            }));
         }
 
         void read_payload(std::uint32_t payload_size) {
@@ -117,7 +119,7 @@ namespace seftp::server {
                 boost::asio::buffer(
                     frame_buffer_.data() + protocol::kRequestHeaderSize,
                     payload_size
-                    ),
+                    ),boost::asio::bind_executor(strand_,
                     [self](const boost::system::error_code& ec,
                         std::size_t bytes_transferred) {
                         self->cancel_read_timeout();
@@ -139,7 +141,7 @@ namespace seftp::server {
 
                         self->process_frame();
                     }
-                    );
+                    ));
         }
         void process_frame() {
             const auto result = protocol::parse_request_frame(frame_buffer_);
@@ -176,7 +178,7 @@ namespace seftp::server {
             auto self = shared_from_this();
             boost::asio::async_write(
                 socket_,
-                boost::asio::buffer(write_buffer_),
+                boost::asio::buffer(write_buffer_),boost::asio::bind_executor(strand_,
                 [self](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     if (ec) {
                         std::cerr
@@ -195,12 +197,12 @@ namespace seftp::server {
                         << " response bytes\n";
                     self->read_header();
                 }
-                );
+                ));
         }
         void arm_read_timeout() {
             read_timer_.expires_after(read_timeout_);
             auto self = shared_from_this();
-            read_timer_.async_wait([self](const boost::system::error_code& ec) {
+            read_timer_.async_wait(boost::asio::bind_executor(strand_, [self](const boost::system::error_code& ec) {
              if (ec == boost::asio::error::operation_aborted) {
                  return;
              }
@@ -218,10 +220,32 @@ namespace seftp::server {
                 std::cerr << "Read timed out\n";
                 self->stop();
             }
-            );
+            ));
         }
         void cancel_read_timeout() {
             read_timer_.cancel();
+        }
+        void stop_impl() {
+            if (stopped_) {
+                return;
+            }
+            stopped_ = true;
+            read_timer_.cancel();
+            boost::system::error_code ignored;
+
+            socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored);
+
+            socket_.cancel(ignored);
+
+            socket_.close(ignored);
+        }
+
+        void start_impl() {
+            if (stopped_) {
+                return;
+            }
+
+            read_header();
         }
     };
 }

@@ -317,12 +317,18 @@ TEST(
         boost::asio::buffer(header)
     );
 
-    // Header read callback.
-    ASSERT_EQ(io_context.run_one(), 1u);
+    const auto deadline =
+        std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(500);
 
-    // The header callback cancelled its timeout. The cancelled timer
-    // handler still has to run and release its captured shared_ptr.
-    ASSERT_EQ(io_context.run_one(), 1u);
+    while (
+        !weak_connection.expired() &&
+        std::chrono::steady_clock::now() < deadline
+    ) {
+        io_context.run_one_for(
+            std::chrono::milliseconds(10)
+        );
+    }
 
     EXPECT_TRUE(weak_connection.expired());
 }

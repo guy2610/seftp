@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <vector>
 #include <cstddef>
+#include <boost/asio/bind_executor.hpp>
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/strand.hpp>
 
 #include "seftp_server/async_connection.hpp"
 
@@ -14,42 +18,36 @@ namespace seftp::server {
     inline constexpr std::size_t kDefaultMaxActiveConnections = 128;
     class AsyncServer {
     public:
-        explicit AsyncServer(boost::asio::ip::tcp::acceptor& acceptor,std::size_t max_active_connections = kDefaultMaxActiveConnections): acceptor_(acceptor), max_active_connections_(max_active_connections) {}
+        explicit AsyncServer(boost::asio::ip::tcp::acceptor& acceptor,
+            std::size_t max_active_connections = kDefaultMaxActiveConnections):
+        acceptor_(acceptor),
+        max_active_connections_(max_active_connections),
+        strand_(boost::asio::make_strand(acceptor_.get_executor())) {}
 
         void start() {
-            if (stopped_) {
-                return;
-            }
-            accept_next();
+            boost::asio::post(strand_,
+                [this]() {
+                    this->start_impl();
+                });
         }
         void stop() {
-            if (stopped_) {
-                return;
-            }
-            stopped_ = true;
-
-            boost::system::error_code ignored;
-            acceptor_.close(ignored);
-
-            for (auto& weak_connection : connections_) {
-                if (auto connection = weak_connection.lock()) {
-                    connection->stop();
-                }
-            }
-            connections_.clear();
-
+            boost::asio::dispatch(strand_,
+                [this]() {
+                    this->stop_impl();
+                });
         }
         private:
         boost::asio::ip::tcp::acceptor& acceptor_;
         std::vector<std::weak_ptr<AsyncConnection>> connections_;
         std::size_t max_active_connections_;
+        boost::asio::strand<boost::asio::ip::tcp::acceptor::executor_type> strand_;
         bool stopped_{false};
 
         void accept_next() {
             if (stopped_) {
                 return;
             }
-            acceptor_.async_accept(
+            acceptor_.async_accept(boost::asio::bind_executor(strand_,
                 [this](const boost::system::error_code& ec, boost::asio::ip::tcp::socket socket) {
                     if (ec) {
                         if (stopped_) {
@@ -75,7 +73,7 @@ namespace seftp::server {
                     connections_.push_back(connection);
                     connection->start();
                     accept_next();
-                });
+                }));
         }
 
         void prune_expired_connections() {
@@ -90,6 +88,28 @@ namespace seftp::server {
                 connections_.end()
             );
         }
+        void stop_impl() {
+            if (stopped_) {
+                return;
+            }
+            stopped_ = true;
 
+            boost::system::error_code ignored;
+            acceptor_.close(ignored);
+
+            for (auto& weak_connection : connections_) {
+                if (auto connection = weak_connection.lock()) {
+                    connection->stop();
+                }
+            }
+            connections_.clear();
+        }
+
+        void start_impl() {
+            if (stopped_) {
+                return;
+            }
+            accept_next();
+        }
     };
 }

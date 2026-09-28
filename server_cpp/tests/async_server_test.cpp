@@ -90,12 +90,13 @@ TEST(
 
     EXPECT_TRUE(acceptor.is_open());
 
-    server.stop();
+        server.stop();
 
-    EXPECT_FALSE(acceptor.is_open());
+        // stop() is serialized through the server strand.
+        // Run the queued work before observing the result.
+        io_context.run();
 
-    // Dispatch the cancelled async_accept handler.
-    io_context.run();
+        EXPECT_FALSE(acceptor.is_open());
 }
 
 

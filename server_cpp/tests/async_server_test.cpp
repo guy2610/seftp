@@ -5,10 +5,70 @@
 
 #include <array>
 #include <memory>
+#include "seftp_server/protocol.hpp"
+
+#include <chrono>
+#include <cstdint>
+#include <vector>
 
 namespace {
 
 using tcp = boost::asio::ip::tcp;
+
+    namespace protocol = seftp::server::protocol;
+
+    constexpr std::uint8_t kTestVersion = 3;
+
+    std::vector<protocol::Byte> make_request(
+        protocol::RequestCode code
+    ) {
+        std::vector<protocol::Byte> bytes(
+            protocol::kRequestHeaderSize,
+            0
+        );
+
+        std::size_t offset = protocol::kClientIdSize;
+
+        bytes[offset] = kTestVersion;
+        offset += protocol::kVersionSize;
+
+        const auto raw_code =
+            static_cast<std::uint16_t>(code);
+
+        bytes[offset] =
+            static_cast<protocol::Byte>(
+                raw_code & 0xFFu
+            );
+
+        bytes[offset + 1] =
+            static_cast<protocol::Byte>(
+                (raw_code >> 8) & 0xFFu
+            );
+
+        return bytes;
+    }
+
+    bool run_until_response_available(
+        boost::asio::io_context& io_context,
+        tcp::socket& client,
+        std::chrono::milliseconds timeout =
+            std::chrono::milliseconds(500)
+    ) {
+        const auto deadline =
+            std::chrono::steady_clock::now() + timeout;
+
+        while (
+            client.available() < protocol::kResponseHeaderSize &&
+            std::chrono::steady_clock::now() < deadline
+        ) {
+            io_context.run_one_for(
+                std::chrono::milliseconds(10)
+            );
+        }
+
+        return client.available() >=
+               protocol::kResponseHeaderSize;
+    }
 
 TEST(
     AsyncServerTest,
@@ -193,5 +253,164 @@ TEST(
     EXPECT_TRUE(error_a);
     EXPECT_TRUE(error_b);
 }
+    TEST(
+    AsyncServerTest,
+    RejectsConnectionWhenActiveConnectionLimitIsReached
+) {
+        boost::asio::io_context io_context;
 
+        tcp::acceptor acceptor(
+            io_context,
+            tcp::endpoint(
+                boost::asio::ip::address_v4::loopback(),
+                0
+            )
+        );
+
+        seftp::server::AsyncServer server(
+            acceptor,
+            1
+        );
+
+        server.start();
+
+        tcp::socket client_a(io_context);
+        client_a.connect(acceptor.local_endpoint());
+
+        // Accept A and start its AsyncConnection.
+        ASSERT_EQ(io_context.run_one(), 1u);
+
+        tcp::socket client_b(io_context);
+        client_b.connect(acceptor.local_endpoint());
+
+        // Accept callback sees that A already occupies
+        // the only available slot and closes B.
+        ASSERT_EQ(io_context.run_one(), 1u);
+
+        // A must still be fully functional.
+        const auto hello =
+            make_request(
+                protocol::RequestCode::ClientHello
+            );
+
+        boost::asio::write(
+            client_a,
+            boost::asio::buffer(hello)
+        );
+
+        EXPECT_TRUE(
+            run_until_response_available(
+                io_context,
+                client_a
+            )
+        );
+
+        // B should observe the peer closing its connection.
+        std::array<char, 1> buffer{};
+        bool b_finished = false;
+        boost::system::error_code b_error;
+
+        client_b.async_read_some(
+            boost::asio::buffer(buffer),
+            [&](const boost::system::error_code& ec,
+                std::size_t) {
+                b_finished = true;
+                b_error = ec;
+            }
+        );
+
+        const auto deadline =
+            std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(500);
+
+        while (
+            !b_finished &&
+            std::chrono::steady_clock::now() < deadline
+        ) {
+            io_context.run_one_for(
+                std::chrono::milliseconds(10)
+            );
+        }
+
+        EXPECT_TRUE(b_finished);
+        EXPECT_TRUE(b_error);
+
+        server.stop();
+        io_context.run();
+    }
+
+TEST(
+    AsyncServerTest,
+    AcceptsNewConnectionAfterPreviousConnectionEnds
+) {
+    boost::asio::io_context io_context;
+
+    tcp::acceptor acceptor(
+        io_context,
+        tcp::endpoint(
+            boost::asio::ip::address_v4::loopback(),
+            0
+        )
+    );
+
+    seftp::server::AsyncServer server(
+        acceptor,
+        1
+    );
+
+    server.start();
+
+    tcp::socket client_a(io_context);
+    client_a.connect(acceptor.local_endpoint());
+
+    ASSERT_EQ(io_context.run_one(), 1u);
+
+    // End A.
+    boost::system::error_code ignored;
+    client_a.close(ignored);
+
+    // Complete A's pending read.
+    ASSERT_EQ(
+        io_context.run_one_for(
+            std::chrono::milliseconds(500)
+        ),
+        1u
+    );
+
+    // Drain the cancelled timer callback as well.
+    io_context.poll();
+
+    // A's AsyncConnection should now have no strong owner.
+    // The next accept will prune its expired weak_ptr.
+
+    tcp::socket client_c(io_context);
+    client_c.connect(acceptor.local_endpoint());
+
+    ASSERT_EQ(
+        io_context.run_one_for(
+            std::chrono::milliseconds(500)
+        ),
+        1u
+    );
+
+    const auto hello =
+        make_request(
+            protocol::RequestCode::ClientHello
+        );
+
+    boost::asio::write(
+        client_c,
+        boost::asio::buffer(hello)
+    );
+
+    EXPECT_TRUE(
+        run_until_response_available(
+            io_context,
+            client_c
+        )
+    );
+
+    server.stop();
+    io_context.run();
+}
 } // namespace

@@ -6,13 +6,15 @@
 #include <utility>
 #include <algorithm>
 #include <vector>
+#include <cstddef>
 
 #include "seftp_server/async_connection.hpp"
 
 namespace seftp::server {
+    inline constexpr std::size_t kDefaultMaxActiveConnections = 128;
     class AsyncServer {
     public:
-        explicit AsyncServer(boost::asio::ip::tcp::acceptor& acceptor): acceptor_(acceptor) {}
+        explicit AsyncServer(boost::asio::ip::tcp::acceptor& acceptor,std::size_t max_active_connections = kDefaultMaxActiveConnections): acceptor_(acceptor), max_active_connections_(max_active_connections) {}
 
         void start() {
             if (stopped_) {
@@ -40,6 +42,7 @@ namespace seftp::server {
         private:
         boost::asio::ip::tcp::acceptor& acceptor_;
         std::vector<std::weak_ptr<AsyncConnection>> connections_;
+        std::size_t max_active_connections_;
         bool stopped_{false};
 
         void accept_next() {
@@ -60,8 +63,15 @@ namespace seftp::server {
                         socket.close(ignored);
                         return;
                     }
-                    auto connection = std::make_shared<AsyncConnection>(std::move(socket));
+
                     prune_expired_connections();
+                    if (connections_.size()>=max_active_connections_) {
+                        boost::system::error_code ignored;
+                        socket.close(ignored);
+                        accept_next();
+                        return;
+                    }
+                    auto connection = std::make_shared<AsyncConnection>(std::move(socket));
                     connections_.push_back(connection);
                     connection->start();
                     accept_next();

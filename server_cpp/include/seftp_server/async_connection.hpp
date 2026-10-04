@@ -4,6 +4,7 @@
 #include "seftp_server/request_frame.hpp"
 #include "seftp_server/session.hpp"
 #include "seftp_server/response_frame.hpp"
+#include "seftp_server/logging.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -74,16 +75,14 @@ namespace seftp::server {
                 [self](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     self->cancel_read_timeout();
                         if (ec) {
-                            std::cerr << "Read header failed: "
-                            << ec.message()
-                            << '\n';
+                            log_line("Read header failed: " + ec.message());
                             return;
                         }
                         if (self->stopped_) {
                             return;
                         }
 
-                        std::cout<< "Read "<< bytes_transferred<< " header bytes\n";
+                        log_line("Read "+ std::to_string(bytes_transferred) + " header bytes");
 
                         const auto offset = protocol::kPayloadSizeOffset;
                         std::uint32_t payload_size =
@@ -93,7 +92,7 @@ namespace seftp::server {
                             | (static_cast<std::uint32_t>(self->header_buffer_[offset + 3]) << 24);
 
                     if (payload_size > protocol::kDefaultMaxPayloadSize) {
-                        std::cerr << "Payload too large\n";
+                        log_line("Payload too large");
                         return;
                     }
                     self->frame_buffer_.resize(protocol::kRequestHeaderSize + payload_size);
@@ -124,20 +123,17 @@ namespace seftp::server {
                         std::size_t bytes_transferred) {
                         self->cancel_read_timeout();
                         if (ec) {
-                            std::cerr
-                                << "Read payload failed: "
-                                << ec.message()
-                                << '\n';
+                            log_line("Read payload failed: " + ec.message());
                             return;
                         }
                         if (self->stopped_) {
                             return;
                         }
 
-                        std::cout
-                            << "Read "
-                            << bytes_transferred
-                            << " payload bytes\n";
+                        log_line(
+                             "Read "
+                            + std::to_string(bytes_transferred)
+                            + " payload bytes");
 
                         self->process_frame();
                     }
@@ -147,11 +143,11 @@ namespace seftp::server {
             const auto result = protocol::parse_request_frame(frame_buffer_);
 
             if (result.error.has_value() || !result.frame.has_value()) {
-                std::cerr << "Frame parse failed\n";
+                log_line("Frame parse failed");
                 return;
             }
 
-            std::cout << "Frame parsed successfully\n";
+            log_line("Frame parsed successfully");
             const auto& request = *result.frame;
             const bool allowed = session_.apply_request(request.code);
             protocol::ResponseFrame response{
@@ -181,20 +177,19 @@ namespace seftp::server {
                 boost::asio::buffer(write_buffer_),boost::asio::bind_executor(strand_,
                 [self](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     if (ec) {
-                        std::cerr
-                            << "Write response failed: "
-                            << ec.message()
-                            << '\n';
+                        log_line(
+                             "Write response failed: "
+                            + ec.message());
                         return;
                     }
                     if (self->stopped_) {
                         return;
                     }
 
-                    std::cout
-                        << "Wrote "
-                        << bytes_transferred
-                        << " response bytes\n";
+                    log_line(
+                        + "Wrote "
+                        + std::to_string(bytes_transferred)
+                        + " response bytes");
                     self->read_header();
                 }
                 ));
@@ -207,17 +202,16 @@ namespace seftp::server {
                  return;
              }
                 if (ec) {
-                    std::cerr
-                            << "Arm read timeout failed: "
-                            << ec.message()
-                            << '\n';
+                    log_line(
+                             "Arm read timeout failed: "
+                            + ec.message());
                         return;
                 }
                 if (self->stopped_) {
                     return;
                 }
 
-                std::cerr << "Read timed out\n";
+                log_line("Read timed out");
                 self->stop();
             }
             ));

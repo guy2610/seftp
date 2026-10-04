@@ -13,6 +13,7 @@
 #include <boost/asio/strand.hpp>
 
 #include "seftp_server/async_connection.hpp"
+#include "seftp_server/logging.hpp"
 
 namespace seftp::server {
     inline constexpr std::size_t kDefaultMaxActiveConnections = 128;
@@ -53,7 +54,7 @@ namespace seftp::server {
                         if (stopped_) {
                             return;
                         }
-                        std::cerr << "Accept failed: " << ec.message() << '\n';
+                        log_error("Accept failed: " + ec.message());
                         return;
                     }
                     if (stopped_) {

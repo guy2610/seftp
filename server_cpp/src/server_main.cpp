@@ -18,17 +18,17 @@ int main() {
         boost::asio::io_context io_context;
         boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::address_v4::loopback(),kServerPort);
         boost::asio::ip::tcp::acceptor acceptor(io_context,endpoint);
-        std::cout << "Server listening on port "<< kServerPort << std::endl;
+        seftp::server::log_line("Server listening on port " + std::to_string(kServerPort));
         seftp::server::AsyncServer server(acceptor);
         boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
         server.start();
         signals.async_wait(
             [&](const boost::system::error_code& ec, int signal_number) {
                 if (ec) {
-                    std::cerr << "Error in signal set " << ec.message() << std::endl;
+                    seftp::server::log_error("Error in signal set " + ec.message());
                     return;
                 }
-                std::cout << "Received signal "<< signal_number<< ", shutting down\n";
+                seftp::server::log_line("Received signal " +std::to_string(signal_number) +", shutting down");
                 server.stop();
             });
 
@@ -46,7 +46,7 @@ int main() {
         }
         return 0;
     } catch (const std::exception& e) {
-        std::cerr << "Server error: " << e.what() << std::endl;
+        seftp::server::log_error("Server error: " + std::string(e.what()));
         return 1;
     }
 }

@@ -323,7 +323,7 @@ The persistence model is intentionally split between durable metadata and transi
 
 - The store keeps an in-memory client index keyed by both client ID and username. This is not a second source of truth. It is a read optimization layered on top of SQLite and kept in sync via write-through updates. The benefit is that request handlers can resolve client identity quickly on the hot path without repeatedly issuing SQL lookups for every frame.
 
-- Uploaded file contents themselves are not stored in SQLite. The plaintext file is written to disk under `data/uploads/<username>/<file_name>`, while SQLite stores metadata and lifecycle state only. This keeps large file contents out of the relational store while still preserving queryable operational metadata.
+- Uploaded file contents themselves are not stored in SQLite. The plaintext file is written to disk under `data/uploads/<client_id_hex>/<file_name>`, while SQLite stores metadata and lifecycle state only. The server-generated client ID is used as the filesystem namespace rather than the user-controlled username, keeping storage paths independent of username contents while preserving queryable operational metadata.
 
 ### 5.1 Upload Lifecycle States
 

@@ -1,4 +1,5 @@
 import pytest
+import os
 import src.handlers as handlers
 import src.config as config
 import asyncio
@@ -289,7 +290,7 @@ async def test_825_registration_succeed(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1] == "1600"
 
 @pytest.mark.asyncio
-async def test_825_registration_name_need_strip(monkeypatch, tmp_path):
+async def test_825_registration_rejects_surrounding_whitespace(monkeypatch, tmp_path):
     s = make_sql_store(tmp_path)
     fake_session = FakeSession(config.Config.load(), s)
     payload = b"  alice  \x00"
@@ -306,10 +307,44 @@ async def test_825_registration_name_need_strip(monkeypatch, tmp_path):
 
     await handlers.request_825(payload, version, fake_session)
 
-    client_record = s.get_client_by_username("alice")
-    assert client_record  is not None
-    assert client_record.username == "alice"
-    assert fake_session.reset_calls[-1][0] == "1600"
+    assert s.get_client_by_username("alice") is None
+    assert s.get_client_by_username("  alice  ") is None
+    assert fake_session.reset_calls[-1][0] == "1601"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "username",
+    [
+        "../../evil",
+        "/tmp/evil",
+        "foo/bar",
+        r"foo\bar",
+    ],
+)
+async def test_825_registration_rejects_path_like_usernames(
+    monkeypatch,
+    tmp_path,
+    username,
+):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+    payload = username.encode("utf-8") + b"\x00"
+    version = b"\x03"
+
+    async def fake_1600(client_id, version, session):
+        fake_session.reset_calls.append(("1600", client_id))
+
+    async def fake_1601(version, session):
+        fake_session.reset_calls.append(("1601",))
+
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
+
+    await handlers.request_825(payload, version, fake_session)
+
+    assert s.get_client_by_username(username) is None
+    assert fake_session.reset_calls[-1][0] == "1601"
 
 @pytest.mark.asyncio
 async def test_825_name_exist_error(monkeypatch, tmp_path):
@@ -332,6 +367,41 @@ async def test_825_name_exist_error(monkeypatch, tmp_path):
 
     assert fake_session.reset_calls[-1] == "1601"
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "alice",
+        "guy2610",
+        "guy_even",
+        "guy-even",
+        "guy.even",
+        "גיא",
+        "a" * 64,
+    ],
+)
+def test_username_validation_accepts_valid_names(name):
+    assert handlers.is_valid_username(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        " alice",
+        "alice ",
+        "../../evil",
+        "/tmp/evil",
+        "alice/bob",
+        r"alice\bob",
+        "-alice",
+        ".alice",
+        "_alice",
+        "a" * 65,
+        "alice\nadmin",
+    ],
+)
+def test_username_validation_rejects_invalid_names(name):
+    assert not handlers.is_valid_username(name)
 
 @pytest.mark.asyncio
 async def test_826_public_key_correct(monkeypatch, tmp_path):
@@ -1137,6 +1207,56 @@ async def test_902_filename_mismatch_returns_1607(monkeypatch, tmp_path):
     upload = uploads[0]
     assert upload[7] == "in_progress"
     assert upload[8] is None
+
+@pytest.mark.asyncio
+async def test_828_upload_path_uses_client_id_not_username(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+    calls = patch_828_side_effects(monkeypatch)
+
+    # Isolate filesystem writes inside this test directory.
+    monkeypatch.chdir(tmp_path)
+
+    client_id = b"\x01" * 16
+
+    # Simulate a legacy DB record created before username validation existed.
+    escaped_dir = tmp_path / "escaped"
+    dangerous_username = str(escaped_dir)
+
+    setup_client(fake_session, dangerous_username, client_id)
+
+    version = b"\x03"
+    filename = b"file.bin"
+    iv = b"\xAA" * 16
+    chunk1 = b"\xBB" * 4
+    chunk2 = b"\xCC" * 6
+
+    payload0 = make_828_payload(10, 5, 0, 2, filename, iv)
+    payload1 = make_828_payload(10, 5, 1, 2, filename, chunk1)
+    payload2 = make_828_payload(10, 5, 2, 2, filename, chunk2)
+
+    await handlers.request_828(payload0, version, client_id, fake_session)
+    await handlers.request_828(payload1, version, client_id, fake_session)
+    await handlers.request_828(payload2, version, client_id, fake_session)
+
+    expected_path = (
+        tmp_path
+        / "data"
+        / "uploads"
+        / client_id.hex()
+        / "file.bin"
+    )
+
+    escaped_path = escaped_dir / "file.bin"
+
+    assert len(calls) == 1
+    assert calls[0][0] == "1603"
+
+    assert fake_session.upload_path is not None
+    assert os.path.abspath(fake_session.upload_path) == str(expected_path)
+
+    assert expected_path.exists()
+    assert not escaped_path.exists()
 
 @pytest.mark.asyncio
 async def test_828_packet0_initializes_state(monkeypatch, tmp_path):

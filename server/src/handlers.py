@@ -16,6 +16,15 @@ import asyncio
 from Crypto.Random import get_random_bytes
 from src.server_identity import get_public_key_der, sign_server_hello
 
+def is_valid_username(name: str) -> bool:
+    if not 1 <= len(name) <= 64:
+        return False
+
+    if not name[0].isalnum():
+        return False
+
+    return all(ch.isalnum() or ch in "._-" for ch in name)
+
 async def request_825(payload_info,version,session):
     """
     Handle request 825: initial registration.
@@ -29,8 +38,11 @@ async def request_825(payload_info,version,session):
     """
     session.log.debug("inside request 825")
     store = session.store
-    payload_info=payload_info.rstrip(b'\x00').decode()
-    name = payload_info.strip()
+    name = payload_info.rstrip(b'\x00').decode()
+    if not is_valid_username(name):
+        session.log.info("Registration rejected: invalid username %r", name)
+        await answers.answer_1601(version, session)
+        return
     if not store.client_exists_by_username(name):
         record = store.create_client(name)
         client_id_hex = record.client_id_hex
@@ -484,7 +496,7 @@ async def request_828(payload_info,version,client_id,session):
                 session.reset_transfer_state("bad 828 upload id is None in db")
                 return
             base_dir = "data/uploads"
-            user_dir = os.path.join(base_dir, username)
+            user_dir = os.path.join(base_dir, client_id_hex)
             os.makedirs(user_dir, exist_ok=True)
 
             out_path = os.path.normpath(os.path.join(user_dir, file_name))

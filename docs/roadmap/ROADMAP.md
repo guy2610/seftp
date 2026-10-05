@@ -319,11 +319,11 @@ Focused follow-up stage for production-facing observability, deployment hardenin
 
 Current status:
 
-Stage 9A production hardening is complete, and Stage 9B has now completed the first runnable synchronous C++ server foundation.
+Stage 9A production hardening, Stage 9B synchronous C++ foundation work, and Stage 9C asynchronous C++ networking/lifetime work are complete.
 
-The stable Python asyncio server remains the feature-complete implementation. The C++ server is an experimental systems-oriented implementation that is being developed incrementally rather than through a direct Python-to-C++ file translation.
+The stable Python asyncio server remains the feature-complete implementation. The C++ server remains an experimental systems-oriented implementation that is being developed incrementally rather than through a direct Python-to-C++ file translation.
 
-The next C++ milestone is Stage 9C: an async Boost.Asio evolution focused on event-driven networking, explicit connection and buffer lifetime management, concurrent clients, timeouts, cancellation/shutdown behavior, and bounded resource usage.
+Stage 9C established the intended asynchronous concurrency foundation: event-driven Boost.Asio networking, explicit connection and buffer lifetime management, concurrent clients, timeouts, cancellation-aware cleanup, bounded connection admission, controlled shutdown, multi-threaded `io_context` execution, and strand-based serialization. Full application/crypto/persistence/upload parity remains later work rather than part of Stage 9C.
 
 Primary scope:
 - Lightweight runtime metrics export beyond disconnect-summary snapshots
@@ -373,21 +373,29 @@ Out of scope for Stage 9:
   * Add C++ unit/integration-style tests across parser, routing, session, frame IO, connection handling, and listener layers (DONE)
   * Add `server_cpp/README.md` documenting current limitations and migration path (DONE)
 
-* Track C - Async C++ server evolution (Stage 9C - NEXT)
-  * Replace blocking accept flow with `async_accept`
-  * Introduce explicit connection objects for async lifetime ownership
-  * Replace synchronous framed reads with `async_read`
-  * Replace synchronous response writes with `async_write`
-  * Practice `std::shared_ptr` and `std::enable_shared_from_this` for connection lifetime
-  * Make buffer lifetime explicit across asynchronous operations
-  * Support multiple concurrent clients on a single event loop
-  * Add connection / handshake read timeouts using `steady_timer`
-  * Add cancellation-aware cleanup paths
-  * Add graceful `SIGINT` / `SIGTERM` shutdown
-  * Add bounded active-connection admission
-  * Add async integration tests
-  * Optionally run one `io_context` from multiple worker threads
-  * If multi-threaded execution is added, evaluate `boost::asio::strand` for per-connection handler serialization
+* Track C - Async C++ server evolution (Stage 9C - DONE)
+  * Replace blocking accept flow with `async_accept` (DONE)
+  * Introduce explicit connection objects for async lifetime ownership (DONE)
+  * Replace synchronous framed reads with `async_read` (DONE)
+  * Replace synchronous response writes with `async_write` (DONE)
+  * Use `std::shared_ptr` and `std::enable_shared_from_this` for connection lifetime (DONE)
+  * Make async buffer lifetime explicit with connection-owned buffers (DONE)
+  * Support multiple concurrent clients (DONE)
+  * Preserve independent per-connection session state (DONE)
+  * Add header and payload read timeouts using `steady_timer` (DONE)
+  * Add cancellation-aware, idempotent connection cleanup (DONE)
+  * Treat clean EOF between requests as a normal disconnect (DONE)
+  * Add controlled `SIGINT` / `SIGTERM` shutdown (DONE)
+  * Add bounded active-connection admission (DONE)
+  * Add delayed retry for unexpected accept failures without a busy error loop (DONE)
+  * Track active connections without extending lifetime through `std::weak_ptr` (DONE)
+  * Run one `io_context` from multiple worker threads (DONE - four workers in the development executable)
+  * Add a server strand for shared `AsyncServer` state (DONE)
+  * Add one strand per `AsyncConnection` for connection-local serialization (DONE)
+  * Serialize console logging for multi-threaded execution (DONE)
+  * Add async integration-style tests for lifecycle, timeouts, shutdown, limits, and concurrency (DONE)
+  * Add multi-threaded multi-client and repeated multi-request stress coverage (DONE)
+  * Validate Stage 9C concurrency paths with ThreadSanitizer and fix the discovered logging race (DONE)
 
 * Future upload model extensions
   * Evaluate resumable uploads across reconnects (protocol and persistence implications)

@@ -20,13 +20,13 @@ Build the client from source using the instructions below.
 
 ---
 
-## Server Limits (Environment Variables)
+## Stable Python Server Limits (Environment Variables)
 
-The server enforces defensive runtime limits.  
+The stable Python server enforces defensive runtime limits.
 Defaults can be overridden via environment variables:
 
 - `SEFTP_MAX_FILE_SIZE` (default: 100MB)
-- `SEFTP_MAX_PACKETS` (default: 12000)
+- `SEFTP_MAX_PACKETS` (default: 65535)
 - `SEFTP_MAX_CHUNK_SIZE` (default: 64KB)
 - `SEFTP_MAX_PAYLOAD_SIZE` (default: 10,000,000 bytes)
 - `SEFTP_IDLE_TIMEOUT_S` (default: 60)
@@ -96,11 +96,13 @@ cmake --build build/macos-arm64
 ./build/macos-arm64/seftp_server_cpp
 ```
 
-The current Stage 9B development executable listens only on:
+The current Stage 9C development executable listens only on:
 
 ```text
 127.0.0.1:1234
 ```
+
+It uses asynchronous Boost.Asio networking and runs one `io_context` from four worker threads. `AsyncServer` state is serialized through a server strand and every `AsyncConnection` has its own strand.
 
 Verify the TCP listener with:
 
@@ -109,10 +111,20 @@ nc -vz 127.0.0.1 1234
 lsof -nP -iTCP:1234 -sTCP:LISTEN
 ```
 
-The C++ server is currently a synchronous foundation implementation. It does
-not yet provide full Stage 7 cryptographic handshake behavior, SQLite
-persistence, registration/key-exchange business logic, streaming upload
-handling, or full compatibility with the stable Python server.
+Stop it with `Ctrl+C`. `SIGINT` / `SIGTERM` trigger controlled shutdown of the acceptor and active connections.
+
+The C++ server also enforces a bounded active-connection count (default 128), per-connection read timeouts, and delayed retry after unexpected accept failures.
+
+The C++ server is still experimental. It does not yet provide full Stage 7 cryptographic handshake payloads, SQLite persistence, registration/key-exchange business logic, streaming upload handling, or full compatibility with the stable Python server.
+
+##### C++ server tests
+
+```bash
+cmake --build build/macos-arm64
+ctest --test-dir build/macos-arm64 --output-on-failure
+```
+
+Stage 9C was additionally validated with a separate ThreadSanitizer build. The sanitizer run is a development validation path rather than a separate runtime mode of the server.
 
 #### Run Client
 

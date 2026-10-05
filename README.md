@@ -12,18 +12,34 @@ The system is not intended for production use. It is a portfolio-grade systems p
 
 Current development baseline: v0.9.0-draft
 
-v0.9.0 starts Stage 9 as a focused production-hardening and C++ server foundation stage. Current Stage 9 work includes:
+Stage 9 now includes three completed C++/hardening milestones:
 
-- runtime metric naming cleanup from `protocol_errors_1607` to `responses_1607`
-- runtime metrics JSON export
-- optional local-only HTTP metrics endpoint for development and benchmark visibility
-- tests for metrics export and the HTTP metrics handler
-- deployment-level abuse protection and hardening guidance
-- completed synchronous experimental C++ server foundation under `server_cpp/`
-- C++ protocol/frame parsing, response building, routing, session state, synchronous Boost.Asio frame IO, connection lifetime handling, TCP listener, server loop, and runnable server executable
-- next C++ server step: async Boost.Asio evolution with explicit connection lifetime, concurrent clients, timeouts, graceful shutdown, and bounded resources
+- Stage 9A: runtime metrics export, optional local-only HTTP metrics, deployment-hardening guidance, and the protected Docker Compose demo
+- Stage 9B: runnable synchronous experimental C++ server foundation under `server_cpp/`
+- Stage 9C: asynchronous Boost.Asio server evolution with explicit connection lifetime, concurrent clients, timeouts, controlled shutdown, bounded connections, multi-threaded execution, and strand-based serialization
 
-v0.8.0 is the Stage 8 observability checkpoint. It builds on the completed Stage 7 security and streaming-upload baseline with:
+The Stage 9C C++ server now includes:
+
+- `async_accept`, asynchronous framed reads, and asynchronous response writes
+- `AsyncConnection` ownership through `std::shared_ptr` / `std::enable_shared_from_this`
+- explicit async buffer lifetime through connection-owned buffers
+- per-connection `Session` state across multiple requests
+- read and payload timeouts using `boost::asio::steady_timer`
+- cancellation-aware and idempotent connection cleanup
+- clean EOF handling between requests
+- active-connection tracking through non-owning `std::weak_ptr` references
+- bounded active-connection admission with a default cap of 128
+- controlled `SIGINT` / `SIGTERM` shutdown of the acceptor and active connections
+- delayed accept retry after unexpected accept failures to avoid a busy error loop
+- one server strand for shared server state and one strand per connection for connection-local state
+- a four-thread `io_context` worker pool in the development executable
+- serialized console logging for multi-threaded execution
+- concurrent multi-client and multi-request stress coverage
+- ThreadSanitizer validation of the asynchronous concurrency paths
+
+The stable Python asyncio server remains the feature-complete implementation. The experimental C++ server still does not implement the real cryptographic handshake payloads, persistence, registration/key-exchange business logic, or streaming upload parity.
+
+v0.8.0 remains the Stage 8 observability checkpoint. It builds on the completed Stage 7 security and streaming-upload baseline with:
 
 - Stage 7-compatible load testing
 - per-phase benchmark timing breakdowns
@@ -59,6 +75,7 @@ This project demonstrates several backend and systems engineering concerns in on
 - custom binary protocol design
 - C++ networking client using Boost.Asio
 - Python asyncio server with per-connection session isolation
+- experimental C++17 Boost.Asio server with asynchronous networking, explicit lifetime management, and multi-threaded execution
 - RSA-based AES key bootstrap
 - authenticated server identity verification with TOFU and pinned trust modes
 - AES-256-CBC encrypted file transfer
@@ -308,13 +325,9 @@ The server initializes SQLite storage under `server/data/` if needed.
 
 ### Start the experimental C++ server
 
-The Stage 9B C++ server is a synchronous foundation implementation. It currently
-covers TCP accept/connection handling, binary framing, protocol parsing and
-response building, routing, session state, and a runnable server loop.
+The Stage 9C C++ server is an asynchronous development implementation. It keeps the Stage 9B protocol/router/session foundation while adding asynchronous Boost.Asio transport, concurrent clients, read timeouts, controlled shutdown, bounded active connections, multi-threaded `io_context` execution, and strand-based state serialization.
 
-It is not yet feature-compatible with the stable Python server: real Stage 7
-cryptographic handshake payloads, persistence, registration/key-exchange
-handlers, and upload handling are not implemented yet.
+It is not feature-compatible with the stable Python server: real Stage 7 cryptographic handshake payloads, persistence, registration/key-exchange handlers, and streaming upload handling are still intentionally out of scope.
 
 ```bash
 cmake --preset macos-arm64
@@ -328,7 +341,11 @@ The current development entrypoint binds to:
 127.0.0.1:1234
 ```
 
-A basic TCP smoke test can be performed with:
+The executable runs one `boost::asio::io_context` from four worker threads. `AsyncServer` state is serialized through a server strand, while every `AsyncConnection` owns a separate strand so different connections can make progress in parallel without concurrent handlers mutating the same connection-local state.
+
+Stop the development server with `Ctrl+C`; the signal handler requests controlled shutdown of the acceptor and active connections.
+
+Basic TCP smoke checks:
 
 ```bash
 nc -vz 127.0.0.1 1234
@@ -430,13 +447,22 @@ macOS example:
 
 ## Testing
 
-Server tests:
+Stable Python server tests:
 
     python3 -m pytest
 
-C++ client and experimental C++ server tests are implemented with GoogleTest and run through the CMake build/test setup.
+C++ client and experimental C++ server tests are implemented with GoogleTest and run through the CMake/CTest setup:
 
-CI validates:
+```bash
+cmake --build build/macos-arm64
+ctest --test-dir build/macos-arm64 --output-on-failure
+```
+
+Stage 9C adds async connection/server coverage for ownership lifetime, multi-request sessions, independent concurrent connections, read/payload timeouts, explicit stop behavior, bounded active connections, multi-threaded `io_context` execution, and concurrent multi-request clients.
+
+The Stage 9C concurrency paths were also validated with a separate ThreadSanitizer build and CTest run. ThreadSanitizer initially exposed unsynchronized console logging under multi-threaded execution; logging is now serialized through a shared mutex and the final sanitizer run is clean.
+
+CI validates the established stable-system paths including:
 - protocol correctness
 - invalid-frame rejection
 - end-to-end register, key exchange, upload, and CRC flow
@@ -511,13 +537,13 @@ Completed:
 - Stage 6: performance analysis, observability, and design documentation
 - Stage 7: security hardening and protocol evolution
 - Stage 8: performance observability checkpoint
+- Stage 9A: production hardening, runtime metrics export, and protected deployment demo
+- Stage 9B: synchronous experimental C++ server foundation
+- Stage 9C: asynchronous Boost.Asio server evolution, multi-threaded execution, strands, timeouts, controlled shutdown, bounded connections, and concurrency validation
 
-Current / next:
-- Stage 9A: production hardening, runtime metrics export, and protected deployment demo completed
-- Stage 9B: synchronous experimental C++ server foundation completed
-- Stage 9C: async Boost.Asio server evolution, connection lifetime management, concurrent clients, timeouts, graceful shutdown, bounded resources, and optional multi-threaded execution
-- Later C++ work: functional parity with the stable Python server
-- Future protocol work: resumable uploads, parallel upload protocol, and chunked AEAD upload redesign
+Next C++ work is deliberately separate from Stage 9C and can focus on selected feature-parity work only after the async networking/ownership model is consolidated.
+
+Future protocol work includes resumable uploads, parallel upload semantics, and a chunked AEAD upload redesign.
 
 See `docs/roadmap/ROADMAP.md`.
 

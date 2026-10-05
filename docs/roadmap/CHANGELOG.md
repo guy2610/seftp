@@ -47,7 +47,28 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
   * added localhost-only development binding on `127.0.0.1:1234`
   * validated the executable with local `nc` and `lsof` TCP smoke tests
   * kept cryptographic handshake payloads, persistence, real application handlers, and upload parity out of the synchronous foundation
-* Defined the next C++ server step as an async Boost.Asio evolution focused on connection lifetime, concurrent clients, buffer lifetime, timeouts, graceful shutdown, bounded resources, and optional multi-threaded execution
+* Added the Stage 9C asynchronous C++ server evolution
+  * replaced blocking accept flow with `async_accept`
+  * added `AsyncConnection` ownership using `std::shared_ptr` and `std::enable_shared_from_this`
+  * replaced synchronous framed request reads with `async_read`
+  * replaced synchronous response writes with `async_write`
+  * made async header, payload, and response buffers connection-owned so they outlive pending operations
+  * preserved per-connection session state across multiple asynchronous request/response cycles
+  * added header and payload read timeouts using `boost::asio::steady_timer`
+  * added explicit cancellation and idempotent connection stop behavior
+  * treats zero-byte EOF between requests as a normal peer disconnect while preserving partial-frame failures as errors
+  * added active-connection tracking through `std::weak_ptr`
+  * added bounded active-connection admission with a default limit of 128
+  * added controlled `SIGINT` / `SIGTERM` process shutdown that closes the acceptor and active connections
+  * added delayed accept retry after unexpected accept failures instead of permanently disabling acceptance or busy-looping
+  * added a dedicated `AsyncServer` strand for server state
+  * added one strand per `AsyncConnection` for connection-local handler serialization
+  * changed the development executable to run one `io_context` on four worker threads
+  * added thread-safe console logging through a shared mutex
+  * added async server tests for shutdown, active-connection limits, connection-slot reuse, multi-threaded clients, and concurrent multi-request flows
+  * added async connection tests for lifetime ownership, multi-request state, independent concurrent sessions, timeouts, cancellation, and idempotent stop behavior
+  * stress-tested concurrent multi-request clients across multiple worker threads
+  * validated the concurrency paths with ThreadSanitizer; fixed the logging race it exposed and completed a clean sanitizer run
 
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 

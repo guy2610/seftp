@@ -1,7 +1,6 @@
 #pragma once
 
 #include <boost/asio/ip/tcp.hpp>
-#include <iostream>
 #include <memory>
 #include <utility>
 #include <algorithm>
@@ -11,19 +10,23 @@
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <chrono>
 
 #include "seftp_server/async_connection.hpp"
 #include "seftp_server/logging.hpp"
 
 namespace seftp::server {
     inline constexpr std::size_t kDefaultMaxActiveConnections = 128;
+    inline constexpr auto kAcceptRetryDelay = std::chrono::milliseconds(100);
     class AsyncServer {
     public:
         explicit AsyncServer(boost::asio::ip::tcp::acceptor& acceptor,
             std::size_t max_active_connections = kDefaultMaxActiveConnections):
         acceptor_(acceptor),
         max_active_connections_(max_active_connections),
-        strand_(boost::asio::make_strand(acceptor_.get_executor())) {}
+        strand_(boost::asio::make_strand(acceptor_.get_executor())),
+        accept_retry_timer_(acceptor_.get_executor()){}
 
         void start() {
             boost::asio::post(strand_,
@@ -42,6 +45,7 @@ namespace seftp::server {
         std::vector<std::weak_ptr<AsyncConnection>> connections_;
         std::size_t max_active_connections_;
         boost::asio::strand<boost::asio::ip::tcp::acceptor::executor_type> strand_;
+        boost::asio::steady_timer accept_retry_timer_;
         bool stopped_{false};
 
         void accept_next() {
@@ -55,6 +59,7 @@ namespace seftp::server {
                             return;
                         }
                         log_error("Accept failed: " + ec.message());
+                        schedule_accept_retry();
                         return;
                     }
                     if (stopped_) {
@@ -104,6 +109,7 @@ namespace seftp::server {
                 }
             }
             connections_.clear();
+            accept_retry_timer_.cancel();
         }
 
         void start_impl() {
@@ -111,6 +117,25 @@ namespace seftp::server {
                 return;
             }
             accept_next();
+        }
+
+        void schedule_accept_retry() {
+            accept_retry_timer_.expires_after(kAcceptRetryDelay);
+            accept_retry_timer_.async_wait(boost::asio::bind_executor(strand_,
+                [this](const boost::system::error_code& ec) {
+                    if (ec) {
+                        if (stopped_) {
+                            return;
+                        }
+                        log_error("Accept retry wait failed: " + ec.message());
+                        return;
+                    }
+                    if (stopped_) {
+                        return;
+                    }
+                        accept_next();
+                        return;
+                }));
         }
     };
 }

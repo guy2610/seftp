@@ -2,7 +2,7 @@
 
 ## 1. Purpose and Scope
 
-This project implements a secure file transfer system whose stable end-to-end path is composed of a C++ client and a Python `asyncio` server communicating over a custom binary TCP protocol. Stage 9B also adds a separate experimental C++17 server foundation for systems-oriented networking and server architecture work. The system is designed to support registration, relogin, key exchange, encrypted file upload, CRC-based completion, and durable server-side metadata tracking.
+This project implements a secure file transfer system whose stable end-to-end path is composed of a C++ client and a Python `asyncio` server communicating over a custom binary TCP protocol. Stage 9B added a separate experimental C++17 server foundation for systems-oriented networking and server architecture work, and Stage 9C evolved that path to asynchronous multi-threaded Boost.Asio networking with explicit ownership and strand-based serialization. The system is designed to support registration, relogin, key exchange, encrypted file upload, CRC-based completion, and durable server-side metadata tracking.
 
 The implementation focuses on protocol correctness, cryptographic separation of responsibilities, explicit persistence boundaries, controlled resource usage, and architecture clarity. It is intended as a serious engineering project rather than a production deployment.
 
@@ -21,7 +21,7 @@ The current scope includes:
 - server-side runtime visibility counters and disconnect-summary metric snapshots
 - authenticated server identity handshake before application-level protocol flows
 - TOFU and optional pinned server fingerprint trust modes
-- experimental synchronous C++ server foundation with protocol framing, routing, session state, TCP connection handling, listening, and a runnable server executable
+- experimental C++ server path with protocol framing, routing, per-connection session state, asynchronous TCP handling, explicit lifetime ownership, timeouts, bounded connections, controlled shutdown, multi-threaded execution, and strands
 
 The current scope does not include:
 - distributed deployment
@@ -48,9 +48,7 @@ The stable production-style system path is composed of three major boundaries:
 - a shared protocol boundary over TCP
 - a Python `asyncio` server
 
-Stage 9B adds a fourth, experimental implementation path: a separate C++ server
-that consumes the same protocol model but currently implements only the
-synchronous transport/protocol/session foundation.
+Stage 9B/9C adds a fourth, experimental implementation path: a separate C++ server that consumes the same protocol model. The protocol/session foundation is now paired with asynchronous transport, explicit connection lifetime, bounded connection admission, timeout/cancellation behavior, multi-threaded execution, and per-object strands.
 
 The client is responsible for local orchestration, persistence, cryptographic preparation, and request emission. The protocol boundary defines the binary frame format and request/response semantics. The server is responsible for framed request handling, validation, admission control, persistence, and upload completion.
 
@@ -102,21 +100,28 @@ data/uploads/..."]
 
 ### 3.1 Experimental C++ Server Path
 
-The C++ server foundation is intentionally developed alongside, rather than in
-place of, the Python server. Its Stage 9B baseline includes typed protocol
-constants, request parsing, response building, routing, session state,
-synchronous Boost.Asio frame IO, connection lifetime handling, a TCP listener,
-a server accept loop, and a runnable `seftp_server_cpp` executable.
+The C++ server is intentionally developed alongside, rather than in place of, the Python server.
 
-The current C++ executable is a development implementation bound to
-`127.0.0.1:1234`. It does not yet implement the complete cryptographic,
-persistence, registration, relogin, upload, or CRC behavior of the Python
-server.
+Stage 9B established the first runnable baseline with typed protocol constants, request parsing, response building, routing, per-connection session state, synchronous Boost.Asio frame IO, connection lifetime handling, a TCP listener, and a server accept loop.
 
-Stage 9C will evolve the C++ path toward asynchronous Boost.Asio with explicit
-object and buffer lifetime management, concurrent clients, timeouts,
-cancellation, graceful shutdown, bounded resources, and optionally
-multi-threaded event-loop execution.
+Stage 9C keeps those layers and changes the networking/concurrency model:
+
+- asynchronous accept, framed read, and response write operations
+- explicit `shared_ptr`-based connection lifetime across pending callbacks
+- connection-owned async buffers
+- independent session state per connection
+- read/payload deadlines and cancellation-aware cleanup
+- bounded active connections
+- controlled signal-driven shutdown
+- delayed asynchronous accept retry after unexpected accept failures
+- one `io_context` executed by four worker threads
+- a dedicated strand for server-level state
+- one strand per connection for connection-local state
+- serialized logging for multi-threaded execution
+
+The important concurrency property is that the C++ server does not serialize all clients through one strand. Handlers for a single connection are serialized with each other, while handlers belonging to different connection objects may run in parallel on different worker threads.
+
+The current C++ executable remains a localhost development implementation bound to `127.0.0.1:1234`. It still does not implement the complete cryptographic, persistence, registration, relogin, upload, or CRC behavior of the Python server.
 
 ## 4. End-to-End Flows
 
@@ -265,14 +270,20 @@ This model keeps plaintext file contents off the wire and avoids sharing private
 
 The client is intentionally simple in execution behavior. It does not attempt concurrent uploads from a single process and generally operates as a sequential flow controller.
 
-The server, by contrast, is explicitly concurrent. It uses `asyncio` for connection handling, per-connection session isolation, and admission-control mechanisms to prevent overload:
-- connection limiter
-- upload limiter
-- bounded executor for CPU-heavy upload finalization
+The stable Python server is explicitly concurrent through `asyncio`, per-connection session isolation, and admission-control mechanisms such as the connection limiter, upload limiter, and bounded executor.
 
-This gives the overall system an asymmetric but intentional structure:
-- simple deterministic client behavior
-- controlled multi-connection server behavior
+The experimental C++ server now adds a second concurrency model for the same project. Its Stage 9C development executable runs one Boost.Asio `io_context` on four worker threads. Concurrency is controlled through two serialization levels:
+
+- one `AsyncServer` strand protects server-level acceptance, active-connection registry, retry timer, and shutdown state
+- one independent `AsyncConnection` strand protects each connection's socket lifecycle, timeout, buffers, `Session`, and request/response loop
+
+This gives the C++ path parallelism between independent clients while preventing simultaneous handlers from mutating the same stateful object.
+
+Connection ownership is also bounded and explicit. The server registry stores `weak_ptr`s rather than owning connections indefinitely, and admission rejects excess sockets once the configured active-connection limit is reached. Read timeouts and controlled shutdown ensure stalled or terminated connections do not remain active indefinitely.
+
+The two server implementations therefore demonstrate different but related concurrency approaches:
+- Python: cooperative async concurrency through one asyncio event-loop model plus explicit admission controls
+- C++: asynchronous Boost.Asio operations dispatched over a worker pool, with strands defining synchronization boundaries
 
 ## 9. Key Design Decisions and Tradeoffs
 
@@ -343,7 +354,7 @@ Several future directions remain open:
 - isolated profiling of the server's in-memory client index
 - optional controlled parallel upload support if justified
 - optional GUI client
-- experimental C++ server foundation now exists; full feature parity remains future work after the async networking and lifetime-management milestone
+- experimental C++ server has completed the async networking and lifetime-management milestone; full feature parity remains future work
 
 These are future improvements, not missing correctness requirements for the current project.
 

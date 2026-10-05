@@ -44,6 +44,19 @@ add_custom_command(TARGET seftp_client POST_BUILD
     VERBATIM
 )
 
+add_executable(seftp_server_cpp
+    server_cpp/src/server_main.cpp
+)
+
+target_include_directories(seftp_server_cpp PRIVATE
+    server_cpp/include
+)
+
+target_link_libraries(seftp_server_cpp PRIVATE
+    Boost::system
+    Boost::asio
+)
+
 include(CTest)
 enable_testing()
 
@@ -109,19 +122,6 @@ if (BUILD_TESTING)
 
     target_link_libraries(seftp_server_cpp_tests PRIVATE
             GTest::gtest_main
-            Boost::system
-            Boost::asio
-    )
-
-    add_executable(seftp_server_cpp
-            server_cpp/src/server_main.cpp
-    )
-
-    target_include_directories(seftp_server_cpp PRIVATE
-            server_cpp/include
-    )
-
-    target_link_libraries(seftp_server_cpp PRIVATE
             Boost::system
             Boost::asio
     )

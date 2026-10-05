@@ -16,7 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <iostream>
+#include <string>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -74,14 +74,26 @@ namespace seftp::server {
                 boost::asio::bind_executor(strand_,
                 [self](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     self->cancel_read_timeout();
+
                         if (ec) {
-                            log_line("Read header failed: " + ec.message());
-                            return;
-                        }
                         if (self->stopped_) {
                             return;
                         }
 
+                        if (ec == boost::asio::error::eof &&
+                            bytes_transferred == 0) {
+                            self->stop();
+                            return;
+                        }
+
+                        log_error("Read header failed: " + ec.message());
+                        self->stop();
+                        return;
+                        }
+
+                        if (self->stopped_) {
+                        return;
+                        }
                         log_line("Read "+ std::to_string(bytes_transferred) + " header bytes");
 
                         const auto offset = protocol::kPayloadSizeOffset;

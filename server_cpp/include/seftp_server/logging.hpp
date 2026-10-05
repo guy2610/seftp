@@ -2,7 +2,6 @@
 
 #include <iostream>
 #include <mutex>
-#include <ostream>
 #include <string>
 
 namespace seftp::server {

@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <exception>
-#include <iostream>
 #include <csignal>
 #include <thread>
 #include <vector>

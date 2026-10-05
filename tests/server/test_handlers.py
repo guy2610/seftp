@@ -371,13 +371,14 @@ async def test_825_name_exist_error(monkeypatch, tmp_path):
     "name",
     [
         "alice",
-        "guy2610",
-        "guy_even",
-        "guy-even",
-        "guy.even",
-        "גיא",
+        "user123",
+        "test_user",
+        "test-user",
+        "test.user",
+        "משתמש",
         "a" * 64,
-    ],
+    ]
+    ,
 )
 def test_username_validation_accepts_valid_names(name):
     assert handlers.is_valid_username(name)

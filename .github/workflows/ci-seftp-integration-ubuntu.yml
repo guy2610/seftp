@@ -143,23 +143,45 @@ jobs:
 
           cd ..
 
+          CLIENT_ID_HEX="$(python - <<'PY'
+          import sqlite3
+          
+          con = sqlite3.connect("server/data/seftp_server_sql.db")
+          cur = con.cursor()
+          
+          cur.execute(
+              "SELECT client_id_hex FROM Clients WHERE username = ?",
+              ("ci_user",),
+          )
+          row = cur.fetchone()
+          con.close()
+          
+          if row is None:
+              raise SystemExit("ci_user not found in Clients table")
+          
+          print(row[0])
+          PY
+          )"
+          
+          echo "ci_user client_id=$CLIENT_ID_HEX"
+          
           for f in stream_15.bin stream_16.bin stream_17.bin stream_65536.bin stream_random_1mb.bin; do
             SRC="e2e_workdir/$f"
-            DST="server/data/uploads/ci_user/$f"
-
+            DST="server/data/uploads/$CLIENT_ID_HEX/$f"
+          
             if [ ! -f "$DST" ]; then
               echo "Missing uploaded file: $DST"
               echo "==== server log tail ===="
               tail -n 250 server_e2e.log || true
               exit 1
             fi
-
+          
             if ! cmp -s "$SRC" "$DST"; then
               echo "Uploaded file mismatch: $f"
               exit 1
             fi
           done
-
+          
           echo "Streaming boundary uploads matched byte-for-byte"
 
       - name: Parallel clients upload (5 clients)
@@ -264,6 +286,11 @@ jobs:
 
           echo "exit_code=$code"
           cat run.log || true
+          
+          if [ "$code" -eq 0 ]; then
+            echo "Expected failed headless upload to return non-zero exit status"
+            exit 1
+          fi
 
           #client-side assertion: got server rejection (1607)
           if ! grep -Eq "answer_1607|general error \{bad 828:" run.log; then
@@ -288,9 +315,36 @@ jobs:
         run: |
           set -euo pipefail
           for i in $(seq 1 5); do
-            P="server/data/uploads/ci_user_$i/file_$i.txt"
+            USERNAME="ci_user_$i"
+          
+            CLIENT_ID_HEX="$(python - "$USERNAME" <<'PY'
+          import sqlite3
+          import sys
+          
+          username = sys.argv[1]
+          
+          con = sqlite3.connect("server/data/seftp_server_sql.db")
+          cur = con.cursor()
+          
+          cur.execute(
+              "SELECT client_id_hex FROM Clients WHERE username = ?",
+              (username,),
+          )
+          row = cur.fetchone()
+          con.close()
+          
+          if row is None:
+              raise SystemExit(f"{username} not found in Clients table")
+          
+          print(row[0])
+          PY
+          )"
+          
+            P="server/data/uploads/$CLIENT_ID_HEX/file_$i.txt"
+          
             if [ ! -f "$P" ]; then
               echo "Missing: $P"
+              echo "username=$USERNAME client_id=$CLIENT_ID_HEX"
               echo "==== server log tail ===="
               tail -n 250 server_e2e.log || true
               echo "==== uploads tree ===="
@@ -298,6 +352,7 @@ jobs:
               exit 1
             fi
           done
+          
           echo "parallel uploads exist"
 
       - name: Stop server (graceful + fallback)

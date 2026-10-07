@@ -176,11 +176,29 @@ jobs:
             Copy-Item $clientExe (Join-Path $work2 "seftp_client.exe")
             python -c "from pathlib import Path; Path(r'$work2\big.bin').write_bytes(b'A'*200)"
 
-            Push-Location $work2
-            cmd /c ".\seftp_client.exe --info --files=big.bin > run.log 2>&1"
-            Pop-Location
-
-            $clientLog = Get-Content (Join-Path $work2 "run.log") -Raw
+            $runOut = Join-Path $work2 "run.out.log"
+            $runErr = Join-Path $work2 "run.err.log"
+            
+            $limitClient = Start-Process `
+              -FilePath (Join-Path $work2 "seftp_client.exe") `
+              -ArgumentList "--info","--files=big.bin" `
+              -WorkingDirectory $work2 `
+              -RedirectStandardOutput $runOut `
+              -RedirectStandardError $runErr `
+              -Wait `
+              -PassThru
+            
+            $limitExitCode = $limitClient.ExitCode
+            
+            Write-Host "exit_code=$limitExitCode"
+            
+            if ($limitExitCode -eq 0) {
+              throw "Expected failed headless upload to return non-zero exit status"
+            }
+            
+            $clientLog = ""
+            if (Test-Path $runOut) { $clientLog += (Get-Content $runOut -Raw) }
+            if (Test-Path $runErr) { $clientLog += (Get-Content $runErr -Raw) }
             if ($clientLog -notmatch "answer_1607|general error \{bad 828:") {
               throw "Expected client to observe 1607 / bad 828 error"
             }
@@ -188,7 +206,9 @@ jobs:
             $slog = ""
             if (Test-Path $OutLog2) { $slog += (Get-Content $OutLog2 -Raw) }
             if (Test-Path $ErrLog2) { $slog += (Get-Content $ErrLog2 -Raw) }
-            if ($slog -notmatch "bad 828: orig_file_size too large") { throw "Expected oversize rejection in server log" }
+            if ($slog -notmatch "orig_file_size too large|content_size too large") {
+              throw "Expected size-too-large rejection in server log"
+            }
             if ($slog -notmatch "reset transfer state reason=bad_828_limits") { throw "Expected bad_828_limits reset reason" }
           }
           finally {

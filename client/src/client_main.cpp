@@ -123,10 +123,12 @@ int main(int argc, char* argv[]) {
 			g_logger.error(cc.last_error_text);
 			return 1;
 		}
+		int exit_code = 0;
 		for (options.file_index = 0; options.file_index < options.files.size(); ++options.file_index) {
 			file_name = options.files[options.file_index];
 			if (!seftp::flow::send_single_file(s, aes_b64, cc, file_name)) {
 				g_logger.error(cc.last_error_text);
+				exit_code = 1;
 			}
 			else {
 				g_logger.info("transferred file " + std::to_string(options.file_index + 1) + "/" + std::to_string(options.files.size()));
@@ -134,7 +136,7 @@ int main(int argc, char* argv[]) {
 		}
 		seftp::flow::disconnect_socket(s);
 		print_client_exit_summary();
-		return 0;
+		return exit_code;
 	}
 	int rc = seftp::ui::run_console_ui(io_context, s, resolver, client_config, cc);
 	print_client_exit_summary();

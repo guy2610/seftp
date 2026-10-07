@@ -281,9 +281,11 @@ A new client sends `request 825` with a null-terminated username. The handler st
 
 ### 4.3 Public Key Submission and AES Bootstrap
 
-After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid. The server then stores the public key, generates a fresh 32-byte AES key, stores that AES key in Base64 form, encrypts it with RSA-OAEP, and returns it in `response 1602` together with the client ID.
+After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid.
 
-For Stage 7 connections, the encrypted AES key is returned in a bound response format. The response includes the client ID, encrypted AES key length, encrypted AES key, signature length, and signature. The signature binds AES key delivery to the completed Stage 7 handshake.
+If no RSA public key is stored yet, the server binds the supplied key to the client identity and establishes a fresh 32-byte AES key. If the same RSA key is submitted again, the request is treated idempotently: an existing AES key is reused, while a missing AES key is regenerated as recovery from a partial enrollment. A different RSA key is rejected rather than replacing the existing identity binding.
+
+The AES key is encrypted with RSA-OAEP and returned in `response 1602` together with the client ID.
 
 ### 4.4 Relogin Flow
 
@@ -323,7 +325,7 @@ The persistence model is intentionally split between durable metadata and transi
 
 - The store keeps an in-memory client index keyed by both client ID and username. This is not a second source of truth. It is a read optimization layered on top of SQLite and kept in sync via write-through updates. The benefit is that request handlers can resolve client identity quickly on the hot path without repeatedly issuing SQL lookups for every frame.
 
-- Uploaded file contents themselves are not stored in SQLite. The plaintext file is written to disk under `data/uploads/<username>/<file_name>`, while SQLite stores metadata and lifecycle state only. This keeps large file contents out of the relational store while still preserving queryable operational metadata.
+- Uploaded file contents themselves are not stored in SQLite. The plaintext file is written to disk under `data/uploads/<client_id_hex>/<file_name>`, while SQLite stores metadata and lifecycle state only. The server-generated client ID is used as the filesystem namespace rather than the user-controlled username, keeping storage paths independent of username contents while preserving queryable operational metadata.
 
 ### 5.1 Upload Lifecycle States
 

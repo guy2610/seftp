@@ -123,10 +123,12 @@ int main(int argc, char* argv[]) {
 			g_logger.error(cc.last_error_text);
 			return 1;
 		}
+		int exit_code = 0;
 		for (options.file_index = 0; options.file_index < options.files.size(); ++options.file_index) {
 			file_name = options.files[options.file_index];
 			if (!seftp::flow::send_single_file(s, aes_b64, cc, file_name)) {
 				g_logger.error(cc.last_error_text);
+				exit_code = 1;
 			}
 			else {
 				g_logger.info("transferred file " + std::to_string(options.file_index + 1) + "/" + std::to_string(options.files.size()));
@@ -134,7 +136,7 @@ int main(int argc, char* argv[]) {
 		}
 		seftp::flow::disconnect_socket(s);
 		print_client_exit_summary();
-		return 0;
+		return exit_code;
 	}
 	int rc = seftp::ui::run_console_ui(io_context, s, resolver, client_config, cc);
 	print_client_exit_summary();
@@ -576,7 +578,7 @@ void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::s
 	if (!seftp::persistence::save_public_key(key_pair.publicKeyB64, persist_error)) {
 		throw std::runtime_error(persist_error);
 	}
-	g_logger.info("Public key (B64) added to me.info: " + key_pair.publicKeyB64);
+	g_logger.info("Public key added to me.info (Base64, len=" + std::to_string(key_pair.publicKeyB64.size()) +")");
 	g_logger.debug("sending 826, b64 len: " + std::to_string(key_pair.publicKeyB64.size()));
 	request_826(s, cc.username, key_pair.publicKeyB64, cc.client_id);
 
@@ -1056,7 +1058,7 @@ std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>
 		g_logger.error(persist_error);
 	}
 	else {
-		g_logger.info("AES key saved to aes.key (Base64, len=" + std::to_string(aes_key_b64.size()) + ") <only for demonstrating>: " + aes_key_b64);
+		g_logger.info("AES key saved to aes.key (Base64, len=" + std::to_string(aes_key_b64.size()) +")");
 	}
 
 	return aes_key_b64;
@@ -1130,7 +1132,7 @@ static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::
 		g_logger.debug("after 1602");
 	}
 	else { // 1605
-		cout << answer_1605(client_id_hex, r.encrypted_key, "priv.key") << endl;
+		answer_1605(client_id_hex, r.encrypted_key, "priv.key");
 		g_logger.debug("after 1605");
 	}
 

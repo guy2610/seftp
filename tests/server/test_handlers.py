@@ -1,4 +1,5 @@
 import pytest
+import os
 import src.handlers as handlers
 import src.config as config
 import asyncio
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 import zlib
+from Crypto.Cipher import PKCS1_OAEP
 import src.store as store
 
 def make_sql_store(tmp_path):
@@ -289,7 +291,7 @@ async def test_825_registration_succeed(monkeypatch, tmp_path):
     assert fake_session.reset_calls[-1] == "1600"
 
 @pytest.mark.asyncio
-async def test_825_registration_name_need_strip(monkeypatch, tmp_path):
+async def test_825_registration_rejects_surrounding_whitespace(monkeypatch, tmp_path):
     s = make_sql_store(tmp_path)
     fake_session = FakeSession(config.Config.load(), s)
     payload = b"  alice  \x00"
@@ -306,10 +308,44 @@ async def test_825_registration_name_need_strip(monkeypatch, tmp_path):
 
     await handlers.request_825(payload, version, fake_session)
 
-    client_record = s.get_client_by_username("alice")
-    assert client_record  is not None
-    assert client_record.username == "alice"
-    assert fake_session.reset_calls[-1][0] == "1600"
+    assert s.get_client_by_username("alice") is None
+    assert s.get_client_by_username("  alice  ") is None
+    assert fake_session.reset_calls[-1][0] == "1601"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "username",
+    [
+        "../../evil",
+        "/tmp/evil",
+        "foo/bar",
+        r"foo\bar",
+    ],
+)
+async def test_825_registration_rejects_path_like_usernames(
+    monkeypatch,
+    tmp_path,
+    username,
+):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+    payload = username.encode("utf-8") + b"\x00"
+    version = b"\x03"
+
+    async def fake_1600(client_id, version, session):
+        fake_session.reset_calls.append(("1600", client_id))
+
+    async def fake_1601(version, session):
+        fake_session.reset_calls.append(("1601",))
+
+    monkeypatch.setattr("src.router.answers.answer_1600", fake_1600)
+    monkeypatch.setattr("src.router.answers.answer_1601", fake_1601)
+
+    await handlers.request_825(payload, version, fake_session)
+
+    assert s.get_client_by_username(username) is None
+    assert fake_session.reset_calls[-1][0] == "1601"
 
 @pytest.mark.asyncio
 async def test_825_name_exist_error(monkeypatch, tmp_path):
@@ -331,6 +367,206 @@ async def test_825_name_exist_error(monkeypatch, tmp_path):
     await handlers.request_825(payload, version, fake_session)
 
     assert fake_session.reset_calls[-1] == "1601"
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "alice",
+        "user123",
+        "test_user",
+        "test-user",
+        "test.user",
+        "משתמש",
+        "a" * 64,
+    ]
+    ,
+)
+def test_username_validation_accepts_valid_names(name):
+    assert handlers.is_valid_username(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        " alice",
+        "alice ",
+        "../../evil",
+        "/tmp/evil",
+        "alice/bob",
+        r"alice\bob",
+        "-alice",
+        ".alice",
+        "_alice",
+        "a" * 65,
+        "alice\nadmin",
+    ],
+)
+def test_username_validation_rejects_invalid_names(name):
+    assert not handlers.is_valid_username(name)
+
+@pytest.mark.asyncio
+async def test_826_same_public_key_reuses_existing_aes(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    client_id = b"\x01" * 16
+    version = b"\x03"
+    name = "alice"
+
+    rsa_key = RSA.generate(2048)
+    public_der = rsa_key.publickey().export_key(format="DER")
+    public_b64 = base64.b64encode(public_der)
+
+    existing_aes = b"\xAB" * 32
+    existing_aes_b64 = base64.b64encode(existing_aes).decode("ascii")
+
+    seed_client(
+        s,
+        username=name,
+        client_id_hex=client_id.hex(),
+        public_key_der=public_der,
+        aes_key_b64=existing_aes_b64,
+    )
+
+    payload = b"alice\x00" + public_b64 + b"\x00"
+    calls = []
+
+    async def fake_1602(ciphertext, client_id, version, session):
+        calls.append(("1602", ciphertext))
+
+    async def fake_1606(client_id, version, name, session):
+        calls.append(("1606",))
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append(("1607", text))
+
+    def fail_if_random_called(_):
+        pytest.fail("AES key must not be regenerated for an idempotent 826 retry")
+
+    monkeypatch.setattr(handlers.answers, "answer_1602", fake_1602)
+    monkeypatch.setattr(handlers.answers, "answer_1606", fake_1606)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers, "get_random_bytes", fail_if_random_called)
+
+    await handlers.request_826(client_id, payload, version, fake_session)
+
+    assert calls[0][0] == "1602"
+
+    client_record = s.get_client_by_id(client_id.hex())
+    assert client_record.public_key_der == public_der
+    assert client_record.aes_key_b64 == existing_aes_b64
+
+    decrypted_aes = PKCS1_OAEP.new(rsa_key).decrypt(calls[0][1])
+    assert decrypted_aes == existing_aes
+
+@pytest.mark.asyncio
+async def test_826_same_public_key_generates_aes_when_missing(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    client_id = b"\x01" * 16
+    version = b"\x03"
+    name = "alice"
+
+    rsa_key = RSA.generate(2048)
+    public_der = rsa_key.publickey().export_key(format="DER")
+    public_b64 = base64.b64encode(public_der)
+
+    seed_client(
+        s,
+        username=name,
+        client_id_hex=client_id.hex(),
+        public_key_der=public_der,
+        aes_key_b64=None,
+    )
+
+    payload = b"alice\x00" + public_b64 + b"\x00"
+
+    generated_aes = b"\xCD" * 32
+    calls = []
+
+    async def fake_1602(ciphertext, client_id, version, session):
+        calls.append(("1602", ciphertext))
+
+    async def fake_1606(client_id, version, name, session):
+        calls.append(("1606",))
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append(("1607", text))
+
+    monkeypatch.setattr(handlers.answers, "answer_1602", fake_1602)
+    monkeypatch.setattr(handlers.answers, "answer_1606", fake_1606)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers, "get_random_bytes", lambda size: generated_aes)
+
+    await handlers.request_826(client_id, payload, version, fake_session)
+
+    assert calls[0][0] == "1602"
+
+    client_record = s.get_client_by_id(client_id.hex())
+
+    assert client_record.public_key_der == public_der
+    assert base64.b64decode(client_record.aes_key_b64) == generated_aes
+
+    decrypted_aes = PKCS1_OAEP.new(rsa_key).decrypt(calls[0][1])
+    assert decrypted_aes == generated_aes
+
+@pytest.mark.asyncio
+async def test_826_rejects_public_key_replacement(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+
+    client_id = b"\x01" * 16
+    version = b"\x03"
+    name = "alice"
+
+    stored_rsa = RSA.generate(2048)
+    stored_public_der = stored_rsa.publickey().export_key(format="DER")
+
+    attacker_rsa = RSA.generate(2048)
+    attacker_public_der = attacker_rsa.publickey().export_key(format="DER")
+    attacker_public_b64 = base64.b64encode(attacker_public_der)
+
+    existing_aes = b"\xEF" * 32
+    existing_aes_b64 = base64.b64encode(existing_aes).decode("ascii")
+
+    seed_client(
+        s,
+        username=name,
+        client_id_hex=client_id.hex(),
+        public_key_der=stored_public_der,
+        aes_key_b64=existing_aes_b64,
+    )
+
+    payload = b"alice\x00" + attacker_public_b64 + b"\x00"
+    calls = []
+
+    async def fake_1602(ciphertext, client_id, version, session):
+        calls.append(("1602",))
+
+    async def fake_1606(client_id, version, name, session):
+        calls.append(("1606",))
+
+    async def fake_1607(client_id, version, text, session):
+        calls.append(("1607", text))
+
+    def fail_if_random_called(_):
+        pytest.fail("AES key must not change after RSA replacement attempt")
+
+    monkeypatch.setattr(handlers.answers, "answer_1602", fake_1602)
+    monkeypatch.setattr(handlers.answers, "answer_1606", fake_1606)
+    monkeypatch.setattr(handlers.answers, "answer_1607", fake_1607)
+    monkeypatch.setattr(handlers, "get_random_bytes", fail_if_random_called)
+
+    await handlers.request_826(client_id, payload, version, fake_session)
+
+    assert calls == [("1607", "public key mismatch")]
+
+    client_record = s.get_client_by_id(client_id.hex())
+
+    assert client_record.public_key_der == stored_public_der
+    assert client_record.aes_key_b64 == existing_aes_b64
 
 
 @pytest.mark.asyncio
@@ -1137,6 +1373,56 @@ async def test_902_filename_mismatch_returns_1607(monkeypatch, tmp_path):
     upload = uploads[0]
     assert upload[7] == "in_progress"
     assert upload[8] is None
+
+@pytest.mark.asyncio
+async def test_828_upload_path_uses_client_id_not_username(monkeypatch, tmp_path):
+    s = make_sql_store(tmp_path)
+    fake_session = FakeSession(config.Config.load(), s)
+    calls = patch_828_side_effects(monkeypatch)
+
+    # Isolate filesystem writes inside this test directory.
+    monkeypatch.chdir(tmp_path)
+
+    client_id = b"\x01" * 16
+
+    # Simulate a legacy DB record created before username validation existed.
+    escaped_dir = tmp_path / "escaped"
+    dangerous_username = str(escaped_dir)
+
+    setup_client(fake_session, dangerous_username, client_id)
+
+    version = b"\x03"
+    filename = b"file.bin"
+    iv = b"\xAA" * 16
+    chunk1 = b"\xBB" * 4
+    chunk2 = b"\xCC" * 6
+
+    payload0 = make_828_payload(10, 5, 0, 2, filename, iv)
+    payload1 = make_828_payload(10, 5, 1, 2, filename, chunk1)
+    payload2 = make_828_payload(10, 5, 2, 2, filename, chunk2)
+
+    await handlers.request_828(payload0, version, client_id, fake_session)
+    await handlers.request_828(payload1, version, client_id, fake_session)
+    await handlers.request_828(payload2, version, client_id, fake_session)
+
+    expected_path = (
+        tmp_path
+        / "data"
+        / "uploads"
+        / client_id.hex()
+        / "file.bin"
+    )
+
+    escaped_path = escaped_dir / "file.bin"
+
+    assert len(calls) == 1
+    assert calls[0][0] == "1603"
+
+    assert fake_session.upload_path is not None
+    assert os.path.abspath(fake_session.upload_path) == str(expected_path)
+
+    assert expected_path.exists()
+    assert not escaped_path.exists()
 
 @pytest.mark.asyncio
 async def test_828_packet0_initializes_state(monkeypatch, tmp_path):

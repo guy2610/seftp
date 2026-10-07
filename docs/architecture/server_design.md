@@ -281,9 +281,11 @@ A new client sends `request 825` with a null-terminated username. The handler st
 
 ### 4.3 Public Key Submission and AES Bootstrap
 
-After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid. The server then stores the public key, generates a fresh 32-byte AES key, stores that AES key in Base64 form, encrypts it with RSA-OAEP, and returns it in `response 1602` together with the client ID.
+After registration, the client sends `request 826` containing its username and a Base64-encoded RSA public key in DER form. The server verifies that the supplied client ID exists, that the username matches the one stored for that client ID, that the key decodes correctly, that it is a public key rather than a private key, that it is 2048 bits, and that the exponent is valid.
 
-For Stage 7 connections, the encrypted AES key is returned in a bound response format. The response includes the client ID, encrypted AES key length, encrypted AES key, signature length, and signature. The signature binds AES key delivery to the completed Stage 7 handshake.
+If no RSA public key is stored yet, the server binds the supplied key to the client identity and establishes a fresh 32-byte AES key. If the same RSA key is submitted again, the request is treated idempotently: an existing AES key is reused, while a missing AES key is regenerated as recovery from a partial enrollment. A different RSA key is rejected rather than replacing the existing identity binding.
+
+The AES key is encrypted with RSA-OAEP and returned in `response 1602` together with the client ID.
 
 ### 4.4 Relogin Flow
 

@@ -194,7 +194,6 @@ async def answer_1604(client_id,version,session):
     client_record = store.get_client_by_id(client_id.hex())
     if client_record is not None:
         client_name = client_record.username
-            
         session.log.info(
             "recent client state client_id=%s username=%s last_seen=%s",
             client_record.client_id_hex,

@@ -194,18 +194,13 @@ async def answer_1604(client_id,version,session):
     client_record = store.get_client_by_id(client_id.hex())
     if client_record is not None:
         client_name = client_record.username
-        public_key_tmp = (
-            base64.b64encode(client_record.public_key_der).decode('utf-8')
-            if client_record.public_key_der is not None
-            else None
-        )
-        tmp = [
+            
+        session.log.info(
+            "recent client state client_id=%s username=%s last_seen=%s",
             client_record.client_id_hex,
-            public_key_tmp,
+            client_name,
             client_record.last_seen,
-            client_record.aes_key_b64,
-        ]
-        session.log.info(f'this is the recent client information on {client_name}: {tmp}')
+        )
         store.touch_client_last_seen(client_record.client_id_hex)
 
     store.clients_recent_log[client_id].append(["answer_1604", str(datetime.datetime.now())])
@@ -229,20 +224,13 @@ async def answer_1607(client_id,version,text,session):
     client_record = store.get_client_by_id(client_id.hex())
     if client_record is not None:
         client_name = client_record.username
-        if client_record.public_key_der is None:
-            public_key_tmp = None
-        elif isinstance(client_record.public_key_der, str):
-            public_key_tmp = client_record.public_key_der
-        else:
-            public_key_tmp = base64.b64encode(client_record.public_key_der).decode('utf-8')
 
-        tmp = [
+        session.log.info(
+            "recent client state client_id=%s username=%s last_seen=%s",
             client_record.client_id_hex,
-            public_key_tmp,
+            client_name,
             client_record.last_seen,
-            client_record.aes_key_b64,
-        ]
-        session.log.info(f'this is the recent client information on {client_name}:  {tmp}')
+        )
         store.touch_client_last_seen(client_record.client_id_hex)
     store.clients_recent_log[client_id].append(["answer_1607",str(datetime.datetime.now())])
     await session.send(message)

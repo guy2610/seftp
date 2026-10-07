@@ -576,7 +576,7 @@ void making_RSAkeys(tcp::socket& s, const seftp::ClientContext& cc, const std::s
 	if (!seftp::persistence::save_public_key(key_pair.publicKeyB64, persist_error)) {
 		throw std::runtime_error(persist_error);
 	}
-	g_logger.info("Public key (B64) added to me.info: " + key_pair.publicKeyB64);
+	g_logger.info("Public key added to me.info (Base64, len=" + std::to_string(key_pair.publicKeyB64.size()) +")");
 	g_logger.debug("sending 826, b64 len: " + std::to_string(key_pair.publicKeyB64.size()));
 	request_826(s, cc.username, key_pair.publicKeyB64, cc.client_id);
 
@@ -1056,7 +1056,7 @@ std::string answer_1602(const std::string& client_id, const std::vector<uint8_t>
 		g_logger.error(persist_error);
 	}
 	else {
-		g_logger.info("AES key saved to aes.key (Base64, len=" + std::to_string(aes_key_b64.size()) + ") <only for demonstrating>: " + aes_key_b64);
+		g_logger.info("AES key saved to aes.key (Base64, len=" + std::to_string(aes_key_b64.size()) +")");
 	}
 
 	return aes_key_b64;
@@ -1130,7 +1130,7 @@ static std::string handle_1602_or_1605(seftp::proto::ResCode code, const seftp::
 		g_logger.debug("after 1602");
 	}
 	else { // 1605
-		cout << answer_1605(client_id_hex, r.encrypted_key, "priv.key") << endl;
+		answer_1605(client_id_hex, r.encrypted_key, "priv.key");
 		g_logger.debug("after 1605");
 	}
 

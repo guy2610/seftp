@@ -59,17 +59,20 @@ async def request_825(payload_info,version,session):
         await answers.answer_1601(version,session)
 async def request_826(client_id, payload_info: bytes, version,session):
     """
-    Handle request 826: send/update RSA public key + receive AES key.
+    Handle request 826: enroll/confirm RSA public key + receive AES key.
 
     Payload:
     - username (UTF-8, null-terminated)
     - RSA public key in Base64 (DER)
 
     Behavior:
-    - Validates that the username matches the client_id (persistent identifier) in clients_info.
-    - Decodes and imports the RSA public key.
-    - Generates a random AES-256 key, stores it, encrypts it with RSA-OAEP.
-    - Responds with 1602 containing the encrypted AES key.
+    - Validates that the username matches the persistent client_id.
+    - Validates the supplied RSA public key.
+    - Enrolls the RSA key if no key is stored yet.
+    - Allows idempotent retries with the same RSA key.
+    - Rejects attempts to replace an already-bound RSA key.
+    - Reuses the existing AES key on retry, or generates one if missing.
+    - Responds with 1602 containing the AES key encrypted with RSA-OAEP.
     """
     session.log.debug("inside request 826")
     store=session.store
@@ -105,8 +108,6 @@ async def request_826(client_id, payload_info: bytes, version,session):
         await answers.answer_1607(client_id, version, f'name mismatch: got {name!r}, expected {name_in_db!r}',session)
         return
 
-    session.log.info(f"{name} logged successfully")
-
     public_blob = public_key_raw.rstrip(b'\x00').strip()  #text in Base64
     try:
         public_str = public_blob.decode('ascii')
@@ -125,7 +126,11 @@ async def request_826(client_id, payload_info: bytes, version,session):
     try:
         key_rsa = RSA.import_key(der)
         if session.log.isEnabledFor(logging.DEBUG):
-            session.log.debug(f"{name} has this RSA key: {key_rsa.export_key().decode()} with the size: {key_rsa.size_in_bits()}")  # size need to be 2048
+            session.log.debug(
+                "RSA public key accepted for client_id=%s size_bits=%d",
+                client_id_hex,
+                key_rsa.size_in_bits(),
+            )
         if key_rsa.has_private():
             await answers.answer_1606(client_id, version, name,session)
             return
@@ -141,22 +146,51 @@ async def request_826(client_id, payload_info: bytes, version,session):
         await answers.answer_1607(client_id, version, "Invalid RSA public key",session)
         return
 
-    store.set_client_public_key(client_id_hex, der) #keep DER, not Base64
+    stored_public_key_der = client_record.public_key_der
+    stored_aes_key_b64 = client_record.aes_key_b64
 
-    # generate AES key
-    key = get_random_bytes(32)
-    aes_key_b64 = base64.b64encode(key).decode('ascii')
-    store.set_client_aes_key(client_id_hex, aes_key_b64)
+    if stored_public_key_der is None:
+        # First enrollment: bind RSA and always establish a fresh AES key.
+        store.set_client_public_key(client_id_hex, der)
 
-    # encrypt AES key with RSA public
+        key = get_random_bytes(32)
+        aes_key_b64 = base64.b64encode(key).decode("ascii")
+        store.set_client_aes_key(client_id_hex, aes_key_b64)
+
+    elif der != stored_public_key_der:
+        session.log.warning(
+            "public key mismatch for client_id=%s",
+            client_id_hex,
+        )
+        await answers.answer_1607(
+            client_id,
+            version,
+            "public key mismatch",
+            session,
+        )
+        return
+
+    elif stored_aes_key_b64 is None:
+        # Recovery from a partially completed enrollment.
+        key = get_random_bytes(32)
+        aes_key_b64 = base64.b64encode(key).decode("ascii")
+        store.set_client_aes_key(client_id_hex, aes_key_b64)
+
+    else:
+        # Idempotent retry.
+        key = base64.b64decode(stored_aes_key_b64)
+
+
     cipher = PKCS1_OAEP.new(key_rsa)
     ciphertext = cipher.encrypt(key)
 
     if session.log.isEnabledFor(logging.DEBUG):
         session.log.debug(
-            f"the user: {name} has client_id={client_id_hex} and this is the aes key encrypted by the public key: "
-            f"{base64.b64encode(ciphertext).decode('utf-8')}"
+            "RSA public key accepted for client_id=%s size_bits=%d",
+            client_id_hex,
+            key_rsa.size_in_bits(),
         )
+    session.log.info(f"{name} logged successfully")
     # send 1602 aes key
     await answers.answer_1602(ciphertext, client_id, version,session)
 
@@ -209,7 +243,11 @@ async def request_827(client_id,payload_info:bytes,version,session):
         await answers.answer_1606(client_id, version, name, session)
         return
     if pub.size_in_bits()!=2048:
-        session.log.info(f"the public key: [{store_pub_key}] in request 827 is not valid the len needs to be 2048 and is {str(len(store_pub_key))}")
+        session.log.info(
+            "stored public key for client_id=%s has invalid size_bits=%d",
+            client_id.hex(),
+            pub.size_in_bits(),
+        )
         await answers.answer_1606(client_id,version,name,session)
         return
 
@@ -221,16 +259,10 @@ async def request_827(client_id,payload_info:bytes,version,session):
     cipher = PKCS1_OAEP.new(pub)
     ciphertext = cipher.encrypt(key)
     session.log.info("request to sign on succeed")
-    if session.log.isEnabledFor(logging.DEBUG):
-        info_client = [
-            client_record.client_id_hex,
-            client_record.username,
-            client_record.public_key_der,
-            client_record.aes_key_b64,
-            client_record.created_at,
-            client_record.last_seen
-        ]
-        session.log.debug(f'the name: {name} has this list {info_client}.\nand this is the aes key encrypted by the public key [{ciphertext}]')
+    session.log.debug(
+        "relogin AES key generated and encrypted for client_id=%s",
+        client_id.hex(),
+    )
     await answers.answer_1605(ciphertext, client_id, version,session)
 
 def _draw_progress(packet_num, total_packets, chunk_size):

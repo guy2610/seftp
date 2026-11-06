@@ -4,6 +4,19 @@ project(SEFTP LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enable compiler diagnostics for our C++ server targets.
+function(seftp_enable_warnings target)
+    if (MSVC)
+        target_compile_options(${target} PRIVATE /W4)
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+        target_compile_options(${target} PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+        )
+    endif()
+endfunction()
+
 add_executable(seftp_client
     client/src/client_main.cpp
     client/src/crypto/crypto.cpp
@@ -47,6 +60,8 @@ add_custom_command(TARGET seftp_client POST_BUILD
 add_executable(seftp_server_cpp
     server_cpp/src/server_main.cpp
 )
+
+seftp_enable_warnings(seftp_server_cpp)
 
 target_include_directories(seftp_server_cpp PRIVATE
     server_cpp/include
@@ -125,6 +140,8 @@ if (BUILD_TESTING)
             Boost::system
             Boost::asio
     )
+
+    seftp_enable_warnings(seftp_server_cpp_tests)
 
     gtest_discover_tests(seftp_server_cpp_tests)
 endif()

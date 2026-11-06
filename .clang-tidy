@@ -1,0 +1,7 @@
+Checks: '-*,bugprone-*,performance-*'
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*/server_cpp/.*'
+SystemHeaders: false
+CheckOptions:
+  - key: bugprone-unused-return-value.AllowCastToVoid
+    value: 'true'

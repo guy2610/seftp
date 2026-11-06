@@ -103,6 +103,7 @@ namespace seftp::server {
 
                     if (payload_size > protocol::kDefaultMaxPayloadSize) {
                         log_line("Payload too large");
+                        self->stop();
                         return;
                     }
                     self->frame_buffer_.resize(protocol::kRequestHeaderSize + payload_size);

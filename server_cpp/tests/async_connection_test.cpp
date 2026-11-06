@@ -29,6 +29,9 @@ namespace seftp::server {
                 timeout_executed = true;
             });
         }
+        static bool socket_is_open(const AsyncConnection& connection) {
+            return connection.socket_.is_open();
+        }
     };
 } // namespace seftp::server
 namespace {
@@ -239,10 +242,7 @@ namespace {
         auto connection =
             std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
 
-        std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
-
         connection->start();
-        connection.reset();
 
         const auto oversized_payload =
             static_cast<std::uint32_t>(protocol::kDefaultMaxPayloadSize) + 1u;
@@ -253,11 +253,12 @@ namespace {
 
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
 
-        while (!weak_connection.expired() && std::chrono::steady_clock::now() < deadline) {
+        while (seftp::server::AsyncConnectionTestAccessor::socket_is_open(*connection) &&
+               std::chrono::steady_clock::now() < deadline) {
             io_context.run_one_for(std::chrono::milliseconds(10));
         }
 
-        EXPECT_TRUE(weak_connection.expired());
+        EXPECT_FALSE(seftp::server::AsyncConnectionTestAccessor::socket_is_open(*connection));
     }
 
     TEST(AsyncConnectionTest, ClientHelloReceivesServerHello) {

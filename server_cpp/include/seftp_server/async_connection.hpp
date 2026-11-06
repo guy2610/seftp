@@ -97,9 +97,9 @@ namespace seftp::server {
                     const auto offset = protocol::kPayloadSizeOffset;
                     std::uint32_t payload_size =
                         static_cast<std::uint32_t>(self->header_buffer_[offset]) |
-                        (static_cast<std::uint32_t>(self->header_buffer_[offset + 1]) << 8) |
-                        (static_cast<std::uint32_t>(self->header_buffer_[offset + 2]) << 16) |
-                        (static_cast<std::uint32_t>(self->header_buffer_[offset + 3]) << 24);
+                        (static_cast<std::uint32_t>(self->header_buffer_[offset + 1]) << 8u) |
+                        (static_cast<std::uint32_t>(self->header_buffer_[offset + 2]) << 16u) |
+                        (static_cast<std::uint32_t>(self->header_buffer_[offset + 3]) << 24u);
 
                     if (payload_size > protocol::kDefaultMaxPayloadSize) {
                         log_line("Payload too large");

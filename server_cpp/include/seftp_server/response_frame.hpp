@@ -22,15 +22,15 @@ namespace seftp::server::protocol {
 
         bytes.push_back(frame.version);
 
-        const auto raw_code = static_cast<uint16_t>(frame.code);
+        const auto raw_code = static_cast<std::uint32_t>(frame.code);
 
-        bytes.push_back(static_cast<Byte>(raw_code & 0xFF));
-        bytes.push_back(static_cast<Byte>((raw_code >> 8) & 0xFF));
+        bytes.push_back(static_cast<Byte>(raw_code & 0xFFu));
+        bytes.push_back(static_cast<Byte>((raw_code >> 8u) & 0xFFu));
 
         const auto payload_size = static_cast<std::uint32_t>(frame.payload.size());
 
         for (std::size_t i = 0; i < kPayloadSizeFieldSize; ++i) {
-            bytes.push_back(static_cast<Byte>((payload_size >> (8 * i)) & 0xFF));
+            bytes.push_back(static_cast<Byte>((payload_size >> (8u * i)) & 0xFFu));
         }
 
         bytes.insert(bytes.end(), frame.payload.begin(), frame.payload.end());

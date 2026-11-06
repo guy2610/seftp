@@ -28,15 +28,16 @@ namespace {
 
         bytes.push_back(7);
 
-        bytes.push_back(static_cast<Byte>(raw_code & 0xFF));
-        bytes.push_back(static_cast<Byte>((raw_code >> 8) & 0xFF));
+        const auto code_u32 = static_cast<std::uint32_t>(raw_code);
+        bytes.push_back(static_cast<Byte>(code_u32 & 0xFFu));
+        bytes.push_back(static_cast<Byte>((code_u32 >> 8u) & 0xFFu));
 
         const auto payload_size = static_cast<std::uint32_t>(payload.size());
 
-        bytes.push_back(static_cast<Byte>(payload_size & 0xFF));
-        bytes.push_back(static_cast<Byte>((payload_size >> 8) & 0xFF));
-        bytes.push_back(static_cast<Byte>((payload_size >> 16) & 0xFF));
-        bytes.push_back(static_cast<Byte>((payload_size >> 24) & 0xFF));
+        bytes.push_back(static_cast<Byte>(payload_size & 0xFFu));
+        bytes.push_back(static_cast<Byte>((payload_size >> 8u) & 0xFFu));
+        bytes.push_back(static_cast<Byte>((payload_size >> 16u) & 0xFFu));
+        bytes.push_back(static_cast<Byte>((payload_size >> 24u) & 0xFFu));
 
         bytes.insert(bytes.end(), payload.begin(), payload.end());
 

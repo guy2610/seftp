@@ -61,8 +61,9 @@ namespace seftp::server::protocol {
         frame.version = bytes[offset];
         offset += kVersionSize;
 
-        const std::uint16_t raw_code = static_cast<std::uint16_t>(bytes[offset]) |
-                                       (static_cast<std::uint16_t>(bytes[offset + 1]) << 8);
+        const std::uint16_t raw_code =
+            static_cast<std::uint16_t>(static_cast<std::uint32_t>(bytes[offset]) |
+                                       (static_cast<std::uint32_t>(bytes[offset + 1]) << 8u));
 
         offset += kCodeSize;
 

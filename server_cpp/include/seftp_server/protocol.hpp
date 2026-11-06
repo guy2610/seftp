@@ -17,11 +17,12 @@ namespace seftp::server::protocol {
     inline constexpr std::size_t kRequestHeaderSize =
         kClientIdSize + kVersionSize + kCodeSize + kPayloadSizeFieldSize; // 23
     inline constexpr std::size_t kResponseHeaderSize =
-        kVersionSize + kCodeSize + kPayloadSizeFieldSize;                                       // 7
-    inline constexpr std::size_t kPayloadSizeOffset = kClientIdSize + kVersionSize + kCodeSize; // 19
+        kVersionSize + kCodeSize + kPayloadSizeFieldSize; // 7
+    inline constexpr std::size_t kPayloadSizeOffset =
+        kClientIdSize + kVersionSize + kCodeSize; // 19
 
-    inline constexpr std::size_t kDefaultMaxFileSize = 100 * 1024 * 1024; // 100MB
-    inline constexpr std::size_t kDefaultMaxPayloadSize = 64 * 1024;      // 64KB
+    inline constexpr std::size_t kDefaultMaxFileSize = std::size_t{100} * 1024 * 1024; // 100MB
+    inline constexpr std::size_t kDefaultMaxPayloadSize = std::size_t{64} * 1024;      // 64KB
 
     enum class RequestCode : std::uint16_t {
         Register = 825,

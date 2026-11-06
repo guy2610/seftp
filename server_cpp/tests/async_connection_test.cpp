@@ -65,11 +65,11 @@ namespace {
 
         header[offset] = static_cast<protocol::Byte>(payload_size & 0xFFu);
 
-        header[offset + 1] = static_cast<protocol::Byte>((payload_size >> 8) & 0xFFu);
+        header[offset + 1] = static_cast<protocol::Byte>((payload_size >> 8u) & 0xFFu);
 
-        header[offset + 2] = static_cast<protocol::Byte>((payload_size >> 16) & 0xFFu);
+        header[offset + 2] = static_cast<protocol::Byte>((payload_size >> 16u) & 0xFFu);
 
-        header[offset + 3] = static_cast<protocol::Byte>((payload_size >> 24) & 0xFFu);
+        header[offset + 3] = static_cast<protocol::Byte>((payload_size >> 24u) & 0xFFu);
 
         return header;
     }
@@ -88,7 +88,8 @@ namespace {
 
         bytes[offset] = static_cast<protocol::Byte>(raw_code & 0xFFu);
 
-        bytes[offset + 1] = static_cast<protocol::Byte>((raw_code >> 8) & 0xFFu);
+        bytes[offset + 1] =
+            static_cast<protocol::Byte>((static_cast<std::uint32_t>(raw_code) >> 8u) & 0xFFu);
 
         // payload_size remains zero because the vector
         // was initialized with zeroes.
@@ -107,13 +108,13 @@ namespace {
 
         boost::asio::read(client, boost::asio::buffer(header));
 
-        const std::uint16_t code =
-            static_cast<std::uint16_t>(header[1]) | (static_cast<std::uint16_t>(header[2]) << 8);
+        const std::uint16_t code = static_cast<std::uint16_t>(
+            static_cast<std::uint32_t>(header[1]) | (static_cast<std::uint32_t>(header[2]) << 8u));
 
         const std::uint32_t payload_size = static_cast<std::uint32_t>(header[3]) |
-                                           (static_cast<std::uint32_t>(header[4]) << 8) |
-                                           (static_cast<std::uint32_t>(header[5]) << 16) |
-                                           (static_cast<std::uint32_t>(header[6]) << 24);
+                                           (static_cast<std::uint32_t>(header[4]) << 8u) |
+                                           (static_cast<std::uint32_t>(header[5]) << 16u) |
+                                           (static_cast<std::uint32_t>(header[6]) << 24u);
 
         return {header[0], code, payload_size};
     }

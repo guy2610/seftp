@@ -12,6 +12,14 @@
 #include <vector>
 #include <thread>
 
+namespace seftp::server {
+    struct AsyncServerTestAccessor {
+            static std::size_t accept_counter(const AsyncServer& server) {
+                return server.accept_attempts_;
+            }
+    };
+}
+
 namespace {
     using tcp = boost::asio::ip::tcp;
 
@@ -693,5 +701,31 @@ namespace {
             EXPECT_EQ(result,1);
         }
 
+    }
+    TEST(AsyncServerTest, StartIsIdempotent) {
+        boost::asio::io_context io_context;
+
+        tcp::acceptor acceptor(
+            io_context,
+            tcp::endpoint(
+                boost::asio::ip::address_v4::loopback(),
+                0
+            )
+        );
+
+        seftp::server::AsyncServer server(
+            acceptor,
+            16
+        );
+
+        server.start();
+        server.start();
+
+        io_context.poll();
+
+        EXPECT_EQ(seftp::server::AsyncServerTestAccessor::accept_counter(server), 1);
+
+        server.stop();
+        io_context.run();
     }
 } // namespace

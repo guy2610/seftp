@@ -40,6 +40,9 @@ namespace seftp::server {
                     this->stop_impl();
                 });
         }
+
+        friend struct AsyncServerTestAccessor;
+
         private:
         boost::asio::ip::tcp::acceptor& acceptor_;
         std::vector<std::weak_ptr<AsyncConnection>> connections_;
@@ -47,11 +50,14 @@ namespace seftp::server {
         boost::asio::strand<boost::asio::ip::tcp::acceptor::executor_type> strand_;
         boost::asio::steady_timer accept_retry_timer_;
         bool stopped_{false};
+        bool started_{false};
+        std::size_t accept_attempts_{0};
 
         void accept_next() {
             if (stopped_) {
                 return;
             }
+            ++accept_attempts_;
             acceptor_.async_accept(boost::asio::bind_executor(strand_,
                 [this](const boost::system::error_code& ec, boost::asio::ip::tcp::socket socket) {
                     if (ec) {
@@ -113,9 +119,11 @@ namespace seftp::server {
         }
 
         void start_impl() {
-            if (stopped_) {
+            if (stopped_ || started_) {
                 return;
             }
+
+            started_ = true;
             accept_next();
         }
 

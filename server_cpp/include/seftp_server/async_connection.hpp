@@ -49,6 +49,8 @@ namespace seftp::server {
                 });
         }
 
+        friend struct AsyncConnectionTestAccessor;
+
         private:
         boost::asio::ip::tcp::socket socket_;
         std::array< protocol::Byte,protocol::kRequestHeaderSize > header_buffer_{};
@@ -59,6 +61,7 @@ namespace seftp::server {
         std::chrono::milliseconds read_timeout_;
         boost::asio::strand<boost::asio::ip::tcp::socket::executor_type> strand_;
         bool stopped_{false};
+        std::uint64_t read_generation_{0};
 
         void read_header() {
             if (stopped_) {
@@ -209,28 +212,18 @@ namespace seftp::server {
         void arm_read_timeout() {
             read_timer_.expires_after(read_timeout_);
             auto self = shared_from_this();
-            read_timer_.async_wait(boost::asio::bind_executor(strand_, [self](const boost::system::error_code& ec) {
-             if (ec == boost::asio::error::operation_aborted) {
-                 return;
-             }
-                if (ec) {
-                    log_line(
-                             "Arm read timeout failed: "
-                            + ec.message());
-                        return;
-                }
-                if (self->stopped_) {
-                    return;
-                }
-
-                log_line("Read timed out");
-                self->stop();
+            const auto captured_generation = ++read_generation_;
+            read_timer_.async_wait(boost::asio::bind_executor(strand_, [self,captured_generation](const boost::system::error_code& ec) {
+                self->handle_read_timeout(ec, captured_generation);
             }
             ));
         }
+
         void cancel_read_timeout() {
+            ++read_generation_;
             read_timer_.cancel();
         }
+
         void stop_impl() {
             if (stopped_) {
                 return;
@@ -252,6 +245,27 @@ namespace seftp::server {
             }
 
             read_header();
+        }
+
+        void handle_read_timeout(const boost::system::error_code& ec, const std::uint64_t captured_generation) {
+            if (ec == boost::asio::error::operation_aborted) {
+                return;
+            }
+            if (ec) {
+                log_line(
+                         "Arm read timeout failed: "
+                        + ec.message());
+                return;
+            }
+            if (captured_generation != read_generation_) {
+                return;
+            }
+            if (stopped_) {
+                return;
+            }
+
+            log_line("Read timed out");
+            stop_impl();
         }
     };
 }

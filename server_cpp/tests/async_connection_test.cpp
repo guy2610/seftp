@@ -12,6 +12,26 @@
 #include <vector>
 #include <chrono>
 
+
+
+namespace seftp::server {
+    struct AsyncConnectionTestAccessor {
+        static void invoke_timeout(AsyncConnection& connection,std::uint64_t generation) {
+            boost::system::error_code ec;
+            connection.handle_read_timeout(ec,generation);
+        }
+        static std::uint64_t get_generation(const AsyncConnection& connection) {
+            return connection.read_generation_;
+        }
+
+        static void post_timeout(std::shared_ptr<AsyncConnection> connection,std::uint64_t generation, bool& timeout_executed) {
+            boost::asio::post(connection->strand_, [connection,generation,&timeout_executed]() {
+                invoke_timeout(*connection,generation);
+                timeout_executed = true;
+            });
+        }
+    };
+}
 namespace {
 
 using tcp = boost::asio::ip::tcp;
@@ -135,23 +155,24 @@ ReceivedResponse read_response(tcp::socket& client) {
     };
 }
 
-    void run_until_response_available(
-        boost::asio::io_context& io_context,
-        tcp::socket& client
-    ) {
+    bool run_until_response_available(
+    boost::asio::io_context& io_context,
+    tcp::socket& client
+) {
     using namespace std::chrono_literals;
 
     const auto deadline =
         std::chrono::steady_clock::now() + 1s;
 
     while (client.available() < protocol::kResponseHeaderSize) {
-        ASSERT_LT(
-            std::chrono::steady_clock::now(),
-            deadline
-        ) << "Timed out waiting for server response";
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
 
         io_context.run_one_for(10ms);
     }
+
+    return true;
 }
 
 TEST(
@@ -359,10 +380,10 @@ TEST(
         boost::asio::buffer(request)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
     io_context,
     sockets.client
-);
+));
 
     const auto response =
         read_response(sockets.client);
@@ -409,10 +430,10 @@ TEST(
         boost::asio::buffer(request)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
     io_context,
     sockets.client
-);
+));
 
     const auto response =
         read_response(sockets.client);
@@ -456,10 +477,10 @@ TEST(
         boost::asio::buffer(hello)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
     io_context,
     sockets.client
-);
+));
 
     const auto hello_response =
         read_response(sockets.client);
@@ -485,10 +506,10 @@ TEST(
         boost::asio::buffer(ack)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
     io_context,
     sockets.client
-);
+));
 
     const auto ack_response =
         read_response(sockets.client);
@@ -511,10 +532,10 @@ TEST(
         boost::asio::buffer(upload)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
     io_context,
     sockets.client
-);
+));
 
     const auto upload_response =
         read_response(sockets.client);
@@ -576,15 +597,15 @@ TEST(
         boost::asio::buffer(upload_b)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
         io_context,
         sockets_a.client
-    );
+    ));
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
         io_context,
         sockets_b.client
-    );
+    ));
 
     const auto response_a =
         read_response(sockets_a.client);
@@ -628,15 +649,15 @@ TEST(
         boost::asio::buffer(hello_b)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
         io_context,
         sockets_a.client
-    );
+    ));
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
         io_context,
         sockets_b.client
-    );
+    ));
 
     const auto second_response_a =
         read_response(sockets_a.client);
@@ -784,10 +805,10 @@ TEST(
         boost::asio::buffer(request)
     );
 
-    run_until_response_available(
+    ASSERT_TRUE(run_until_response_available(
         io_context,
         sockets.client
-    );
+    ));
 
     const auto response =
         read_response(sockets.client);
@@ -919,5 +940,93 @@ TEST(
     }
 
     sockets.client.close(ec);
+}
+
+    TEST(AsyncConnectionTest,
+        StaleReadTimeoutDoesNotCloseConnection) {
+
+    boost::asio::io_context io_context;
+
+    auto sockets =
+        make_connected_sockets(io_context);
+
+    auto connection =
+        std::make_shared<
+            seftp::server::AsyncConnection
+        >(std::move(sockets.server));
+
+    connection->start();
+
+    ASSERT_EQ(io_context.run_one(), 1u);
+
+    const auto request1 =
+    make_request(protocol::RequestCode::ClientHello);
+
+
+    boost::asio::write(
+        sockets.client,
+        boost::asio::buffer(request1)
+    );
+
+    auto old_generation =seftp::server::AsyncConnectionTestAccessor::get_generation(*connection);
+
+    EXPECT_EQ(old_generation, 1u);
+
+    ASSERT_TRUE(run_until_response_available(
+    io_context, sockets.client
+));
+    const auto response1 = read_response(sockets.client);
+
+    EXPECT_EQ(response1.code,static_cast<std::uint16_t>(protocol::ResponseCode::ServerHello));
+
+    auto current_generation = seftp::server::AsyncConnectionTestAccessor::get_generation(*connection);
+
+    EXPECT_NE(old_generation, current_generation);
+
+    bool timeout_executed = false;
+
+    seftp::server::AsyncConnectionTestAccessor::post_timeout(
+        connection, old_generation, timeout_executed
+    );
+
+    while (!timeout_executed) {
+        if (io_context.run_one_for(
+                std::chrono::milliseconds(100)) == 0) {
+            break;
+                }
+    }
+
+    ASSERT_TRUE(timeout_executed);
+
+    const auto request2 =
+    make_request(protocol::RequestCode::ClientHandshakeAck);
+
+
+    boost::asio::write(
+        sockets.client,
+        boost::asio::buffer(request2)
+    );
+
+
+    ASSERT_TRUE(run_until_response_available(
+    io_context, sockets.client
+));
+
+    const auto response2 = read_response(sockets.client);
+
+    EXPECT_EQ(
+    response2.code,
+    static_cast<std::uint16_t>(
+        protocol::ResponseCode::MessageReceived
+    )
+);
+    connection->stop();
+
+    boost::system::error_code ec;
+    sockets.client.close(ec);
+
+    io_context.run();
+
+
 }
 } // namespace

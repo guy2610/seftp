@@ -1,4 +1,4 @@
-name: CI - SEFTP Client (CMake + GTest)
+name: CI - SEFTP C++ (Build, Test, Tooling)
 
 on:
   push:
@@ -37,3 +37,54 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build/seftp -C Release --output-on-failure
+
+  server-format:
+    name: C++ server formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install clang-format
+        run: python -m pip install clang-format==23.1.1
+
+      - name: Check server C++ formatting
+        run: |
+          find server_cpp -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) -print0 |
+            xargs -0 clang-format --dry-run --Werror
+
+  server-sanitizers:
+    name: C++ server ASan and UBSan
+    runs-on: ubuntu-latest
+
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "vcpkg.json"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+
+      - name: Configure sanitized build
+        run: >
+          cmake -S . -B build/sanitizers
+          -DCMAKE_BUILD_TYPE=Debug
+          -DSEFTP_ENABLE_SANITIZERS=ON
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build server tests
+        run: cmake --build build/sanitizers --target seftp_server_cpp_tests --parallel 2
+
+      - name: Run server tests with sanitizers
+        env:
+          ASAN_OPTIONS: "halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+        run: ./build/sanitizers/seftp_server_cpp_tests

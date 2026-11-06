@@ -319,7 +319,7 @@ Focused follow-up stage for production-facing observability, deployment hardenin
 
 Current status:
 
-Stage 9A production hardening, Stage 9B synchronous C++ foundation work, and Stage 9C asynchronous C++ networking/lifetime work are complete.
+Stage 9A production hardening, Stage 9B synchronous C++ foundation work, Stage 9C asynchronous C++ networking/lifetime work, and Stage 9C.1 developer-tooling hardening are complete.
 
 The stable Python asyncio server remains the feature-complete implementation. The C++ server remains an experimental systems-oriented implementation that is being developed incrementally rather than through a direct Python-to-C++ file translation.
 
@@ -396,6 +396,24 @@ Out of scope for Stage 9:
   * Add async integration-style tests for lifecycle, timeouts, shutdown, limits, and concurrency (DONE)
   * Add multi-threaded multi-client and repeated multi-request stress coverage (DONE)
   * Validate Stage 9C concurrency paths with ThreadSanitizer and fix the discovered logging race (DONE)
+  * Reject stale read timeout callbacks with a generation counter (DONE)
+  * Prevent duplicate server startup / parallel accept loops (DONE)
+  * Explicitly close async connections receiving oversized payload headers (DONE)
+
+* Track D - C++ developer tooling and reliability hardening (Stage 9C.1 - DONE)
+  * Establish `.clang-format` and format C++ server sources, headers, and tests (DONE)
+  * Add `.clang-tidy` and review a project-wide baseline without auto-fixing warnings (DONE)
+  * Enable server-target compiler warnings on GCC/Clang and MSVC (DONE)
+  * Add separate ASan/UBSan Debug build preset and run server tests (DONE)
+  * Add separate ThreadSanitizer build preset and exercise async/concurrency tests (DONE)
+  * Keep ASan/UBSan and TSan mutually exclusive in CMake (DONE)
+  * Harden socket cleanup and document best-effort error handling (DONE)
+  * Add CI checks for C++ server formatting and ASan/UBSan; preserve normal Ubuntu/Windows builds and tests (DONE)
+  * Keep `clang-tidy` and TSan non-blocking in CI pending baseline policy and coverage decisions (DONE)
+
+* Next C++ milestone (Stage 9D - TO BE SCOPED)
+  * Select a concrete functional goal and acceptance tests before implementation
+  * Preserve the stable Python server as the reference feature-complete path
 
 * Future upload model extensions
   * Evaluate resumable uploads across reconnects (protocol and persistence implications)

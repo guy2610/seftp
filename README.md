@@ -12,11 +12,12 @@ The system is not intended for production use. It is a portfolio-grade systems p
 
 Current development baseline: v0.9.0-draft
 
-Stage 9 now includes three completed C++/hardening milestones:
+Stage 9 now includes four completed milestones:
 
 - Stage 9A: runtime metrics export, optional local-only HTTP metrics, deployment-hardening guidance, and the protected Docker Compose demo
 - Stage 9B: runnable synchronous experimental C++ server foundation under `server_cpp/`
 - Stage 9C: asynchronous Boost.Asio server evolution with explicit connection lifetime, concurrent clients, timeouts, controlled shutdown, bounded connections, multi-threaded execution, and strand-based serialization
+- Stage 9C.1: C++ server quality tooling, targeted correctness fixes, sanitizers, and CI checks
 
 The Stage 9C C++ server now includes:
 
@@ -36,6 +37,8 @@ The Stage 9C C++ server now includes:
 - serialized console logging for multi-threaded execution
 - concurrent multi-client and multi-request stress coverage
 - ThreadSanitizer validation of the asynchronous concurrency paths
+
+Stage 9C.1 added `.clang-format` and `.clang-tidy`, target-scoped compiler warnings, separate ASan/UBSan and TSan CMake presets, and CI checks for C++ server formatting and ASan/UBSan. Follow-up correctness fixes include stale-timeout generation checks, idempotent server startup, explicit close on oversized async payloads, and simplified socket cleanup. The regular C++ build/test CI continues on Ubuntu and Windows; TSan remains a separate local validation path.
 
 The stable Python asyncio server remains the feature-complete implementation. The experimental C++ server still does not implement the real cryptographic handshake payloads, persistence, registration/key-exchange business logic, or streaming upload parity.
 
@@ -460,7 +463,9 @@ ctest --test-dir build/macos-arm64 --output-on-failure
 
 Stage 9C adds async connection/server coverage for ownership lifetime, multi-request sessions, independent concurrent connections, read/payload timeouts, explicit stop behavior, bounded active connections, multi-threaded `io_context` execution, and concurrent multi-request clients.
 
-The Stage 9C concurrency paths were also validated with a separate ThreadSanitizer build and CTest run. ThreadSanitizer initially exposed unsynchronized console logging under multi-threaded execution; logging is now serialized through a shared mutex and the final sanitizer run is clean.
+The Stage 9C concurrency paths were also validated with ThreadSanitizer. An earlier TSan run exposed unsynchronized console logging; logging is now protected by a shared mutex. Stage 9C.1 added dedicated ASan/UBSan and TSan build presets and regression checks for stale timeout callbacks, duplicate `start()` calls, and oversized-payload cleanup.
+
+The C++ CI also checks `clang-format` (version 23.1.1) and runs server tests under ASan/UBSan on Ubuntu. `clang-tidy` is available locally with a documented baseline, but is not yet a blocking CI check. See `server_cpp/README.md` and `docs/operations/setup_and_usage.md` for commands.
 
 CI validates the established stable-system paths including:
 - protocol correctness
@@ -540,8 +545,9 @@ Completed:
 - Stage 9A: production hardening, runtime metrics export, and protected deployment demo
 - Stage 9B: synchronous experimental C++ server foundation
 - Stage 9C: asynchronous Boost.Asio server evolution, multi-threaded execution, strands, timeouts, controlled shutdown, bounded connections, and concurrency validation
+- Stage 9C.1: C++ formatting, static-analysis baseline, compiler warnings, sanitizers, targeted reliability fixes, and CI validation
 
-Next C++ work is deliberately separate from Stage 9C and can focus on selected feature-parity work only after the async networking/ownership model is consolidated.
+Stage 9D is the next C++ development stage. Its functional scope should be selected explicitly before implementation; complete parity with the Python server is not implied.
 
 Future protocol work includes resumable uploads, parallel upload semantics, and a chunked AEAD upload redesign.
 

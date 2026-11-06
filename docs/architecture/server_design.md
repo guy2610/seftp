@@ -221,9 +221,10 @@ Stage 9C keeps those protocol/session layers and replaces the top-level networki
 - request headers and payloads are read with `async_read`; responses are sent with `async_write`
 - header, frame, and response buffers are members of the connection object so their storage remains alive until completion handlers run
 - each connection keeps its own `Session`, preserving protocol state across asynchronous request/response cycles
-- `steady_timer` enforces header/payload read deadlines and is cancelled when the matching read completes
-- `stop()` is idempotent and serialized through the connection strand before cancelling the timer and closing/cancelling the socket
+- `steady_timer` enforces header/payload read deadlines; read generations prevent stale, already-queued timeout callbacks from closing newer reads
+- `stop()` is idempotent and serialized through the connection strand; cleanup cancels the timer, shuts down TCP, and closes the socket (which cancels pending socket operations)
 - zero-byte EOF while waiting for the next header is treated as a normal peer disconnect; partial-frame failures remain errors
+- `AsyncServer::start()` is idempotent, preventing duplicate asynchronous accept loops
 - the server stores active connections as `weak_ptr`s so the registry observes lifetime without owning dead connections
 - active connections are bounded; the development default is 128
 - unexpected accept failures are logged and retried after a short asynchronous delay rather than permanently stopping acceptance or spinning in a busy loop
@@ -250,6 +251,8 @@ This allows different connections to make progress in parallel while preventing 
 Console logging is also serialized through a shared mutex. This was added after ThreadSanitizer detected a real race in concurrent writes to the standard stream even though repeated functional stress tests were passing.
 
 Stage 9C validation includes async connection/server tests for ownership lifetime, multi-request state, independent connection state, timeouts, stop/cancellation behavior, active-connection limits, multi-threaded execution, and concurrent repeated request flows. The full concurrency path was additionally exercised under ThreadSanitizer after the logging fix.
+
+Stage 9C.1 adds regression coverage for stale timeout callbacks, duplicate server startup, and oversized-payload socket closure. Sanitizer builds are separate: ASan/UBSan detects memory and undefined-behavior issues on exercised paths, while TSan targets data races. The project also uses compiler warnings, a `clang-tidy` baseline, and CI-enforced C++ server formatting and ASan/UBSan testing. None of these dynamic checks guarantees that unexercised paths are bug-free.
 
 The C++ implementation is still intentionally not feature-parity complete. It does not yet implement real Stage 7 cryptographic handshake payloads, SQLite persistence, registration/key-exchange business logic, streaming upload processing, or CRC lifecycle parity.
 

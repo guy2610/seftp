@@ -39,12 +39,15 @@ Implemented:
 - connection-owned header, frame, and response buffers with explicit async lifetime
 - per-connection `Session` state across repeated request/response cycles
 - header and payload read timeouts with `boost::asio::steady_timer`
+- read-generation checks to reject stale timeout callbacks after a newer read begins
 - cancellation-aware, idempotent `stop()` behavior
 - clean zero-byte EOF handling between requests
 - active-connection tracking with `std::weak_ptr`
 - bounded active-connection admission; development default: 128
 - controlled `SIGINT` / `SIGTERM` shutdown
 - delayed asynchronous retry after unexpected accept failures
+- idempotent server startup to prevent duplicate `async_accept` loops
+- explicit connection shutdown on oversized asynchronous payload headers
 - one strand for `AsyncServer` state
 - one independent strand per `AsyncConnection`
 - one `io_context` executed by four worker threads in the development executable
@@ -97,11 +100,11 @@ The server strand separately protects `AsyncServer` state. This keeps server-lev
 
 ## Timeouts and Shutdown
 
-Each connection owns a `steady_timer` used for pending header/payload reads. A successful read cancels the timer. A timeout stops the connection; cancellation caused by normal cleanup is ignored.
+Each connection owns a `steady_timer` used for pending header/payload reads. Each armed read also has a generation number. A successful read invalidates the previous generation and cancels its timer; a timeout callback only stops the connection if its generation is current. This prevents an already-queued, stale timeout completion from stopping a newer read. Normal `operation_aborted` completions are ignored.
 
 A peer that closes the socket while the server is waiting for a new header produces a zero-byte EOF and is treated as a normal disconnect. EOF after a partial frame remains an error.
 
-`SIGINT` and `SIGTERM` request server shutdown. Shutdown closes the acceptor, cancels the accept-retry timer, requests stop on active connections, and lets the `io_context` drain the resulting completion handlers before worker threads join. Stage 9C does not implement graceful application-level draining of in-flight requests; active sockets are closed as part of controlled shutdown.
+`SIGINT` and `SIGTERM` request server shutdown. Shutdown closes the acceptor, cancels the accept-retry timer, requests stop on active connections, and lets the `io_context` drain the resulting completion handlers before worker threads join. `AsyncServer` uses non-owning `[this]` captures, so its lifetime relies on this shutdown-and-join ordering; `stop()` alone is asynchronous and is not a completion barrier. Connection cleanup uses `shutdown()` followed by `close()`, which also cancels outstanding socket operations. Stage 9C does not implement graceful application-level draining of in-flight requests; active sockets are closed as part of controlled shutdown.
 
 Unexpected accept failures are retried through an asynchronous 100ms timer. This avoids both permanently disabling acceptance after one transient failure and a tight retry loop that would consume a worker thread/CPU.
 
@@ -115,8 +118,10 @@ The async test suites cover:
 - handshake-state routing
 - multiple requests on one connection
 - independent state across concurrent connections
-- header and payload read timeouts
+- header and payload read timeouts, including rejection of stale callbacks
 - explicit and idempotent stop behavior
+- idempotent server `start()` behavior and a duplicate-accept-loop regression test
+- explicit socket closure for oversized payload headers even while the test retains connection ownership
 - acceptor shutdown and active-connection shutdown
 - bounded active connections and slot reuse
 - multiple clients with a multi-threaded `io_context`
@@ -127,6 +132,19 @@ The concurrency stress test uses eight client threads against four server worker
 The same concurrency path was run under ThreadSanitizer. TSan exposed an unsynchronized `std::cout` race that was not visible as a functional failure in repeated stress runs. Console logging is now serialized through a shared mutex, and the final sanitizer validation is clean.
 
 There is no dedicated fault-injection test that forces a transient OS-level `accept` failure and then verifies recovery; the delayed retry policy is implemented in the server path, while shutdown/cancellation and normal acceptance are covered by the existing tests.
+
+## Stage 9C.1 - C++ Quality and Validation Tooling
+
+Stage 9C.1 is complete. It adds:
+
+- repository `.clang-format` configuration applied to server sources, headers, and tests
+- repository `.clang-tidy` baseline (`bugprone-*`, `performance-*`); remaining warnings are reviewed rather than hidden globally
+- compiler warnings scoped to C++ server and server-test targets: `-Wall -Wextra -Wpedantic` on GCC/Clang and `/W4` on MSVC
+- separate CMake presets for ASan/UBSan (`macos-arm64-sanitizers`) and TSan (`macos-arm64-tsan`); they cannot be enabled together
+- GitHub Actions checks for server formatting and ASan/UBSan on Ubuntu, alongside the existing C++ build and tests on Ubuntu and Windows
+- regression tests for stale read-timeout callbacks, duplicate server startup, and explicit oversized-payload connection closure
+
+ASan/UBSan server tests passed locally, and the asynchronous server/connection tests passed in the dedicated TSan build. Passing sanitizer runs do not prove the absence of memory or concurrency bugs. TSan is a local validation path, not currently a blocking CI job. `clang-tidy` is also not currently CI-blocking because its baseline contains reviewed outstanding warnings.
 
 ## Build and Run
 
@@ -149,6 +167,37 @@ Run the test suite:
 ```bash
 ctest --test-dir build/macos-arm64 --output-on-failure
 ```
+
+Build and run ASan/UBSan server tests on macOS:
+
+```bash
+cmake --preset macos-arm64-sanitizers
+cmake --build build/macos-arm64-sanitizers --target seftp_server_cpp_tests
+./build/macos-arm64-sanitizers/seftp_server_cpp_tests
+```
+
+Build and run ThreadSanitizer tests separately:
+
+```bash
+cmake --preset macos-arm64-tsan
+cmake --build build/macos-arm64-tsan --target seftp_server_cpp_tests
+TSAN_OPTIONS="halt_on_error=1:exitcode=66" ./build/macos-arm64-tsan/seftp_server_cpp_tests
+```
+
+Check formatting without modifying files:
+
+```bash
+find server_cpp -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) -print0 | \
+    xargs -0 clang-format --dry-run --Werror
+```
+
+For `clang-tidy` on macOS, use the active SDK to resolve the C++ standard library:
+
+```bash
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+    clang-tidy -p build/macos-arm64 server_cpp/src/server_main.cpp
+```
+
 
 Basic listener checks:
 

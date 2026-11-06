@@ -124,7 +124,45 @@ cmake --build build/macos-arm64
 ctest --test-dir build/macos-arm64 --output-on-failure
 ```
 
-Stage 9C was additionally validated with a separate ThreadSanitizer build. The sanitizer run is a development validation path rather than a separate runtime mode of the server.
+Stage 9C was additionally validated with ThreadSanitizer. Stage 9C.1 adds explicit CMake presets for ASan/UBSan and TSan; these are development-validation builds, not alternate runtime protocol modes.
+
+##### C++ server quality checks (Stage 9C.1)
+
+Formatting (requires `clang-format` 23.1.1 for reproducibility):
+
+```bash
+find server_cpp -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) -print0 | \
+    xargs -0 clang-format --dry-run --Werror
+```
+
+Static analysis on macOS (requires `clang-tidy` and an existing `compile_commands.json` from the CMake build):
+
+```bash
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+    clang-tidy -p build/macos-arm64 server_cpp/src/server_main.cpp
+```
+
+`clang-tidy` currently has reviewed outstanding warnings and is not a blocking CI check. Neither formatting nor analysis commands above modify source code.
+
+ASan/UBSan server tests:
+
+```bash
+cmake --preset macos-arm64-sanitizers
+cmake --build build/macos-arm64-sanitizers --target seftp_server_cpp_tests
+ASAN_OPTIONS="halt_on_error=1" UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+    ./build/macos-arm64-sanitizers/seftp_server_cpp_tests
+```
+
+TSan server tests (separate build; cannot be combined with ASan/UBSan):
+
+```bash
+cmake --preset macos-arm64-tsan
+cmake --build build/macos-arm64-tsan --target seftp_server_cpp_tests
+TSAN_OPTIONS="halt_on_error=1:exitcode=66" \
+    ./build/macos-arm64-tsan/seftp_server_cpp_tests
+```
+
+Compiler warnings are applied to C++ server and test targets via CMake. GitHub Actions runs regular C++ builds and tests on Ubuntu/Windows plus an Ubuntu-only formatting job and ASan/UBSan server-test job. TSan remains a local validation path, and `clang-tidy` remains non-blocking.
 
 #### Run Client
 

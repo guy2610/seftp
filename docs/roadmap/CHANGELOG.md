@@ -70,6 +70,19 @@ Stage 7 is functionally complete through v0.7.2. It includes the mandatory serve
   * stress-tested concurrent multi-request clients across multiple worker threads
   * validated the concurrency paths with ThreadSanitizer; fixed the logging race it exposed and completed a clean sanitizer run
 
+* Completed Stage 9C.1 C++ developer tooling and reliability hardening
+  * added `.clang-format` and formatted C++ server sources, headers, and tests
+  * added `.clang-tidy` configuration with `bugprone-*` and `performance-*` checks; reviewed the baseline without claiming zero warnings
+  * enabled target-scoped compiler diagnostics (`-Wall -Wextra -Wpedantic`, `/W4`)
+  * added separate ASan/UBSan and ThreadSanitizer CMake options and macOS presets, with a mutual-exclusion guard
+  * ran C++ server tests under ASan/UBSan and async/concurrency tests under TSan
+  * added Ubuntu CI jobs for C++ server formatting and ASan/UBSan, while preserving C++ build/test coverage on Ubuntu and Windows
+  * prevented stale timer callbacks from stopping newer reads by checking read generations; regression-tested the fix
+  * made `AsyncServer::start()` idempotent to prevent duplicate accept loops; regression-tested the fix
+  * closed async sockets explicitly after oversized-payload headers, even with live external connection ownership; regression-tested the fix
+  * simplified best-effort socket shutdown by removing a redundant `cancel()` before `close()`
+  * used explicit unsigned arithmetic in binary framing and size constants without changing the on-wire format
+
 **v0.8.0-draft - Stage 8 performance observability checkpoint**
 
 * Updated the load-test runner for Stage 7 protocol compatibility

@@ -3,11 +3,10 @@
 #include "seftp_server/protocol.hpp"
 
 #include <cstddef>
-#include <vector>
 #include <cstdint>
+#include <vector>
 
 #include "protocol.hpp"
-
 
 namespace seftp::server::protocol {
     struct ResponseFrame {
@@ -31,11 +30,11 @@ namespace seftp::server::protocol {
         const auto payload_size = static_cast<std::uint32_t>(frame.payload.size());
 
         for (std::size_t i = 0; i < kPayloadSizeFieldSize; ++i) {
-            bytes.push_back(static_cast<Byte>((payload_size >>(8*i)) & 0xFF));
+            bytes.push_back(static_cast<Byte>((payload_size >> (8 * i)) & 0xFF));
         }
 
         bytes.insert(bytes.end(), frame.payload.begin(), frame.payload.end());
 
         return bytes;
     }
-}
+} // namespace seftp::server::protocol

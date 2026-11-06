@@ -1,8 +1,8 @@
 #pragma once
 
+#include "seftp_server/frame_io.hpp"
 #include "seftp_server/protocol.hpp"
 #include "seftp_server/session.hpp"
-#include "seftp_server/frame_io.hpp"
 
 #include <boost/asio/ip/tcp.hpp>
 
@@ -16,14 +16,14 @@ namespace seftp::server::connection_handler {
         ProtocolError,
     };
 
-    inline ConnectionResult handle_one_request(boost::asio::ip::tcp::socket& socket, session::Session& session) {
+    inline ConnectionResult handle_one_request(boost::asio::ip::tcp::socket& socket,
+                                               session::Session& session) {
         const auto read_result = frameio::read_request_frame(socket);
 
         if (read_result.io_error.has_value()) {
-            if (*read_result.io_error ==
-                frameio::FrameIoError::ConnectionClosed) {
+            if (*read_result.io_error == frameio::FrameIoError::ConnectionClosed) {
                 return ConnectionResult::ConnectionLost;
-                }
+            }
 
             return ConnectionResult::ReadFailed;
         }
@@ -41,15 +41,11 @@ namespace seftp::server::connection_handler {
         const bool allowed = session.apply_request(request.code);
 
         protocol::ResponseFrame response{
-            request.version,
-            protocol::ResponseCode::MessageReceived,
-            {}
-        };
+            request.version, protocol::ResponseCode::MessageReceived, {}};
 
         if (!allowed) {
             response.code = protocol::ResponseCode::ServerError;
-        }
-        else if (request.code == protocol::RequestCode::ClientHello) {
+        } else if (request.code == protocol::RequestCode::ClientHello) {
             response.code = protocol::ResponseCode::ServerHello;
         }
 
@@ -66,7 +62,6 @@ namespace seftp::server::connection_handler {
         return ConnectionResult::ResponseSent;
     }
 
-
     inline ConnectionResult handle_connection(boost::asio::ip::tcp::socket& socket) {
         session::Session session;
         while (true) {
@@ -76,4 +71,4 @@ namespace seftp::server::connection_handler {
             }
         }
     }
-}
+} // namespace seftp::server::connection_handler

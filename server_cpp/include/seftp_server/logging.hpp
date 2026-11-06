@@ -19,4 +19,4 @@ namespace seftp::server {
         std::cerr << message << '\n';
     }
 
-}  // namespace seftp::server
+} // namespace seftp::server

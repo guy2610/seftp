@@ -13,220 +13,129 @@
 
 namespace {
 
-namespace asio = boost::asio;
-using tcp = asio::ip::tcp;
+    namespace asio = boost::asio;
+    using tcp = asio::ip::tcp;
 
-using seftp::server::connection_handler::ConnectionResult;
+    using seftp::server::connection_handler::ConnectionResult;
 
-using seftp::server::listener::AcceptFailed;
-using seftp::server::listener::ListenerResult;
-using seftp::server::listener::accept_one_connection;
+    using seftp::server::listener::accept_one_connection;
+    using seftp::server::listener::AcceptFailed;
+    using seftp::server::listener::ListenerResult;
 
-using seftp::server::protocol::Byte;
-using seftp::server::protocol::RequestCode;
-using seftp::server::protocol::ResponseCode;
-using seftp::server::protocol::ResponseFrame;
+    using seftp::server::protocol::Byte;
+    using seftp::server::protocol::RequestCode;
+    using seftp::server::protocol::ResponseCode;
+    using seftp::server::protocol::ResponseFrame;
 
-using seftp::server::protocol::kClientIdSize;
-using seftp::server::protocol::kPayloadSizeFieldSize;
-using seftp::server::protocol::kRequestHeaderSize;
-using seftp::server::protocol::kResponseHeaderSize;
+    using seftp::server::protocol::kClientIdSize;
+    using seftp::server::protocol::kPayloadSizeFieldSize;
+    using seftp::server::protocol::kRequestHeaderSize;
+    using seftp::server::protocol::kResponseHeaderSize;
 
-constexpr std::uint8_t kTestVersion = 7;
+    constexpr std::uint8_t kTestVersion = 7;
 
-std::vector<Byte> make_request_bytes(
-    RequestCode code,
-    const std::vector<Byte>& payload = {}
-) {
-    std::vector<Byte> bytes;
-    bytes.reserve(kRequestHeaderSize + payload.size());
+    std::vector<Byte> make_request_bytes(RequestCode code, const std::vector<Byte>& payload = {}) {
+        std::vector<Byte> bytes;
+        bytes.reserve(kRequestHeaderSize + payload.size());
 
-    for (std::size_t i = 0; i < kClientIdSize; ++i) {
-        bytes.push_back(static_cast<Byte>(i));
+        for (std::size_t i = 0; i < kClientIdSize; ++i) {
+            bytes.push_back(static_cast<Byte>(i));
+        }
+
+        bytes.push_back(kTestVersion);
+
+        const auto raw_code = static_cast<std::uint16_t>(code);
+
+        bytes.push_back(static_cast<Byte>(raw_code & 0xFF));
+
+        bytes.push_back(static_cast<Byte>((raw_code >> 8) & 0xFF));
+
+        const auto payload_size = static_cast<std::uint32_t>(payload.size());
+
+        for (std::size_t i = 0; i < kPayloadSizeFieldSize; ++i) {
+            bytes.push_back(static_cast<Byte>((payload_size >> (8 * i)) & 0xFF));
+        }
+
+        bytes.insert(bytes.end(), payload.begin(), payload.end());
+
+        return bytes;
     }
 
-    bytes.push_back(kTestVersion);
-
-    const auto raw_code =
-        static_cast<std::uint16_t>(code);
-
-    bytes.push_back(
-        static_cast<Byte>(raw_code & 0xFF)
-    );
-
-    bytes.push_back(
-        static_cast<Byte>((raw_code >> 8) & 0xFF)
-    );
-
-    const auto payload_size =
-        static_cast<std::uint32_t>(payload.size());
-
-    for (
-        std::size_t i = 0;
-        i < kPayloadSizeFieldSize;
-        ++i
-    ) {
-        bytes.push_back(
-            static_cast<Byte>(
-                (payload_size >> (8 * i)) & 0xFF
-            )
-        );
+    std::vector<Byte> expected_empty_response(ResponseCode code) {
+        return seftp::server::protocol::build_response_frame(ResponseFrame{kTestVersion, code, {}});
     }
 
-    bytes.insert(
-        bytes.end(),
-        payload.begin(),
-        payload.end()
-    );
+    TEST(ListenerTest, ReturnsAcceptFailedWhenAcceptorIsClosed) {
+        asio::io_context io_context;
 
-    return bytes;
-}
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
 
-std::vector<Byte> expected_empty_response(
-    ResponseCode code
-) {
-    return seftp::server::protocol::build_response_frame(
-        ResponseFrame{
-            kTestVersion,
-            code,
-            {}
-        }
-    );
-}
+        boost::system::error_code close_error;
+        acceptor.close(close_error);
 
-TEST(ListenerTest, ReturnsAcceptFailedWhenAcceptorIsClosed) {
-    asio::io_context io_context;
+        const ListenerResult result = accept_one_connection(acceptor);
 
-    tcp::acceptor acceptor(
-        io_context,
-        tcp::endpoint(tcp::v4(), 0)
-    );
+        EXPECT_TRUE(std::holds_alternative<AcceptFailed>(result));
+    }
 
-    boost::system::error_code close_error;
-    acceptor.close(close_error);
+    TEST(ListenerTest, ReturnsConnectionResultAfterAcceptedClientCloses) {
+        asio::io_context io_context;
 
-    const ListenerResult result =
-        accept_one_connection(acceptor);
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
 
-    EXPECT_TRUE(
-        std::holds_alternative<AcceptFailed>(result)
-    );
-}
+        const auto endpoint = acceptor.local_endpoint();
 
-TEST(ListenerTest, ReturnsConnectionResultAfterAcceptedClientCloses) {
-    asio::io_context io_context;
-
-    tcp::acceptor acceptor(
-        io_context,
-        tcp::endpoint(tcp::v4(), 0)
-    );
-
-    const auto endpoint =
-        acceptor.local_endpoint();
-
-    auto server_result = std::async(
-        std::launch::async,
-        [&acceptor] {
+        auto server_result = std::async(std::launch::async, [&acceptor] {
             return accept_one_connection(acceptor);
-        }
-    );
+        });
 
-    tcp::socket client(io_context);
+        tcp::socket client(io_context);
 
-    client.connect(
-        tcp::endpoint(
-            asio::ip::address_v4::loopback(),
-            endpoint.port()
-        )
-    );
+        client.connect(tcp::endpoint(asio::ip::address_v4::loopback(), endpoint.port()));
 
-    boost::system::error_code shutdown_error;
-    client.shutdown(
-        tcp::socket::shutdown_send,
-        shutdown_error
-    );
+        boost::system::error_code shutdown_error;
+        client.shutdown(tcp::socket::shutdown_send, shutdown_error);
 
-    const ListenerResult result =
-        server_result.get();
+        const ListenerResult result = server_result.get();
 
-    ASSERT_TRUE(
-        std::holds_alternative<ConnectionResult>(result)
-    );
+        ASSERT_TRUE(std::holds_alternative<ConnectionResult>(result));
 
-    EXPECT_EQ(
-        std::get<ConnectionResult>(result),
-        ConnectionResult::ConnectionLost
-    );
-}
+        EXPECT_EQ(std::get<ConnectionResult>(result), ConnectionResult::ConnectionLost);
+    }
 
-TEST(ListenerTest, AcceptsClientAndHandlesRequest) {
-    asio::io_context io_context;
+    TEST(ListenerTest, AcceptsClientAndHandlesRequest) {
+        asio::io_context io_context;
 
-    tcp::acceptor acceptor(
-        io_context,
-        tcp::endpoint(tcp::v4(), 0)
-    );
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
 
-    const auto endpoint =
-        acceptor.local_endpoint();
+        const auto endpoint = acceptor.local_endpoint();
 
-    auto server_result = std::async(
-        std::launch::async,
-        [&acceptor] {
+        auto server_result = std::async(std::launch::async, [&acceptor] {
             return accept_one_connection(acceptor);
-        }
-    );
+        });
 
-    tcp::socket client(io_context);
+        tcp::socket client(io_context);
 
-    client.connect(
-        tcp::endpoint(
-            asio::ip::address_v4::loopback(),
-            endpoint.port()
-        )
-    );
+        client.connect(tcp::endpoint(asio::ip::address_v4::loopback(), endpoint.port()));
 
-    const auto request =
-        make_request_bytes(RequestCode::ClientHello);
+        const auto request = make_request_bytes(RequestCode::ClientHello);
 
-    asio::write(
-        client,
-        asio::buffer(request)
-    );
+        asio::write(client, asio::buffer(request));
 
-    std::vector<Byte> response(
-        kResponseHeaderSize
-    );
+        std::vector<Byte> response(kResponseHeaderSize);
 
-    asio::read(
-        client,
-        asio::buffer(response)
-    );
+        asio::read(client, asio::buffer(response));
 
-    EXPECT_EQ(
-        response,
-        expected_empty_response(
-            ResponseCode::ServerHello
-        )
-    );
+        EXPECT_EQ(response, expected_empty_response(ResponseCode::ServerHello));
 
-    boost::system::error_code shutdown_error;
-    client.shutdown(
-        tcp::socket::shutdown_send,
-        shutdown_error
-    );
+        boost::system::error_code shutdown_error;
+        client.shutdown(tcp::socket::shutdown_send, shutdown_error);
 
-    const ListenerResult result =
-        server_result.get();
+        const ListenerResult result = server_result.get();
 
-    ASSERT_TRUE(
-        std::holds_alternative<ConnectionResult>(result)
-    );
+        ASSERT_TRUE(std::holds_alternative<ConnectionResult>(result));
 
-    EXPECT_EQ(
-        std::get<ConnectionResult>(result),
-        ConnectionResult::ConnectionLost
-    );
-}
+        EXPECT_EQ(std::get<ConnectionResult>(result), ConnectionResult::ConnectionLost);
+    }
 
 } // namespace

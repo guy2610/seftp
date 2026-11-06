@@ -9,13 +9,12 @@ namespace seftp::server {
         AcceptFailed,
     };
 
-    inline ServerResult run_server(boost::asio::ip::tcp::acceptor &acceptor) {
+    inline ServerResult run_server(boost::asio::ip::tcp::acceptor& acceptor) {
         while (true) {
             const auto result = listener::accept_one_connection(acceptor);
             if (std::holds_alternative<listener::AcceptFailed>(result)) {
                 return ServerResult::AcceptFailed;
             }
-
         }
     }
-}
+} // namespace seftp::server

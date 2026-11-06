@@ -2,13 +2,11 @@
 
 #include "seftp_server/protocol.hpp"
 
-#include <optional>
-#include <vector>
+#include <algorithm>
 #include <array>
 #include <cstdint>
-#include <algorithm>
-
-
+#include <optional>
+#include <vector>
 
 namespace seftp::server::protocol {
     struct RequestFrame {
@@ -30,74 +28,68 @@ namespace seftp::server::protocol {
         std::optional<ParseError> error;
     };
 
-     inline std::optional<RequestCode> request_code_from_raw(std::uint16_t raw) {
+    inline std::optional<RequestCode> request_code_from_raw(std::uint16_t raw) {
         switch (raw) {
-            case static_cast<std::uint16_t>(RequestCode::Register):
-                return RequestCode::Register;
-            case static_cast<std::uint16_t>(RequestCode::SendPublicKey):
-                return RequestCode::SendPublicKey;
-            case static_cast<std::uint16_t>(RequestCode::Reconnect):
-                return RequestCode::Reconnect;
-            case static_cast<std::uint16_t>(RequestCode::Upload):
-                return RequestCode::Upload;
-            case static_cast<std::uint16_t>(RequestCode::ClientHello):
-                return RequestCode::ClientHello;
-            case static_cast<std::uint16_t>(RequestCode::ClientHandshakeAck):
-                return RequestCode::ClientHandshakeAck;
-            default:
-                return std::nullopt;
+        case static_cast<std::uint16_t>(RequestCode::Register):
+            return RequestCode::Register;
+        case static_cast<std::uint16_t>(RequestCode::SendPublicKey):
+            return RequestCode::SendPublicKey;
+        case static_cast<std::uint16_t>(RequestCode::Reconnect):
+            return RequestCode::Reconnect;
+        case static_cast<std::uint16_t>(RequestCode::Upload):
+            return RequestCode::Upload;
+        case static_cast<std::uint16_t>(RequestCode::ClientHello):
+            return RequestCode::ClientHello;
+        case static_cast<std::uint16_t>(RequestCode::ClientHandshakeAck):
+            return RequestCode::ClientHandshakeAck;
+        default:
+            return std::nullopt;
         }
     }
 
     inline ParseResult parse_request_frame(const std::vector<Byte>& bytes) {
-         if (bytes.size() < kRequestHeaderSize) {
-             return {std::nullopt, ParseError::IncompleteHeader};
-         }
+        if (bytes.size() < kRequestHeaderSize) {
+            return {std::nullopt, ParseError::IncompleteHeader};
+        }
 
-         RequestFrame frame;
-         std::size_t offset = 0;
+        RequestFrame frame;
+        std::size_t offset = 0;
 
-         std::copy_n(
-             bytes.begin(),
-             kClientIdSize,
-             frame.client_id.begin()
-         );
-         offset += kClientIdSize;
+        std::copy_n(bytes.begin(), kClientIdSize, frame.client_id.begin());
+        offset += kClientIdSize;
 
-         frame.version = bytes[offset];
-         offset += kVersionSize;
+        frame.version = bytes[offset];
+        offset += kVersionSize;
 
-         const std::uint16_t raw_code =
-             static_cast<std::uint16_t>(bytes[offset]) |
-             (static_cast<std::uint16_t>(bytes[offset + 1]) << 8);
+        const std::uint16_t raw_code = static_cast<std::uint16_t>(bytes[offset]) |
+                                       (static_cast<std::uint16_t>(bytes[offset + 1]) << 8);
 
-         offset += kCodeSize;
+        offset += kCodeSize;
 
-         const auto code = request_code_from_raw(raw_code);
-         if (!code.has_value()) {
-             return {std::nullopt, ParseError::UnknownRequestCode};
-         }
+        const auto code = request_code_from_raw(raw_code);
+        if (!code.has_value()) {
+            return {std::nullopt, ParseError::UnknownRequestCode};
+        }
 
-         frame.code = code.value();
+        frame.code = code.value();
 
-         std::uint32_t payload_size = 0;
+        std::uint32_t payload_size = 0;
 
-         for (std::size_t i = 0; i < kPayloadSizeFieldSize; ++i) {
-             payload_size |=
-                 static_cast<std::uint32_t>(bytes[offset + i]) << (8 * i);
-         }
+        for (std::size_t i = 0; i < kPayloadSizeFieldSize; ++i) {
+            payload_size |= static_cast<std::uint32_t>(bytes[offset + i]) << (8 * i);
+        }
 
-         offset += kPayloadSizeFieldSize;
+        offset += kPayloadSizeFieldSize;
 
-         const std::size_t expected_size =
-             kRequestHeaderSize + static_cast<std::size_t>(payload_size);
+        const std::size_t expected_size =
+            kRequestHeaderSize + static_cast<std::size_t>(payload_size);
 
-         if (bytes.size() != expected_size) {
-             return {std::nullopt, ParseError::PayloadSizeMismatch};
-         }
+        if (bytes.size() != expected_size) {
+            return {std::nullopt, ParseError::PayloadSizeMismatch};
+        }
 
-         frame.payload.assign(bytes.begin() + offset, bytes.end());
+        frame.payload.assign(bytes.begin() + offset, bytes.end());
 
-         return {std::move(frame), std::nullopt};
-     }
-}
+        return {std::move(frame), std::nullopt};
+    }
+} // namespace seftp::server::protocol

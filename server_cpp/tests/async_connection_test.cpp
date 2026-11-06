@@ -155,7 +155,7 @@ namespace {
         EXPECT_FALSE(weak_connection.expired());
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
 
@@ -193,7 +193,7 @@ namespace {
         EXPECT_FALSE(weak_connection.expired());
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
 
@@ -287,7 +287,7 @@ namespace {
         EXPECT_EQ(response.payload_size, 0u);
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
     }
@@ -312,7 +312,7 @@ namespace {
         EXPECT_EQ(response.code, static_cast<std::uint16_t>(protocol::ResponseCode::ServerError));
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
     }
@@ -366,7 +366,7 @@ namespace {
                   static_cast<std::uint16_t>(protocol::ResponseCode::MessageReceived));
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
     }
@@ -432,8 +432,8 @@ namespace {
 
         boost::system::error_code ec;
 
-        sockets_a.client.close(ec);
-        sockets_b.client.close(ec);
+        static_cast<void>(sockets_a.client.close(ec));
+        static_cast<void>(sockets_b.client.close(ec));
 
         io_context.run();
     }
@@ -461,7 +461,7 @@ namespace {
         EXPECT_TRUE(weak_connection.expired());
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
     }
 
     TEST(AsyncConnectionTest, PayloadReadTimeoutReleasesConnection) {
@@ -492,7 +492,7 @@ namespace {
         EXPECT_TRUE(weak_connection.expired());
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
     }
 
     TEST(AsyncConnectionTest, RequestBeforeTimeoutReceivesResponseNormally) {
@@ -523,7 +523,7 @@ namespace {
         // End the connection explicitly instead of waiting
         // for the timeout of the next request.
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
 
@@ -552,7 +552,7 @@ namespace {
         EXPECT_TRUE(weak_connection.expired());
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
     }
 
     TEST(AsyncConnectionTest, StopIsIdempotent) {
@@ -575,7 +575,7 @@ namespace {
         io_context.run();
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
     }
 
     TEST(AsyncConnectionTest, StopPreventsPendingRequestFromBeingProcessed) {
@@ -609,7 +609,7 @@ namespace {
             EXPECT_EQ(available, 0u);
         }
 
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
     }
 
     TEST(AsyncConnectionTest, StaleReadTimeoutDoesNotCloseConnection) {
@@ -670,7 +670,7 @@ namespace {
         connection->stop();
 
         boost::system::error_code ec;
-        sockets.client.close(ec);
+        static_cast<void>(sockets.client.close(ec));
 
         io_context.run();
     }

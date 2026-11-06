@@ -211,11 +211,10 @@ namespace seftp::server {
             read_timer_.cancel();
             boost::system::error_code ignored;
 
-            socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored);
+            static_cast<void>(
+                socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored));
 
-            socket_.cancel(ignored);
-
-            socket_.close(ignored);
+            static_cast<void>(socket_.close(ignored));
         }
 
         void start_impl() {

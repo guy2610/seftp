@@ -4,6 +4,26 @@ project(SEFTP LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(SEFTP_ENABLE_SANITIZERS "Enable ASan and UBSan for C++ server" OFF)
+
+function(seftp_enable_sanitizers target)
+    if (NOT SEFTP_ENABLE_SANITIZERS)
+        return()
+    endif()
+
+    if (CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+        target_compile_options(${target} PRIVATE
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
+        )
+        target_link_options(${target} PRIVATE
+            -fsanitize=address,undefined
+        )
+    else()
+        message(FATAL_ERROR "Sanitizers are unsupported with this compiler")
+    endif()
+endfunction()
+
 # Enable compiler diagnostics for our C++ server targets.
 function(seftp_enable_warnings target)
     if (MSVC)
@@ -60,6 +80,8 @@ add_custom_command(TARGET seftp_client POST_BUILD
 add_executable(seftp_server_cpp
     server_cpp/src/server_main.cpp
 )
+
+seftp_enable_sanitizers(seftp_server_cpp)
 
 seftp_enable_warnings(seftp_server_cpp)
 
@@ -142,6 +164,8 @@ if (BUILD_TESTING)
     )
 
     seftp_enable_warnings(seftp_server_cpp_tests)
+
+    seftp_enable_sanitizers(seftp_server_cpp_tests)
 
     gtest_discover_tests(seftp_server_cpp_tests)
 endif()

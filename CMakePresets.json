@@ -18,6 +18,15 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "arm64-osx"
       }
+    },
+    {
+      "name": "macos-arm64-sanitizers",
+      "inherits": "macos-arm64",
+      "binaryDir": "${sourceDir}/build/macos-arm64-sanitizers",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SEFTP_ENABLE_SANITIZERS": "ON"
+      }
     }
   ],
   "buildPresets": [

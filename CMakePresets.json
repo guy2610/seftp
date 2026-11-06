@@ -27,6 +27,16 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "SEFTP_ENABLE_SANITIZERS": "ON"
       }
+    },
+    {
+      "name": "macos-arm64-tsan",
+      "inherits": "macos-arm64",
+      "binaryDir": "${sourceDir}/build/macos-arm64-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "SEFTP_ENABLE_SANITIZERS": "OFF",
+        "SEFTP_ENABLE_THREAD_SANITIZER": "ON"
+      }
     }
   ],
   "buildPresets": [

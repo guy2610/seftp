@@ -6,6 +6,30 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(SEFTP_ENABLE_SANITIZERS "Enable ASan and UBSan for C++ server" OFF)
 
+option(SEFTP_ENABLE_THREAD_SANITIZER "Enable TSan for C++ server" OFF)
+
+if (SEFTP_ENABLE_SANITIZERS AND SEFTP_ENABLE_THREAD_SANITIZER)
+    message(FATAL_ERROR "ASan/UBSan and TSan cannot be enabled together")
+endif()
+
+function(seftp_enable_thread_sanitizer target)
+    if (NOT SEFTP_ENABLE_THREAD_SANITIZER)
+        return()
+    endif()
+
+    if (CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+        target_compile_options(${target} PRIVATE
+            -fsanitize=thread
+            -fno-omit-frame-pointer
+        )
+        target_link_options(${target} PRIVATE
+            -fsanitize=thread
+        )
+    else()
+        message(FATAL_ERROR "ThreadSanitizer is unsupported with this compiler")
+    endif()
+endfunction()
+
 function(seftp_enable_sanitizers target)
     if (NOT SEFTP_ENABLE_SANITIZERS)
         return()
@@ -82,6 +106,7 @@ add_executable(seftp_server_cpp
 )
 
 seftp_enable_sanitizers(seftp_server_cpp)
+seftp_enable_thread_sanitizer(seftp_server_cpp)
 
 seftp_enable_warnings(seftp_server_cpp)
 
@@ -166,6 +191,7 @@ if (BUILD_TESTING)
     seftp_enable_warnings(seftp_server_cpp_tests)
 
     seftp_enable_sanitizers(seftp_server_cpp_tests)
+seftp_enable_thread_sanitizer(seftp_server_cpp_tests)
 
     gtest_discover_tests(seftp_server_cpp_tests)
 endif()

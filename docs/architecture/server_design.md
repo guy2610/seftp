@@ -232,19 +232,7 @@ Stage 9C keeps those protocol/session layers and replaces the top-level networki
 
 The development executable binds to `127.0.0.1:1234` and runs one `io_context` from four worker threads.
 
-Concurrency is serialized at object boundaries rather than by forcing the entire server onto one thread:
-
-```text
-io_context
-  +-- worker 1
-  +-- worker 2
-  +-- worker 3
-  +-- worker 4
-
-AsyncServer state      -> server strand
-AsyncConnection A      -> connection strand A
-AsyncConnection B      -> connection strand B
-```
+Concurrency is serialized at object boundaries rather than by forcing the entire server onto one thread. See the C++ concurrency diagram in Section 6.
 
 This allows different connections to make progress in parallel while preventing handlers belonging to the same connection from mutating its session, buffers, timers, socket lifecycle, or stop state concurrently. Server-level acceptance, registry, retry-timer, and shutdown state are serialized separately through the server strand.
 
@@ -348,6 +336,38 @@ The C++ implementation avoids a single global serialization point. Instead:
 - public `start()` / `stop()` entrypoints post or dispatch into the owning strand before touching internal mutable state
 
 This model preserves parallelism between clients while making the synchronization boundary explicit for each stateful object.
+
+
+### C++ Async Concurrency Topology
+
+```mermaid
+flowchart TB
+    subgraph Workers["Worker thread pool"]
+        direction LR
+        W1["Thread 1"]
+        W2["Thread 2"]
+        W3["Thread 3"]
+        W4["Thread 4"]
+    end
+
+    IO["ONE shared io_context"]
+
+    Workers -->|"All workers call run()"| IO
+
+    subgraph Handlers["Async handlers sharing the same io_context"]
+        direction LR
+        S["AsyncServer / Server Strand"]
+        A["AsyncConnection A / Strand A"]
+        B["AsyncConnection B / Strand B"]
+        C["AsyncConnection C / Strand C"]
+    end
+
+    IO -->|"Ready callbacks execute on worker threads"| Handlers
+```
+
+The diagram represents handler scheduling, not dedicated execution paths.
+All four workers execute the same `io_context`. Each connection has its own strand, which serializes its handlers without assigning them to a specific worker thread. Different connections can execute concurrently.
+
 
 Resource usage is also bounded. The C++ server rejects newly accepted sockets once the configured active-connection limit is reached, while continuing to serve already-admitted connections and resuming admission after expired connection entries are pruned. The current development default is 128 active connections.
 

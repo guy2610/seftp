@@ -88,6 +88,8 @@ endif()
 
 find_package(boost_system CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
+find_package(utf8proc CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
 target_link_libraries(seftp_client PRIVATE Boost::system Boost::asio)
 
 find_package(cryptopp CONFIG REQUIRED)
@@ -103,6 +105,8 @@ add_custom_command(TARGET seftp_client POST_BUILD
 
 add_executable(seftp_server_cpp
     server_cpp/src/server_main.cpp
+    server_cpp/src/registration_validation.cpp
+    server_cpp/src/client_repository.cpp
 )
 
 seftp_enable_sanitizers(seftp_server_cpp)
@@ -117,6 +121,9 @@ target_include_directories(seftp_server_cpp PRIVATE
 target_link_libraries(seftp_server_cpp PRIVATE
     Boost::system
     Boost::asio
+    utf8proc::utf8proc
+    unofficial::sqlite3::sqlite3
+    cryptopp::cryptopp
 )
 
 include(CTest)
@@ -168,6 +175,10 @@ if (BUILD_TESTING)
 
     add_executable(seftp_server_cpp_tests
             server_cpp/tests/protocol_constants_test.cpp
+            server_cpp/tests/registration_validation_test.cpp
+            server_cpp/src/registration_validation.cpp
+            server_cpp/tests/client_repository_test.cpp
+            server_cpp/src/client_repository.cpp
             server_cpp/tests/request_frame_test.cpp
             server_cpp/tests/response_frame_test.cpp
             server_cpp/tests/router_test.cpp
@@ -186,6 +197,9 @@ if (BUILD_TESTING)
             GTest::gtest_main
             Boost::system
             Boost::asio
+            utf8proc::utf8proc
+            unofficial::sqlite3::sqlite3
+            cryptopp::cryptopp
     )
 
     seftp_enable_warnings(seftp_server_cpp_tests)

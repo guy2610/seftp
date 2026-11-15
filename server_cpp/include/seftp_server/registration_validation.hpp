@@ -17,7 +17,6 @@ namespace seftp::server::application {
     };
 
     // Pure validation: returns original UTF-8 username on success; no I/O.
-    RegistrationInputResult validate_registration_request(
-        const protocol::RequestFrame& request);
+    RegistrationInputResult validate_registration_request(const protocol::RequestFrame& request);
 
 } // namespace seftp::server::application

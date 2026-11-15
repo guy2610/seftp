@@ -203,6 +203,10 @@ if (BUILD_TESTING)
     )
 
     seftp_enable_warnings(seftp_server_cpp_tests)
+    if (MSVC)
+        target_compile_options(seftp_server_cpp PRIVATE /utf-8)
+        target_compile_options(seftp_server_cpp_tests PRIVATE /utf-8)
+    endif()
 
     seftp_enable_sanitizers(seftp_server_cpp_tests)
 seftp_enable_thread_sanitizer(seftp_server_cpp_tests)

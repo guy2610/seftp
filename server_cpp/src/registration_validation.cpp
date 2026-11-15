@@ -1,22 +1,18 @@
 #include "seftp_server/registration_validation.hpp"
 
-#include <utf8proc.h>
 #include <algorithm>
+#include <utf8proc.h>
 
 namespace seftp::server::application {
 
     namespace {
         bool is_unicode_alphanumeric(utf8proc_category_t category) {
-            return category == UTF8PROC_CATEGORY_LO ||
-                   category == UTF8PROC_CATEGORY_LM ||
-                   category == UTF8PROC_CATEGORY_LT ||
-                   category == UTF8PROC_CATEGORY_LL ||
-                   category == UTF8PROC_CATEGORY_LU ||
-                   category == UTF8PROC_CATEGORY_NO ||
-                   category == UTF8PROC_CATEGORY_NL ||
-                   category == UTF8PROC_CATEGORY_ND;
+            return category == UTF8PROC_CATEGORY_LO || category == UTF8PROC_CATEGORY_LM ||
+                   category == UTF8PROC_CATEGORY_LT || category == UTF8PROC_CATEGORY_LL ||
+                   category == UTF8PROC_CATEGORY_LU || category == UTF8PROC_CATEGORY_NO ||
+                   category == UTF8PROC_CATEGORY_NL || category == UTF8PROC_CATEGORY_ND;
         }
-    }
+    } // namespace
 
     RegistrationInputResult validate_registration_request(const protocol::RequestFrame& request) {
         if (request.code != protocol::RequestCode::Register) {
@@ -38,7 +34,7 @@ namespace seftp::server::application {
             return {RegistrationInputStatus::InvalidUsername, {}};
         }
 
-        for (std::size_t i = 0; i < request.payload.size()-1; ++i) {
+        for (std::size_t i = 0; i < request.payload.size() - 1; ++i) {
             if (request.payload[i] == '\0') {
                 return {RegistrationInputStatus::Malformed, {}};
             }
@@ -57,7 +53,7 @@ namespace seftp::server::application {
 
         int32_t codepoint;
         bool invalid_username = false;
-        std::size_t codepoint_counter = 0 ;
+        std::size_t codepoint_counter = 0;
 
         while (remaining_bytes > 0) {
             utf8proc_ssize_t bytes_read = utf8proc_iterate(ptr, remaining_bytes, &codepoint);
@@ -68,10 +64,8 @@ namespace seftp::server::application {
             bool valid_character = is_unicode_alphanumeric(category);
 
             if (codepoint_counter > 0) {
-                valid_character = valid_character ||
-                                  codepoint == '.' ||
-                                  codepoint == '-' ||
-                                  codepoint == '_';
+                valid_character =
+                    valid_character || codepoint == '.' || codepoint == '-' || codepoint == '_';
             }
             if (!valid_character) {
                 invalid_username = true;

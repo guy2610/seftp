@@ -22,7 +22,8 @@ namespace {
     }
 
     TEST(RegistrationValidationTest, AcceptsAsciiUsername) {
-        const auto result = application::validate_registration_request(make_registration("alice_42"));
+        const auto result =
+            application::validate_registration_request(make_registration("alice_42"));
         EXPECT_EQ(result.status, application::RegistrationInputStatus::Valid);
         EXPECT_EQ(result.username, "alice_42");
     }
@@ -56,8 +57,10 @@ namespace {
 
     TEST(RegistrationValidationTest, RejectsInvalidUsernameCharacters) {
         for (const auto username : {"-alice", "alice bob", "../evil", "alice/bob", "a\n"}) {
-            EXPECT_EQ(application::validate_registration_request(make_registration(username)).status,
-                      application::RegistrationInputStatus::InvalidUsername) << username;
+            EXPECT_EQ(
+                application::validate_registration_request(make_registration(username)).status,
+                application::RegistrationInputStatus::InvalidUsername)
+                << username;
         }
         EXPECT_EQ(application::validate_registration_request(make_registration(u8"a\u0301")).status,
                   application::RegistrationInputStatus::InvalidUsername);
@@ -105,11 +108,9 @@ namespace {
         auto frame = make_registration("alice");
         frame.payload.clear();
 
-        const auto result =
-            application::validate_registration_request(frame);
+        const auto result = application::validate_registration_request(frame);
 
-        EXPECT_EQ(result.status,
-                  application::RegistrationInputStatus::Malformed);
+        EXPECT_EQ(result.status, application::RegistrationInputStatus::Malformed);
     }
 
     TEST(RegistrationValidationTest, MalformedUtf8TakesPriorityOverInvalidCharacter) {
@@ -121,11 +122,9 @@ namespace {
         frame.payload.push_back(0x28);
         frame.payload.push_back(0x00);
 
-        const auto result =
-            application::validate_registration_request(frame);
+        const auto result = application::validate_registration_request(frame);
 
-        EXPECT_EQ(result.status,
-                  application::RegistrationInputStatus::Malformed);
+        EXPECT_EQ(result.status, application::RegistrationInputStatus::Malformed);
     }
 
     TEST(RegistrationValidationTest, MalformedUtf8TakesPriorityOverExcessiveLength) {
@@ -137,11 +136,9 @@ namespace {
         frame.payload.push_back(0x28);
         frame.payload.push_back(0x00);
 
-        const auto result =
-            application::validate_registration_request(frame);
+        const auto result = application::validate_registration_request(frame);
 
-        EXPECT_EQ(result.status,
-                  application::RegistrationInputStatus::Malformed);
+        EXPECT_EQ(result.status, application::RegistrationInputStatus::Malformed);
     }
 
 } // namespace

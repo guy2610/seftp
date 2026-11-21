@@ -104,9 +104,10 @@ add_custom_command(TARGET seftp_client POST_BUILD
 )
 
 add_executable(seftp_server_cpp
-    server_cpp/src/server_main.cpp
-    server_cpp/src/registration_validation.cpp
-    server_cpp/src/client_repository.cpp
+        server_cpp/src/server_main.cpp
+        server_cpp/src/registration_validation.cpp
+        server_cpp/src/client_repository.cpp
+        server_cpp/src/db_executor.cpp
 )
 
 seftp_enable_sanitizers(seftp_server_cpp)
@@ -188,6 +189,8 @@ if (BUILD_TESTING)
             server_cpp/tests/listener_test.cpp
             server_cpp/tests/async_connection_test.cpp
             server_cpp/tests/async_server_test.cpp
+            server_cpp/tests/db_executor_test.cpp
+            server_cpp/src/db_executor.cpp
     )
     target_include_directories(seftp_server_cpp_tests PRIVATE
             server_cpp/include

@@ -10,10 +10,12 @@
 #include <chrono>
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include "seftp_server/async_connection.hpp"
+#include "seftp_server/db_executor.hpp"
 #include "seftp_server/logging.hpp"
 
 namespace seftp::server {
@@ -22,10 +24,17 @@ namespace seftp::server {
     class AsyncServer {
     public:
         explicit AsyncServer(boost::asio::ip::tcp::acceptor& acceptor,
+                             std::shared_ptr<persistence::DbExecutor> db_executor,
                              std::size_t max_active_connections = kDefaultMaxActiveConnections)
             : acceptor_(acceptor), max_active_connections_(max_active_connections),
+              db_executor_(std::move(db_executor)),
               strand_(boost::asio::make_strand(acceptor_.get_executor())),
-              accept_retry_timer_(acceptor_.get_executor()) {}
+              accept_retry_timer_(acceptor_.get_executor()) {
+
+            if (!db_executor_) {
+                throw std::invalid_argument("db_executor is nullptr");
+            }
+        }
 
         void start() {
             boost::asio::post(strand_, [this]() {
@@ -44,6 +53,7 @@ namespace seftp::server {
         boost::asio::ip::tcp::acceptor& acceptor_;
         std::vector<std::weak_ptr<AsyncConnection>> connections_;
         std::size_t max_active_connections_;
+        std::shared_ptr<persistence::DbExecutor> db_executor_;
         boost::asio::strand<boost::asio::ip::tcp::acceptor::executor_type> strand_;
         boost::asio::steady_timer accept_retry_timer_;
         bool stopped_{false};
@@ -79,7 +89,8 @@ namespace seftp::server {
                         accept_next();
                         return;
                     }
-                    auto connection = std::make_shared<AsyncConnection>(std::move(socket));
+                    auto connection =
+                        std::make_shared<AsyncConnection>(std::move(socket), db_executor_);
                     connections_.push_back(connection);
                     connection->start();
                     accept_next();

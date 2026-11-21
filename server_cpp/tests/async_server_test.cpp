@@ -1,4 +1,6 @@
 #include "seftp_server/async_server.hpp"
+#include "test_db_executor_factory.hpp"
+#include <stdexcept>
 
 #include <boost/asio.hpp>
 #include <gtest/gtest.h>
@@ -86,7 +88,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor());
 
         server.start();
 
@@ -107,7 +110,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor());
 
         server.start();
 
@@ -126,7 +130,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor());
 
         server.start();
 
@@ -169,7 +174,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor());
 
         server.start();
 
@@ -223,7 +229,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor, 1);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor(), 1);
 
         server.start();
 
@@ -277,7 +284,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor, 1);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor(), 1);
 
         server.start();
 
@@ -321,7 +329,8 @@ namespace {
         tcp::acceptor acceptor(server_io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor, 16);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor(), 16);
 
         server.start();
 
@@ -425,7 +434,8 @@ namespace {
         tcp::acceptor acceptor(server_io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor, 16);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor(), 16);
 
         server.start();
 
@@ -490,7 +500,8 @@ namespace {
         tcp::acceptor acceptor(io_context,
                                tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
 
-        seftp::server::AsyncServer server(acceptor, 16);
+        seftp::server::AsyncServer server(acceptor,
+                                          seftp::server::test_support::make_test_db_executor(), 16);
 
         server.start();
         server.start();
@@ -503,3 +514,10 @@ namespace {
         io_context.run();
     }
 } // namespace
+
+TEST(AsyncServerTest, RejectsNullDbExecutor) {
+    boost::asio::io_context io_context;
+    boost::asio::ip::tcp::acceptor acceptor(io_context);
+
+    EXPECT_THROW(seftp::server::AsyncServer(acceptor, nullptr), std::invalid_argument);
+}

@@ -1,5 +1,6 @@
 #include "seftp_server/async_connection.hpp"
 #include "seftp_server/protocol.hpp"
+#include "test_db_executor_factory.hpp"
 
 #include <boost/asio.hpp>
 
@@ -140,8 +141,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -169,8 +170,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -207,8 +208,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -240,8 +241,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 
@@ -267,8 +268,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 
@@ -296,8 +297,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 
@@ -321,8 +322,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 
@@ -377,11 +378,11 @@ namespace {
 
         auto sockets_b = make_connected_sockets(io_context);
 
-        auto connection_a =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets_a.server));
+        auto connection_a = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets_a.server), seftp::server::test_support::make_test_db_executor());
 
-        auto connection_b =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets_b.server));
+        auto connection_b = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets_b.server), seftp::server::test_support::make_test_db_executor());
 
         connection_a->start();
         connection_b->start();
@@ -444,7 +445,8 @@ namespace {
         auto sockets = make_connected_sockets(io_context);
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
-            std::move(sockets.server), std::chrono::milliseconds(20));
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
+            std::chrono::milliseconds(20));
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -470,7 +472,8 @@ namespace {
         auto sockets = make_connected_sockets(io_context);
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
-            std::move(sockets.server), std::chrono::milliseconds(20));
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
+            std::chrono::milliseconds(20));
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -501,7 +504,8 @@ namespace {
         auto sockets = make_connected_sockets(io_context);
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
-            std::move(sockets.server), std::chrono::milliseconds(100));
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
+            std::chrono::milliseconds(100));
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -534,8 +538,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -560,8 +564,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 
@@ -583,8 +587,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 
@@ -618,8 +622,8 @@ namespace {
 
         auto sockets = make_connected_sockets(io_context);
 
-        auto connection =
-            std::make_shared<seftp::server::AsyncConnection>(std::move(sockets.server));
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor());
 
         connection->start();
 

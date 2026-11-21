@@ -1,5 +1,6 @@
 #pragma once
 
+#include "seftp_server/db_executor.hpp"
 #include "seftp_server/logging.hpp"
 #include "seftp_server/protocol.hpp"
 #include "seftp_server/request_frame.hpp"
@@ -29,10 +30,12 @@ namespace seftp::server {
     class AsyncConnection : public std::enable_shared_from_this<AsyncConnection> {
     public:
         explicit AsyncConnection(boost::asio::ip::tcp::socket socket,
+                                 std::shared_ptr<persistence::DbExecutor> db_executor,
                                  std::chrono::milliseconds read_timeout = std::chrono::seconds(5))
             : socket_(std::move(socket)), read_timer_(socket_.get_executor()),
               read_timeout_(read_timeout),
-              strand_(boost::asio::make_strand(socket_.get_executor())) {}
+              strand_(boost::asio::make_strand(socket_.get_executor())),
+              db_executor_(std::move(db_executor)) {}
         void start() {
             auto self = shared_from_this();
             boost::asio::post(strand_, [self]() {
@@ -57,6 +60,7 @@ namespace seftp::server {
         boost::asio::steady_timer read_timer_;
         std::chrono::milliseconds read_timeout_;
         boost::asio::strand<boost::asio::ip::tcp::socket::executor_type> strand_;
+        std::shared_ptr<persistence::DbExecutor> db_executor_;
         bool stopped_{false};
         std::uint64_t read_generation_{0};
 

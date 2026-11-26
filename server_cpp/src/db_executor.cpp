@@ -70,9 +70,7 @@ namespace seftp::server::persistence {
         });
     }
 
-    void DbExecutor::stop() {
-        wait();
-    }
+    void DbExecutor::stop() { wait(); }
 
     SubmitResult DbExecutor::submit_registration(std::string username,
                                                  RegistrationCallback callback) {

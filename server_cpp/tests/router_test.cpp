@@ -92,4 +92,19 @@ namespace {
         }
     }
 
+    TEST(RouterTest, RejectsRequestsWhileRegistrationPending) {
+        constexpr std::array rejected_codes{
+            RequestCode::Register, RequestCode::SendPublicKey, RequestCode::Reconnect,
+            RequestCode::Upload,   RequestCode::ClientHello,   RequestCode::ClientHandshakeAck,
+        };
+
+        for (const auto code : rejected_codes) {
+            expect_rejected(route_request(SessionState::RegistrationPending, code));
+        }
+    }
+
+    TEST(RouterTest, RejectsRegistrationAfterSuccessfulRegistration) {
+        expect_rejected(route_request(SessionState::Registered, RequestCode::Register));
+    }
+
 } // namespace

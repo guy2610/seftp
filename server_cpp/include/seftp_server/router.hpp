@@ -10,6 +10,8 @@ namespace seftp::server::router {
         AwaitingClientHello,
         AwaitingHandshakeAck,
         HandshakeComplete,
+        RegistrationPending,
+        Registered,
     };
 
     struct RouteDecision {
@@ -43,8 +45,12 @@ namespace seftp::server::router {
             case protocol::RequestCode::ClientHandshakeAck:
                 return {false, protocol::ResponseCode::ServerError};
             }
-        }
 
+        case SessionState::RegistrationPending:
+        case SessionState::Registered:
+
+            return {false, protocol::ResponseCode::ServerError};
+        }
         return {false, protocol::ResponseCode::ServerError};
     }
 

@@ -101,4 +101,80 @@ namespace {
         EXPECT_EQ(session.state(), SessionState::HandshakeComplete);
     }
 
+    TEST(SessionTest, CannotBeginRegistrationBeforeHandshake) {
+        Session session;
+
+        EXPECT_FALSE(session.begin_registration());
+        EXPECT_EQ(session.state(), SessionState::AwaitingClientHello);
+
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHello));
+
+        EXPECT_FALSE(session.begin_registration());
+        EXPECT_EQ(session.state(), SessionState::AwaitingHandshakeAck);
+    }
+
+    TEST(SessionTest, RegistrationBeginsAfterHandshake) {
+        Session session;
+
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHello));
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHandshakeAck));
+
+        EXPECT_TRUE(session.begin_registration());
+        EXPECT_EQ(session.state(), SessionState::RegistrationPending);
+    }
+
+    TEST(SessionTest, RejectsRegistrationWhilePending) {
+        Session session;
+
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHello));
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHandshakeAck));
+        ASSERT_TRUE(session.begin_registration());
+
+        EXPECT_FALSE(session.begin_registration());
+        EXPECT_EQ(session.state(), SessionState::RegistrationPending);
+    }
+
+    TEST(SessionTest, SuccessfulRegistrationAdvancesState) {
+        Session session;
+
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHello));
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHandshakeAck));
+        ASSERT_TRUE(session.begin_registration());
+
+        EXPECT_TRUE(session.finish_registration(true));
+        EXPECT_EQ(session.state(), SessionState::Registered);
+
+        EXPECT_FALSE(session.begin_registration());
+        EXPECT_FALSE(session.finish_registration(false));
+        EXPECT_EQ(session.state(), SessionState::Registered);
+    }
+
+    TEST(SessionTest, FailedRegistrationAllowsRetry) {
+        Session session;
+
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHello));
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHandshakeAck));
+        ASSERT_TRUE(session.begin_registration());
+
+        EXPECT_TRUE(session.finish_registration(false));
+        EXPECT_EQ(session.state(), SessionState::HandshakeComplete);
+
+        EXPECT_TRUE(session.begin_registration());
+        EXPECT_EQ(session.state(), SessionState::RegistrationPending);
+    }
+
+    TEST(SessionTest, CannotFinishRegistrationWithoutPendingRequest) {
+        Session session;
+
+        EXPECT_FALSE(session.finish_registration(true));
+        EXPECT_EQ(session.state(), SessionState::AwaitingClientHello);
+
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHello));
+        ASSERT_TRUE(session.apply_request(RequestCode::ClientHandshakeAck));
+
+        EXPECT_FALSE(session.finish_registration(true));
+        EXPECT_FALSE(session.finish_registration(false));
+        EXPECT_EQ(session.state(), SessionState::HandshakeComplete);
+    }
+
 } // namespace

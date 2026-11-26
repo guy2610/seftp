@@ -25,6 +25,27 @@ namespace seftp::server::session {
             return true;
         }
 
+        bool begin_registration() {
+            if (state_ != router::SessionState::HandshakeComplete) {
+                return false;
+            }
+
+            state_ = router::SessionState::RegistrationPending;
+            return true;
+        }
+
+        bool finish_registration(bool success) {
+            if (state_ == router::SessionState::RegistrationPending) {
+                if (success) {
+                    state_ = router::SessionState::Registered;
+                } else {
+                    state_ = router::SessionState::HandshakeComplete;
+                }
+                return true;
+            }
+            return false;
+        }
+
     private:
         router::SessionState state_{router::SessionState::AwaitingClientHello};
     };

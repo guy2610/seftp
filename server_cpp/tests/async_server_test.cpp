@@ -16,6 +16,10 @@
 
 namespace seftp::server {
     struct AsyncServerTestAccessor {
+        static std::size_t connection_count(const AsyncServer& server) {
+            return server.connections_.size();
+        }
+
         static std::size_t accept_counter(const AsyncServer& server) {
             return server.accept_attempts_;
         }
@@ -521,3 +525,92 @@ TEST(AsyncServerTest, RejectsNullDbExecutor) {
 
     EXPECT_THROW(seftp::server::AsyncServer(acceptor, nullptr), std::invalid_argument);
 }
+
+namespace {
+
+    class AsyncServerLifecycleTest : public ::testing::Test {
+    protected:
+        boost::asio::io_context io_context;
+
+        tcp::acceptor acceptor{io_context,
+                               tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0)};
+
+        seftp::server::AsyncServer server{acceptor,
+                                          seftp::server::test_support::make_test_db_executor()};
+
+        tcp::socket client{io_context};
+
+        std::size_t connection_count() const {
+            return seftp::server::AsyncServerTestAccessor::connection_count(server);
+        }
+
+        bool wait_for_count(std::size_t expected) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+
+            while (connection_count() != expected && std::chrono::steady_clock::now() < deadline) {
+                io_context.run_one_for(std::chrono::milliseconds(10));
+            }
+
+            return connection_count() == expected;
+        }
+
+        void SetUp() override {
+            server.start();
+            client.connect(acceptor.local_endpoint());
+
+            ASSERT_TRUE(wait_for_count(1));
+        }
+
+        void TearDown() override {
+            server.stop();
+
+            if (io_context.stopped()) {
+                io_context.restart();
+            }
+
+            io_context.run();
+        }
+    };
+
+    TEST_F(AsyncServerLifecycleTest, RemovesDisconnectedClient) {
+        client.close();
+
+        EXPECT_TRUE(wait_for_count(0));
+    }
+
+    TEST_F(AsyncServerLifecycleTest, RemovesClientAfterMalformedFrame) {
+        const auto request = make_request(static_cast<protocol::RequestCode>(0xFFFF));
+
+        boost::asio::write(client, boost::asio::buffer(request));
+
+        EXPECT_TRUE(wait_for_count(0));
+    }
+
+    TEST_F(AsyncServerLifecycleTest, RemovesClientAfterInterruptedPayload) {
+        auto request = make_request(protocol::RequestCode::Register);
+
+        // Declare a four-byte payload but send only one byte.
+        request[protocol::kPayloadSizeOffset] = 4;
+        request.push_back('A');
+
+        boost::asio::write(client, boost::asio::buffer(request));
+
+        client.shutdown(tcp::socket::shutdown_send);
+
+        EXPECT_TRUE(wait_for_count(0));
+    }
+
+    TEST_F(AsyncServerLifecycleTest, ShutdownClearsConnectionRegistry) {
+        tcp::socket second_client(io_context);
+        second_client.connect(acceptor.local_endpoint());
+
+        ASSERT_TRUE(wait_for_count(2));
+
+        server.stop();
+        io_context.run();
+
+        EXPECT_EQ(connection_count(), 0u);
+        EXPECT_FALSE(acceptor.is_open());
+    }
+
+} // namespace

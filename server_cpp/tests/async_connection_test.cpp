@@ -679,3 +679,54 @@ namespace {
         io_context.run();
     }
 } // namespace
+
+namespace {
+
+    TEST(AsyncConnectionTest, CloseCallbackRunsExactlyOnce) {
+        boost::asio::io_context io_context;
+        auto sockets = make_connected_sockets(io_context);
+
+        std::size_t close_count = 0;
+
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
+            std::chrono::seconds(5), [&close_count]() {
+                ++close_count;
+            });
+
+        connection->start();
+        io_context.poll();
+
+        EXPECT_EQ(close_count, 0u);
+
+        connection->stop();
+        connection->stop();
+        connection->stop();
+
+        io_context.run();
+
+        EXPECT_EQ(close_count, 1u);
+    }
+
+    TEST(AsyncConnectionTest, ReadTimeoutInvokesCloseCallback) {
+        boost::asio::io_context io_context;
+        auto sockets = make_connected_sockets(io_context);
+
+        std::size_t close_count = 0;
+
+        auto connection = std::make_shared<seftp::server::AsyncConnection>(
+            std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
+            std::chrono::milliseconds(30), [&close_count]() {
+                ++close_count;
+            });
+
+        connection->start();
+
+        io_context.run();
+
+        EXPECT_EQ(close_count, 1u);
+
+        EXPECT_FALSE(seftp::server::AsyncConnectionTestAccessor::socket_is_open(*connection));
+    }
+
+} // namespace

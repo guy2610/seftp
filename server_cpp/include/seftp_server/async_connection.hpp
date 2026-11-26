@@ -21,21 +21,24 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/strand.hpp>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace seftp::server {
+    using CloseCallback = std::function<void()>;
     class AsyncConnection : public std::enable_shared_from_this<AsyncConnection> {
     public:
         explicit AsyncConnection(boost::asio::ip::tcp::socket socket,
                                  std::shared_ptr<persistence::DbExecutor> db_executor,
-                                 std::chrono::milliseconds read_timeout = std::chrono::seconds(5))
+                                 std::chrono::milliseconds read_timeout = std::chrono::seconds(5),
+                                 CloseCallback on_close = {})
             : socket_(std::move(socket)), read_timer_(socket_.get_executor()),
               read_timeout_(read_timeout),
               strand_(boost::asio::make_strand(socket_.get_executor())),
-              db_executor_(std::move(db_executor)) {}
+              db_executor_(std::move(db_executor)), on_close_(std::move(on_close)) {}
         void start() {
             auto self = shared_from_this();
             boost::asio::post(strand_, [self]() {
@@ -63,6 +66,7 @@ namespace seftp::server {
         std::shared_ptr<persistence::DbExecutor> db_executor_;
         bool stopped_{false};
         std::uint64_t read_generation_{0};
+        CloseCallback on_close_ = {};
 
         void read_header() {
             if (stopped_) {
@@ -135,14 +139,14 @@ namespace seftp::server {
                 boost::asio::bind_executor(strand_, [self](const boost::system::error_code& ec,
                                                            std::size_t bytes_transferred) {
                     self->cancel_read_timeout();
-                    if (ec) {
-                        log_line("Read payload failed: " + ec.message());
-                        return;
-                    }
                     if (self->stopped_) {
                         return;
                     }
-
+                    if (ec) {
+                        log_line("Read payload failed: " + ec.message());
+                        self->stop_impl();
+                        return;
+                    }
                     log_line("Read " + std::to_string(bytes_transferred) + " payload bytes");
 
                     self->process_frame();
@@ -153,6 +157,7 @@ namespace seftp::server {
 
             if (result.error.has_value() || !result.frame.has_value()) {
                 log_line("Frame parse failed");
+                stop_impl();
                 return;
             }
 
@@ -180,14 +185,14 @@ namespace seftp::server {
                 socket_, boost::asio::buffer(write_buffer_),
                 boost::asio::bind_executor(strand_, [self](const boost::system::error_code& ec,
                                                            std::size_t bytes_transferred) {
-                    if (ec) {
-                        log_line("Write response failed: " + ec.message());
-                        return;
-                    }
                     if (self->stopped_) {
                         return;
                     }
-
+                    if (ec) {
+                        log_line("Write response failed: " + ec.message());
+                        self->stop_impl();
+                        return;
+                    }
                     log_line(+"Wrote " + std::to_string(bytes_transferred) + " response bytes");
                     self->read_header();
                 }));
@@ -219,6 +224,10 @@ namespace seftp::server {
                 socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored));
 
             static_cast<void>(socket_.close(ignored));
+
+            if (on_close_) {
+                on_close_();
+            }
         }
 
         void start_impl() {

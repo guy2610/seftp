@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -9,16 +8,18 @@
 #include <boost/asio/strand.hpp>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "seftp_server/async_connection.hpp"
 #include "seftp_server/db_executor.hpp"
 #include "seftp_server/logging.hpp"
 
 namespace seftp::server {
+    using ConnectionId = std::uint64_t;
     inline constexpr std::size_t kDefaultMaxActiveConnections = 128;
     inline constexpr auto kAcceptRetryDelay = std::chrono::milliseconds(100);
     class AsyncServer {
@@ -51,7 +52,8 @@ namespace seftp::server {
 
     private:
         boost::asio::ip::tcp::acceptor& acceptor_;
-        std::vector<std::weak_ptr<AsyncConnection>> connections_;
+        std::unordered_map<ConnectionId, std::shared_ptr<AsyncConnection>> connections_;
+        ConnectionId next_connection_id_{0};
         std::size_t max_active_connections_;
         std::shared_ptr<persistence::DbExecutor> db_executor_;
         boost::asio::strand<boost::asio::ip::tcp::acceptor::executor_type> strand_;
@@ -82,28 +84,23 @@ namespace seftp::server {
                         return;
                     }
 
-                    prune_expired_connections();
                     if (connections_.size() >= max_active_connections_) {
                         boost::system::error_code ignored;
                         socket.close(ignored);
                         accept_next();
                         return;
                     }
-                    auto connection =
-                        std::make_shared<AsyncConnection>(std::move(socket), db_executor_);
-                    connections_.push_back(connection);
+                    auto connection = std::make_shared<AsyncConnection>(
+                        std::move(socket), db_executor_, std::chrono::seconds(5),
+                        [this, id = next_connection_id_]() {
+                            this->on_connection_closed(id);
+                        });
+                    connections_.emplace(next_connection_id_++, connection);
                     connection->start();
                     accept_next();
                 }));
         }
 
-        void prune_expired_connections() {
-            connections_.erase(std::remove_if(connections_.begin(), connections_.end(),
-                                              [](const auto& connection) {
-                                                  return connection.expired();
-                                              }),
-                               connections_.end());
-        }
         void stop_impl() {
             if (stopped_) {
                 return;
@@ -113,8 +110,8 @@ namespace seftp::server {
             boost::system::error_code ignored;
             acceptor_.close(ignored);
 
-            for (auto& weak_connection : connections_) {
-                if (auto connection = weak_connection.lock()) {
+            for (auto& [id, connection] : connections_) {
+                if (connection) {
                     connection->stop();
                 }
             }
@@ -129,6 +126,12 @@ namespace seftp::server {
 
             started_ = true;
             accept_next();
+        }
+
+        void on_connection_closed(ConnectionId id) {
+            boost::asio::post(strand_, [this, id]() {
+                this->connections_.erase(id);
+            });
         }
 
         void schedule_accept_retry() {

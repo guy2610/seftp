@@ -91,7 +91,7 @@ namespace seftp::server {
                         return;
                     }
                     auto connection = std::make_shared<AsyncConnection>(
-                        std::move(socket), db_executor_, std::chrono::seconds(5),
+                        std::move(socket), db_executor_, ConnectionOptions{},
                         [this, id = next_connection_id_]() {
                             this->on_connection_closed(id);
                         });

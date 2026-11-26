@@ -30,6 +30,32 @@ namespace seftp::server {
                 timeout_executed = true;
             });
         }
+        static bool begin_registration(AsyncConnection& connection) {
+            using protocol::RequestCode;
+
+            return connection.session_.apply_request(RequestCode::ClientHello) &&
+                   connection.session_.apply_request(RequestCode::ClientHandshakeAck) &&
+                   connection.session_.begin_registration();
+        }
+
+        static void arm_registration(AsyncConnection& connection) {
+            connection.arm_registration_timeout();
+        }
+
+        static void cancel_registration(AsyncConnection& connection) {
+            connection.cancel_registration_timeout();
+        }
+
+        static std::uint64_t registration_generation(const AsyncConnection& connection) {
+            return connection.registration_generation_;
+        }
+
+        static void invoke_registration_timeout(AsyncConnection& connection,
+                                                std::uint64_t generation,
+                                                const boost::system::error_code& ec = {}) {
+            connection.handle_registration_timeout(ec, generation);
+        }
+
         static bool socket_is_open(const AsyncConnection& connection) {
             return connection.socket_.is_open();
         }
@@ -446,7 +472,7 @@ namespace {
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
             std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
-            std::chrono::milliseconds(20));
+            seftp::server::ConnectionOptions{std::chrono::milliseconds(20)});
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -473,7 +499,7 @@ namespace {
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
             std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
-            std::chrono::milliseconds(20));
+            seftp::server::ConnectionOptions{std::chrono::milliseconds(20)});
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -505,7 +531,7 @@ namespace {
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
             std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
-            std::chrono::milliseconds(100));
+            seftp::server::ConnectionOptions{std::chrono::milliseconds(100)});
 
         std::weak_ptr<seftp::server::AsyncConnection> weak_connection = connection;
 
@@ -690,7 +716,7 @@ namespace {
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
             std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
-            std::chrono::seconds(5), [&close_count]() {
+            seftp::server::ConnectionOptions{std::chrono::seconds(5)}, [&close_count]() {
                 ++close_count;
             });
 
@@ -716,7 +742,7 @@ namespace {
 
         auto connection = std::make_shared<seftp::server::AsyncConnection>(
             std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
-            std::chrono::milliseconds(30), [&close_count]() {
+            seftp::server::ConnectionOptions{std::chrono::milliseconds(30)}, [&close_count]() {
                 ++close_count;
             });
 
@@ -727,6 +753,136 @@ namespace {
         EXPECT_EQ(close_count, 1u);
 
         EXPECT_FALSE(seftp::server::AsyncConnectionTestAccessor::socket_is_open(*connection));
+    }
+
+} // namespace
+
+namespace {
+
+    class RegistrationTimerTest : public ::testing::Test {
+    protected:
+        using Accessor = seftp::server::AsyncConnectionTestAccessor;
+
+        boost::asio::io_context io_context;
+        ConnectedSockets sockets = make_connected_sockets(io_context);
+
+        std::shared_ptr<seftp::server::AsyncConnection> connection;
+
+        void create_connection(std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+
+            seftp::server::ConnectionOptions options;
+            options.registration_timeout = timeout;
+
+            connection = std::make_shared<seftp::server::AsyncConnection>(
+                std::move(sockets.server), seftp::server::test_support::make_test_db_executor(),
+                options);
+        }
+
+        bool is_open() const { return Accessor::socket_is_open(*connection); }
+
+        std::uint64_t generation() const { return Accessor::registration_generation(*connection); }
+
+        void TearDown() override {
+            if (connection) {
+                connection->stop();
+
+                if (io_context.stopped()) {
+                    io_context.restart();
+                }
+
+                io_context.run_for(std::chrono::milliseconds(100));
+            }
+        }
+    };
+
+    TEST_F(RegistrationTimerTest, ActiveRegistrationTimeoutClosesConnection) {
+        create_connection(std::chrono::milliseconds(20));
+
+        ASSERT_TRUE(Accessor::begin_registration(*connection));
+
+        Accessor::arm_registration(*connection);
+
+        io_context.run_for(std::chrono::seconds(1));
+
+        EXPECT_FALSE(is_open());
+    }
+
+    TEST_F(RegistrationTimerTest, CancelledTimerKeepsConnectionOpen) {
+        create_connection();
+
+        ASSERT_TRUE(Accessor::begin_registration(*connection));
+
+        Accessor::arm_registration(*connection);
+
+        const auto previous_generation = generation();
+
+        Accessor::cancel_registration(*connection);
+
+        EXPECT_NE(generation(), previous_generation);
+
+        io_context.run_for(std::chrono::milliseconds(100));
+
+        EXPECT_TRUE(io_context.stopped());
+        EXPECT_TRUE(is_open());
+    }
+
+    TEST_F(RegistrationTimerTest, StaleTimeoutCannotCloseConnection) {
+        create_connection();
+
+        ASSERT_TRUE(Accessor::begin_registration(*connection));
+
+        Accessor::arm_registration(*connection);
+
+        const auto old_generation = generation();
+
+        Accessor::cancel_registration(*connection);
+        Accessor::arm_registration(*connection);
+
+        ASSERT_NE(generation(), old_generation);
+
+        Accessor::invoke_registration_timeout(*connection, old_generation);
+
+        EXPECT_TRUE(is_open());
+    }
+
+    TEST_F(RegistrationTimerTest, TimeoutWithoutPendingRegistrationIsIgnored) {
+        create_connection();
+
+        Accessor::invoke_registration_timeout(*connection, generation());
+
+        EXPECT_TRUE(is_open());
+    }
+
+    TEST_F(RegistrationTimerTest, UnexpectedTimerErrorClosesConnection) {
+        create_connection();
+
+        ASSERT_TRUE(Accessor::begin_registration(*connection));
+
+        Accessor::arm_registration(*connection);
+
+        const boost::system::error_code ec = boost::asio::error::fault;
+
+        Accessor::invoke_registration_timeout(*connection, generation(), ec);
+
+        EXPECT_FALSE(is_open());
+    }
+
+    TEST_F(RegistrationTimerTest, StopCancelsRegistrationTimer) {
+        create_connection();
+
+        ASSERT_TRUE(Accessor::begin_registration(*connection));
+
+        Accessor::arm_registration(*connection);
+
+        const auto previous_generation = generation();
+
+        connection->stop();
+
+        io_context.run_for(std::chrono::milliseconds(100));
+
+        EXPECT_FALSE(is_open());
+        EXPECT_NE(generation(), previous_generation);
+        EXPECT_TRUE(io_context.stopped());
     }
 
 } // namespace
